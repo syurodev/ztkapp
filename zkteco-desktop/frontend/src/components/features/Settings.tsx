@@ -22,9 +22,18 @@ export function Settings() {
     try {
       const config = await configAPI.getConfig();
       setExternalApiDomain(config.EXTERNAL_API_DOMAIN || "");
-    } catch (err) {
-      toast.error("Failed to load settings.");
+    } catch (err: any) {
       console.error("Error loading settings:", err);
+      
+      // Only show error toast for actual server errors (5xx) or network issues
+      const status = err.status || err.response?.status;
+      
+      if (err.code === 'ECONNREFUSED' || err.message?.includes('Network Error')) {
+        toast.error("Cannot connect to server. Please check if the backend is running.");
+      } else if (status >= 500) {
+        toast.error("Server error while loading settings. Please try again.");
+      }
+      // For empty/default config, don't show toast error as it's a normal state
     } finally {
       setIsLoading(false);
     }

@@ -27,7 +27,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { deviceAPI, userAPI } from "@/lib/api";
-import { AlertCircle, Plus, RefreshCw, UserCheck, Users } from "lucide-react";
+import { useDevice } from "@/contexts/DeviceContext";
+import { AlertCircle, Monitor, Plus, RefreshCw, UserCheck, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -58,6 +59,7 @@ const initialFormData: UserFormData = {
 };
 
 export function UserManagement() {
+  const { activeDevice } = useDevice();
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -66,12 +68,21 @@ export function UserManagement() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Load users on component mount
+  // Load users when activeDevice changes
   useEffect(() => {
-    loadUsers();
-  }, []);
+    if (activeDevice) {
+      loadUsers();
+    } else {
+      setUsers([]);
+      setError(null);
+    }
+  }, [activeDevice]);
 
   const loadUsers = async () => {
+    if (!activeDevice) {
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
     try {
@@ -96,6 +107,11 @@ export function UserManagement() {
   };
 
   const handleCreateUser = async () => {
+    if (!activeDevice) {
+      toast.error("Please select a device first");
+      return;
+    }
+
     if (!formData.name.trim()) {
       toast.error("User name is required");
       return;
@@ -150,6 +166,11 @@ export function UserManagement() {
   // };
 
   const handleSyncEmployee = async () => {
+    if (!activeDevice) {
+      toast.error("Please select a device first");
+      return;
+    }
+
     setIsSyncing(true);
     try {
       const result = await deviceAPI.syncEmployee();
@@ -343,13 +364,20 @@ export function UserManagement() {
         </div>
       </div>
 
-      {/* Error Alert */}
-      {error && (
+      {/* No Device Selected Alert */}
+      {!activeDevice ? (
+        <Alert>
+          <Monitor className="h-4 w-4" />
+          <AlertDescription>
+            Please select a device first to manage users. Go to Device Management to configure a device.
+          </AlertDescription>
+        </Alert>
+      ) : error ? (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>{error}</AlertDescription>
         </Alert>
-      )}
+      ) : null}
 
       {/* Users Table */}
       <Card>

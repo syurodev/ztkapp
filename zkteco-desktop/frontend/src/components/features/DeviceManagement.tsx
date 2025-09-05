@@ -8,9 +8,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -19,6 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { DeviceForm, DeviceFormData } from "@/components/shared/DeviceForm";
 import { Device, devicesAPI, DevicesResponse } from "@/lib/api";
 import {
   AlertCircle,
@@ -39,19 +37,6 @@ export function DeviceManagement() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
 
-  // Form state for adding/editing devices
-  const [formData, setFormData] = useState({
-    name: "",
-    ip: "",
-    port: 4370,
-    password: 0,
-    timeout: 10,
-    retry_count: 3,
-    retry_delay: 2,
-    ping_interval: 30,
-    force_udp: false,
-  });
-
   useEffect(() => {
     loadDevices();
   }, []);
@@ -62,74 +47,53 @@ export function DeviceManagement() {
       const response: DevicesResponse = await devicesAPI.getAllDevices();
       setDevices(response.devices);
       setActiveDeviceId(response.active_device_id);
-    } catch (error) {
-      toast.error("Failed to load devices");
+    } catch (error: any) {
       console.error("Error loading devices:", error);
+      
+      // Only show error toast for actual server errors (5xx) or network issues
+      const status = error.status || error.response?.status;
+      
+      if (error.code === 'ECONNREFUSED' || error.message?.includes('Network Error')) {
+        toast.error("Cannot connect to server. Please check if the backend is running.");
+      } else if (status >= 500) {
+        toast.error("Server error while loading devices. Please try again.");
+      }
+      // For 4xx errors or successful empty responses, don't show toast error
+      // as empty device list is a normal state
     } finally {
       setIsLoading(false);
     }
   };
 
-  const resetForm = () => {
-    setFormData({
-      name: "",
-      ip: "",
-      port: 4370,
-      password: 0,
-      timeout: 10,
-      retry_count: 3,
-      retry_delay: 2,
-      ping_interval: 30,
-      force_udp: false,
-    });
-    setSelectedDevice(null);
-  };
-
   const openAddDialog = () => {
-    resetForm();
+    setSelectedDevice(null);
     setIsAddDialogOpen(true);
   };
 
   const openEditDialog = (device: Device) => {
-    setFormData({
-      name: device.name,
-      ip: device.ip,
-      port: device.port,
-      password: device.password,
-      timeout: device.timeout,
-      retry_count: device.retry_count,
-      retry_delay: device.retry_delay,
-      ping_interval: device.ping_interval,
-      force_udp: device.force_udp,
-    });
     setSelectedDevice(device);
     setIsEditDialogOpen(true);
   };
 
-  const handleAddDevice = async () => {
-    if (!formData.name || !formData.ip) {
-      toast.error("Device name and IP are required");
-      return;
-    }
-
+  const handleAddDevice = async (formData: DeviceFormData) => {
     setIsLoading(true);
     try {
       await devicesAPI.addDevice(formData);
       toast.success("Device added successfully");
       setIsAddDialogOpen(false);
-      resetForm();
       loadDevices();
     } catch (error) {
       toast.error("Failed to add device");
       console.error("Error adding device:", error);
+      throw error; // Re-throw to let DeviceForm handle it
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleUpdateDevice = async () => {
-    if (!selectedDevice || !formData.name || !formData.ip) {
-      toast.error("Device name and IP are required");
+  const handleUpdateDevice = async (formData: DeviceFormData) => {
+    if (!selectedDevice) {
+      toast.error("No device selected for update");
       return;
     }
 
@@ -138,11 +102,11 @@ export function DeviceManagement() {
       await devicesAPI.updateDevice(selectedDevice.id, formData);
       toast.success("Device updated successfully");
       setIsEditDialogOpen(false);
-      resetForm();
       loadDevices();
     } catch (error) {
       toast.error("Failed to update device");
       console.error("Error updating device:", error);
+      throw error; // Re-throw to let DeviceForm handle it
     } finally {
       setIsLoading(false);
     }
@@ -211,94 +175,6 @@ export function DeviceManagement() {
     }
   };
 
-  const DeviceFormFields = () => (
-    <div className="grid grid-cols-2 gap-4">
-      <div className="space-y-2">
-        <Label htmlFor="name">Device Name *</Label>
-        <Input
-          id="name"
-          value={formData.name}
-          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-          placeholder="Main Entrance"
-        />
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="ip">IP Address *</Label>
-        <Input
-          id="ip"
-          value={formData.ip}
-          onChange={(e) => setFormData({ ...formData, ip: e.target.value })}
-          placeholder="192.168.1.201"
-        />
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="port">Port</Label>
-        <Input
-          id="port"
-          type="number"
-          value={formData.port}
-          onChange={(e) =>
-            setFormData({
-              ...formData,
-              port: parseInt(e.target.value, 10) || 4370,
-            })
-          }
-        />
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="password">Password</Label>
-        <Input
-          id="password"
-          type="number"
-          value={formData.password}
-          onChange={(e) =>
-            setFormData({
-              ...formData,
-              password: parseInt(e.target.value, 10) || 0,
-            })
-          }
-        />
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="timeout">Timeout (seconds)</Label>
-        <Input
-          id="timeout"
-          type="number"
-          value={formData.timeout}
-          onChange={(e) =>
-            setFormData({
-              ...formData,
-              timeout: parseInt(e.target.value, 10) || 10,
-            })
-          }
-        />
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="retry_count">Retry Count</Label>
-        <Input
-          id="retry_count"
-          type="number"
-          value={formData.retry_count}
-          onChange={(e) =>
-            setFormData({
-              ...formData,
-              retry_count: parseInt(e.target.value, 10) || 3,
-            })
-          }
-        />
-      </div>
-      <div className="col-span-2 flex items-center space-x-2">
-        <Switch
-          id="force_udp"
-          checked={formData.force_udp}
-          onCheckedChange={(checked) =>
-            setFormData({ ...formData, force_udp: checked })
-          }
-        />
-        <Label htmlFor="force_udp">Force UDP</Label>
-      </div>
-    </div>
-  );
 
   return (
     <div className="container mx-auto p-4 space-y-6">
@@ -431,15 +307,12 @@ export function DeviceManagement() {
               Configure a new ZKTeco device to connect to your system.
             </DialogDescription>
           </DialogHeader>
-          <DeviceFormFields />
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleAddDevice} disabled={isLoading}>
-              {isLoading ? "Adding..." : "Add Device"}
-            </Button>
-          </div>
+          <DeviceForm
+            mode="add"
+            onSubmit={handleAddDevice}
+            onCancel={() => setIsAddDialogOpen(false)}
+            isLoading={isLoading}
+          />
         </DialogContent>
       </Dialog>
 
@@ -452,18 +325,13 @@ export function DeviceManagement() {
               Update the configuration for {selectedDevice?.name}.
             </DialogDescription>
           </DialogHeader>
-          <DeviceFormFields />
-          <div className="flex justify-end gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setIsEditDialogOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button onClick={handleUpdateDevice} disabled={isLoading}>
-              {isLoading ? "Updating..." : "Update Device"}
-            </Button>
-          </div>
+          <DeviceForm
+            mode="edit"
+            initialData={selectedDevice || undefined}
+            onSubmit={handleUpdateDevice}
+            onCancel={() => setIsEditDialogOpen(false)}
+            isLoading={isLoading}
+          />
         </DialogContent>
       </Dialog>
     </div>

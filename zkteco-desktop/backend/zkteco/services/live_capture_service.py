@@ -229,8 +229,8 @@ def _queue_attendance_event(member_id, status, punch):
         event_data = {
             "user_id": str(member_id),
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "status": status,
-            "punch": punch
+            "status": status, #Chấm bằng vân tay hoặc thẻ
+            "punch": punch, #checkin checkout
         }
         events_queue.put(event_data)
         app_logger.info(f"Live capture: Queued event for user {member_id}")

@@ -57,9 +57,7 @@ export function DeviceSelector() {
           <div className="flex items-center gap-2">
             <Monitor className="h-4 w-4" />
             <span className="truncate">
-              {activeDevice
-                ? `${activeDevice.device_info.device_name} - ${activeDevice.device_info.serial_number}`
-                : "No device selected"}
+              {activeDevice ? `${activeDevice.name}` : "No device selected"}
             </span>
           </div>
           <ChevronDown className="h-4 w-4" />

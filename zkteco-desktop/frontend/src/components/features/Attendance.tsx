@@ -17,7 +17,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { attendanceAPI } from "@/lib/api";
-import { AlertCircle, Clock } from "lucide-react";
+import { useDevice } from "@/contexts/DeviceContext";
+import { AlertCircle, Clock, Monitor } from "lucide-react";
 import { useEffect, useState } from "react";
 
 interface AttendanceRecord {
@@ -28,13 +29,19 @@ interface AttendanceRecord {
   uid: number;
 }
 
-const STATUS_MAP: { [key: number]: string } = {
+// Map for attendance method (what the 'status' field represents)
+const ATTENDANCE_METHOD_MAP: { [key: number]: string } = {
+  1: "Fingerprint",
+  4: "Card",
+};
+
+// Map for punch action (what the 'punch' field represents)
+const PUNCH_ACTION_MAP: { [key: number]: string } = {
   0: "Check-in",
   1: "Check-out",
-  2: "Break-out",
-  3: "Break-in",
-  4: "Overtime-in",
-  5: "Overtime-out",
+  2: "Overtime Start",
+  3: "Overtime End", 
+  4: "Unspecified",
 };
 
 const PAGE_SIZE = 20;
@@ -43,12 +50,19 @@ const CACHE_TS_KEY = "attendance_cache_at";
 const CACHE_TTL_MS = 10 * 60 * 1000; // 2 minutes
 
 export function Attendance() {
+  const { activeDevice } = useDevice();
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
+    if (!activeDevice) {
+      setAttendance([]);
+      setError(null);
+      return;
+    }
+
     // Load from cache first for quick display
     try {
       const cached = localStorage.getItem(CACHE_KEY);
@@ -68,9 +82,13 @@ export function Attendance() {
     if (isStale) {
       loadAttendance();
     }
-  }, []);
+  }, [activeDevice]);
 
   const loadAttendance = async (force = false) => {
+    if (!activeDevice) {
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
     try {
@@ -107,6 +125,16 @@ export function Attendance() {
 
   return (
     <div className="space-y-6">
+      {/* No Device Selected Alert */}
+      {!activeDevice && (
+        <Alert>
+          <Monitor className="h-4 w-4" />
+          <AlertDescription>
+            Please select a device first to view attendance records. Go to Device Management to configure a device.
+          </AlertDescription>
+        </Alert>
+      )}
+      
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -115,20 +143,34 @@ export function Attendance() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center justify-between pb-4">
-            <p className="text-sm text-muted-foreground">
-              Uses cached data, auto-refresh every{" "}
-              {Math.round(CACHE_TTL_MS / 1000)}s
-            </p>
-            <button
-              onClick={() => loadAttendance(true)}
-              className="text-sm px-3 py-1 rounded border hover:bg-accent"
-              disabled={isLoading}
-            >
-              {isLoading ? "Refreshing..." : "Refresh now"}
-            </button>
-          </div>
-          {isLoading ? (
+          {activeDevice && (
+            <div className="flex items-center justify-between pb-4">
+              <p className="text-sm text-muted-foreground">
+                Uses cached data, auto-refresh every{" "}
+                {Math.round(CACHE_TTL_MS / 1000)}s
+              </p>
+              <button
+                onClick={() => loadAttendance(true)}
+                className="text-sm px-3 py-1 rounded border hover:bg-accent"
+                disabled={isLoading}
+              >
+                {isLoading ? "Refreshing..." : "Refresh now"}
+              </button>
+            </div>
+          )}
+          {!activeDevice ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="text-center">
+                <Monitor className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <p className="text-muted-foreground">
+                  No device selected
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Select a device to view attendance records
+                </p>
+              </div>
+            </div>
+          ) : isLoading ? (
             <p>Loading attendance...</p>
           ) : error ? (
             <Alert variant="destructive">
@@ -143,8 +185,8 @@ export function Attendance() {
                     <TableHead>#</TableHead>
                     <TableHead>User ID</TableHead>
                     <TableHead>Timestamp</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Punch</TableHead>
+                    <TableHead>Method</TableHead>
+                    <TableHead>Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -156,9 +198,11 @@ export function Attendance() {
                       <TableCell>{record.user_id}</TableCell>
                       <TableCell>{record.timestamp}</TableCell>
                       <TableCell>
-                        {STATUS_MAP[record.status] || "Unknown"}
+                        {ATTENDANCE_METHOD_MAP[record.status] || "Unknown"}
                       </TableCell>
-                      <TableCell>{record.punch}</TableCell>
+                      <TableCell>
+                        {PUNCH_ACTION_MAP[record.punch] || "Unknown"}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

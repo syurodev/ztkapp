@@ -16,14 +16,14 @@ export const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     console.log(
-      `Making ${config.method?.toUpperCase()} request to ${config.url}`,
+      `Making ${config.method?.toUpperCase()} request to ${config.url}`
     );
     return config;
   },
   (error) => {
     console.error("Request error:", error);
     return Promise.reject(error);
-  },
+  }
 );
 
 // Response interceptor
@@ -39,7 +39,7 @@ api.interceptors.response.use(
     }
 
     return Promise.reject(error);
-  },
+  }
 );
 
 // Service Status API
@@ -146,7 +146,7 @@ export const fingerprintAPI = {
   deleteFingerprint: async (userId: number, tempId: number) => {
     try {
       const response = await api.delete(
-        `/user/${userId}/fingerprint/${tempId}`,
+        `/user/${userId}/fingerprint/${tempId}`
       );
       return response.data;
     } catch (error) {
@@ -195,8 +195,15 @@ export const devicesAPI = {
     try {
       const response = await api.get("/devices");
       return response.data;
-    } catch (error) {
-      throw new Error("Failed to get devices");
+    } catch (error: any) {
+      // Preserve original error for better handling in components
+      if (error.response?.status) {
+        const statusError = new Error(`API Error: ${error.response.status}`);
+        (statusError as any).status = error.response.status;
+        (statusError as any).originalError = error;
+        throw statusError;
+      }
+      throw error;
     }
   },
 
@@ -288,8 +295,15 @@ export const configAPI = {
     try {
       const response = await api.get("/config");
       return response.data;
-    } catch (error) {
-      throw new Error("Failed to get config");
+    } catch (error: any) {
+      // Preserve original error for better handling in components
+      if (error.response?.status) {
+        const statusError = new Error(`API Error: ${error.response.status}`);
+        (statusError as any).status = error.response.status;
+        (statusError as any).originalError = error;
+        throw statusError;
+      }
+      throw error;
     }
   },
   updateConfig: async (configData: any) => {
@@ -308,7 +322,7 @@ export interface Device {
   name: string;
   ip: string;
   port: number;
-  password: number;
+  password: string;
   timeout: number;
   retry_count: number;
   retry_delay: number;
@@ -344,7 +358,7 @@ export const liveAPI = {
   connect: (
     onMessage: (data: any) => void,
     onError: (error: Event) => void,
-    onOpen: () => void,
+    onOpen: () => void
   ) => {
     const eventSource = new EventSource(`${API_BASE_URL}/live-events`);
 

@@ -327,7 +327,7 @@ class ZkService:
             employees = []
             for user in users:
                 employee = {
-                    "userId": user.uid,
+                    "userId": user.user_id,
                     "name": user.name,
                     "groupId": user.group_id if hasattr(user, 'group_id') else 0
                 }

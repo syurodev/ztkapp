@@ -1,0 +1,20 @@
+[Unit]
+Description=ZKTeco RESTful API Service
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=1
+User=zkteco
+WorkingDirectory=/opt/zkteco
+ExecStart=/opt/zkteco/venv/bin/python /opt/zkteco/service_app.py
+Environment=PYTHONPATH=/opt/zkteco
+EnvironmentFile=/opt/zkteco/.env
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=zkteco-service
+
+[Install]
+WantedBy=multi-user.target

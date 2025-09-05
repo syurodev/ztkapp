@@ -1,0 +1,38 @@
+{
+  "name": "zkteco-desktop",
+  "version": "1.0.0",
+  "description": "ZKTeco Device Management Desktop Application",
+  "main": "index.js",
+  "scripts": {
+    "dev": "cd frontend && bun run dev",
+    "build": "bash ./build/build.sh",
+    "start:backend": "bash ./start_backend.sh",
+    "start:frontend": "cd frontend && bun run tauri dev", 
+    "install:backend": "cd backend && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt",
+    "install:frontend": "cd frontend && bun install",
+    "install:all": "npm run install:backend && npm run install:frontend",
+    "clean": "rm -rf backend/venv frontend/node_modules frontend/dist frontend/src-tauri/target",
+    "test:backend": "cd backend && python3 -m pytest",
+    "lint:frontend": "cd frontend && bunx eslint src --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "type-check": "cd frontend && bunx tsc --noEmit"
+  },
+  "keywords": [
+    "zkteco",
+    "biometric",
+    "desktop",
+    "tauri",
+    "react",
+    "python",
+    "flask"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/zkteco-desktop"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "python": ">=3.8.0"
+  }
+}

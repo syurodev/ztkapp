@@ -46,6 +46,25 @@ Script `build_backend.bat` đã được cải tiến để:
 
 ## 🐛 Lỗi Thường Gặp
 
+### "ModuleNotFoundError: No module named 'zk'"
+```cmd
+# Nguyên nhân: pyzk dependency chưa được cài đặt đúng
+# Giải pháp 1: Cài Git và chạy lại build script
+winget install --id Git.Git -e --source winget
+build_backend.bat
+
+# Giải pháp 2: Cài pyzk thủ công
+cd backend
+call venv\Scripts\activate.bat
+pip install git+https://github.com/zeidanbm/pyzk.git
+
+# Giải pháp 3: Dùng PyPI version (fallback)
+pip install pyzk
+
+# Verify installation
+python -c "from zk import ZK; print('OK')"
+```
+
 ### Python không tìm thấy
 ```cmd
 # Cài Python từ python.org và check:
@@ -68,6 +87,16 @@ build_backend.bat
 ```cmd
 # Dùng PowerShell:
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
+### Git không tìm thấy
+```cmd
+# Cài Git từ trang chính thức:
+# https://git-scm.com/download/win
+# Hoặc dùng winget:
+winget install --id Git.Git -e --source winget
+
+# Restart Command Prompt sau khi cài
 ```
 
 ## 📁 Output Files

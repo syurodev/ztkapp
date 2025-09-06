@@ -43,9 +43,45 @@ REM Install/upgrade required packages
 echo Installing/upgrading dependencies...
 pip install --upgrade pip
 pip install --upgrade pyinstaller
-pip install -r requirements.txt
+
+REM Install Git if not present (needed for pyzk dependency)
+git --version >nul 2>&1
+if errorlevel 1 (
+    echo WARNING: Git not found. pyzk installation may fail.
+    echo Please install Git from https://git-scm.com/ and restart.
+)
+
+REM Install pyzk separately first (common issue on Windows)
+echo Installing pyzk from GitHub...
+pip install git+https://github.com/zeidanbm/pyzk.git@9cd5731543e3839a94962403c7ad7a5e9c872bac
+if errorlevel 1 (
+    echo WARNING: Failed to install pyzk from GitHub, trying alternative...
+    pip install pyzk
+    if errorlevel 1 (
+        echo ERROR: Failed to install pyzk. Please check your Git installation.
+        goto :error
+    )
+)
+
+REM Install remaining dependencies
+echo Installing remaining dependencies...
+if exist "requirements-windows.txt" (
+    echo Using Windows-specific requirements...
+    pip install -r requirements-windows.txt
+) else (
+    echo Using default requirements...
+    pip install -r requirements.txt
+)
 if errorlevel 1 (
     echo ERROR: Failed to install dependencies
+    goto :error
+)
+
+REM Verify zk module can be imported
+echo Verifying zk module installation...
+python -c "from zk import ZK; print('✓ zk module imported successfully')"
+if errorlevel 1 (
+    echo ERROR: zk module cannot be imported. Installation failed.
     goto :error
 )
 
@@ -106,10 +142,13 @@ echo        BUILD FAILED!
 echo ====================================
 echo.
 echo Troubleshooting tips:
-echo 1. Ensure Python 3.8+ is installed
-echo 2. Check if all dependencies are installed: pip install -r requirements.txt
-echo 3. Try deleting venv folder and run script again
-echo 4. Check for antivirus blocking PyInstaller
+echo 1. Ensure Python 3.8+ is installed and added to PATH
+echo 2. Install Git from https://git-scm.com/ (required for pyzk)
+echo 3. Check if all dependencies are installed: pip install -r requirements.txt
+echo 4. Try deleting venv folder and run script again
+echo 5. Check for antivirus blocking PyInstaller
+echo 6. If pyzk fails: pip install pyzk (fallback to PyPI version)
+echo 7. Manual install: pip install git+https://github.com/zeidanbm/pyzk.git
 echo.
 
 :end

@@ -36,7 +36,7 @@ export function DeviceForm({
   const [formData, setFormData] = useState<DeviceFormData>({
     name: "",
     ip: "",
-    port: 4370,
+    port: 0,
     password: "",
     timeout: 10,
     retry_count: 3,
@@ -51,7 +51,7 @@ export function DeviceForm({
       setFormData({
         name: initialData.name || "",
         ip: initialData.ip || "",
-        port: initialData.port || 4370,
+        port: initialData.port || 0,
         password: initialData.password || "",
         timeout: initialData.timeout || 10,
         retry_count: initialData.retry_count || 3,
@@ -64,7 +64,7 @@ export function DeviceForm({
       setFormData({
         name: "",
         ip: "",
-        port: 4370,
+        port: 0,
         password: "",
         timeout: 10,
         retry_count: 3,
@@ -133,7 +133,7 @@ export function DeviceForm({
             onChange={(e) =>
               setFormData({
                 ...formData,
-                port: parseInt(e.target.value, 10) || 4370,
+                port: parseInt(e.target.value, 10) || 0,
               })
             }
             disabled={isLoading}

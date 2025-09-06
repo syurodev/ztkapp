@@ -19,7 +19,8 @@ from zk import ZK, const
 from zkteco.logger import app_logger
 from zkteco.zk_mock import ZKMock
 from zkteco.services.connection_manager import connection_manager
-from zkteco.config.config_manager import config_manager
+from zkteco.config.config_manager_sqlite import config_manager
+from zkteco.database.models import user_repo
 
 load_dotenv()
 
@@ -302,9 +303,19 @@ class ZkService:
         target_device_id = device_id or self.device_id
         app_logger.info(f"sync_employee() called for device {target_device_id}")
         try:
-            # Get all users from the specified device
-            users = self.get_all_users(target_device_id)
-            app_logger.info(f"Retrieved {len(users)} users for sync from device {target_device_id}")
+            # Get active device info
+            if target_device_id:
+                device = config_manager.get_device(target_device_id)
+            else:
+                device = config_manager.get_active_device()
+                target_device_id = device['id'] if device else None
+            
+            if not device:
+                raise ValueError("No device found for sync")
+            
+            # Get all users from database for this device
+            db_users = user_repo.get_all(device_id=target_device_id)
+            app_logger.info(f"Retrieved {len(db_users)} users from database for sync to external API")
             
             # Get external API URL from config (new dynamic approach)
             external_api_domain = config_manager.get_external_api_url()
@@ -315,23 +326,28 @@ class ZkService:
             external_api_url = external_api_domain + '/time-clock-employees/sync'
             
             # Get device info for serial number
-            if target_device_id:
-                device = config_manager.get_device(target_device_id)
-                device_info = device.get('device_info', {}) if device else {}
-            else:
-                device_info = config_manager.get_device_info()
-            
+            device_info = device.get('device_info', {})
             serial_number = device_info.get('serial_number', target_device_id or 'unknown')
             
-            # Format employees data
+            # Format employees data from database users
             employees = []
-            for user in users:
+            user_ids_to_sync = []  # Track user IDs that will be synced
+            
+            for user in db_users:
                 employee = {
                     "userId": user.user_id,
                     "name": user.name,
-                    "groupId": user.group_id if hasattr(user, 'group_id') else 0
+                    "groupId": user.group_id
                 }
                 employees.append(employee)
+                user_ids_to_sync.append(user.id)  # Store the database ID for later update
+            
+            if not employees:
+                return {
+                    'success': True,
+                    'employees_count': 0,
+                    'message': 'No users to sync'
+                }
             
             # Prepare sync data
             sync_data = {
@@ -364,11 +380,29 @@ class ZkService:
             
             response.raise_for_status()
             
+            # If sync successful, update users as synced in database
+            from datetime import datetime
+            synced_count = 0
+            
+            for user_id in user_ids_to_sync:
+                try:
+                    user_repo.update(user_id, {
+                        'is_synced': True,
+                        'synced_at': datetime.now()
+                    })
+                    synced_count += 1
+                except Exception as update_error:
+                    app_logger.warning(f"Failed to update sync status for user {user_id}: {update_error}")
+            
+            app_logger.info(f"Successfully synced {len(employees)} employees to external API and updated {synced_count} users in database")
+            
             return {
                 'success': True,
                 'employees_count': len(employees),
+                'synced_users_count': synced_count,
                 'timestamp': sync_data['timestamp'],
-                'response_status': response.status_code
+                'response_status': response.status_code,
+                'external_api_response': data
             }
             
         except requests.exceptions.RequestException as e:

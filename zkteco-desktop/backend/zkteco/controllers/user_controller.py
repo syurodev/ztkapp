@@ -2,12 +2,99 @@ from flask import Blueprint, request, jsonify
 from zkteco.services.zk_service import get_zk_service
 from zkteco.validations import create_user_schema, delete_user_schema, get_fingerprint_schema, delete_fingerprint_schema, validate_data
 from flask import current_app
+from zkteco.database.models import User, user_repo
+from zkteco.config.config_manager_sqlite import config_manager
+from zkteco.services.connection_manager import connection_manager
+import time
+import requests
+from datetime import datetime
 
 bp = Blueprint('user', __name__, url_prefix='/')
 # zk_service = get_zk_service()  # Lazy load to avoid blocking
 
 def get_service():
     return get_zk_service()
+
+def sync_users_from_device(device_id=None):
+    """
+    Sync users from device to database
+    Returns tuple: (success, synced_count, error_message)
+    """
+    try:
+        active_device = config_manager.get_active_device() if not device_id else config_manager.get_device(device_id)
+        if not active_device:
+            return False, 0, "No active device found"
+        
+        target_device_id = device_id or active_device['id']
+        current_app.logger.info(f"Syncing users from device {target_device_id}")
+        
+        # Configure device in connection manager if not already configured
+        device_config = {
+            'ip': active_device.get('ip'),
+            'port': active_device.get('port'),
+            'password': active_device.get('password'),
+            'timeout': active_device.get('timeout'),
+            'force_udp': active_device.get('force_udp'),
+            'verbose': False,
+            'retry_count': active_device.get('retry_count'),
+            'retry_delay': active_device.get('retry_delay'),
+            'ping_interval': active_device.get('ping_interval')
+        }
+        connection_manager.configure_device(target_device_id, device_config)
+        
+        # Try to connect to device
+        zk_connection = connection_manager.ensure_device_connection(target_device_id)
+        if not zk_connection or not zk_connection.is_connect:
+            current_app.logger.warning(f"Cannot connect to device {target_device_id}")
+            return False, 0, f"Cannot connect to device {active_device.get('name', target_device_id)}"
+        
+        # Get users from device
+        current_app.logger.info("Getting users from device...")
+        device_users = zk_connection.get_users()
+        
+        if not device_users:
+            current_app.logger.info("No users found in device")
+            return True, 0, None
+        
+        synced_count = 0
+        
+        for device_user in device_users:
+            try:
+                # Check if user already exists in database
+                existing_user = user_repo.get_by_user_id(str(device_user.user_id), target_device_id)
+                
+                if existing_user:
+                    current_app.logger.debug(f"User {device_user.user_id} already exists, skipping...")
+                    continue
+                
+                # Create new user in database
+                user = User(
+                    user_id=str(device_user.user_id),
+                    name=device_user.name or f"User {device_user.user_id}",
+                    device_id=target_device_id,
+                    privilege=getattr(device_user, 'privilege', 0),
+                    group_id=getattr(device_user, 'group_id', 0),
+                    card=getattr(device_user, 'card', 0),
+                    password=getattr(device_user, 'password', ''),
+                    is_synced=True  # Mark as synced since we got it from device
+                )
+                
+                created_user = user_repo.create(user)
+                if created_user:
+                    synced_count += 1
+                    current_app.logger.info(f"Synced user {device_user.user_id}: {device_user.name}")
+                
+            except Exception as user_error:
+                current_app.logger.error(f"Error syncing user {device_user.user_id}: {user_error}")
+                continue
+        
+        current_app.logger.info(f"Sync completed: {synced_count} users synced from device")
+        return True, synced_count, None
+        
+    except Exception as e:
+        error_message = f"Error syncing users from device: {str(e)}"
+        current_app.logger.error(error_message)
+        return False, 0, error_message
 
 @bp.route('/user', methods=['POST'])
 def create_user():
@@ -48,38 +135,132 @@ def serialize_template(template):
 
 @bp.route('/users', methods=['GET'])
 def get_all_users():
-    import time
     start_time = time.time()
-    current_app.logger.info("[DEBUG] Starting get_all_users API call")
+    current_app.logger.info("[DEBUG] Starting get_all_users API call with database sync")
     
     try:
-        current_app.logger.info("[DEBUG] Calling get_service().get_all_users()")
-        service_start = time.time()
-        users = get_service().get_all_users()
-        service_end = time.time()
-        current_app.logger.info(f"[DEBUG] Service call completed in {service_end - service_start:.2f} seconds")
+        # First try to sync users from device
+        current_app.logger.info("[DEBUG] Attempting to sync users from device...")
+        sync_start = time.time()
         
-        if not users:
-            current_app.logger.info("[DEBUG] No users found in device")
-            return jsonify({"message": "No users found", "data": []})
+        sync_success, synced_count, sync_error = sync_users_from_device()
+        sync_end = time.time()
         
-        current_app.logger.info(f"[DEBUG] Found {len(users)} users, starting serialization")
+        if sync_success:
+            current_app.logger.info(f"[DEBUG] Device sync completed in {sync_end - sync_start:.2f} seconds, synced {synced_count} new users")
+        else:
+            current_app.logger.warning(f"[DEBUG] Device sync failed in {sync_end - sync_start:.2f} seconds: {sync_error}")
+            current_app.logger.info("[DEBUG] Falling back to database users only")
+        
+        # Get users from database (whether sync worked or not)
+        current_app.logger.info("[DEBUG] Retrieving users from database...")
+        db_start = time.time()
+        
+        # Get active device to filter users
+        active_device = config_manager.get_active_device()
+        device_id = active_device['id'] if active_device else None
+        
+        db_users = user_repo.get_all(device_id=device_id)
+        db_end = time.time()
+        current_app.logger.info(f"[DEBUG] Database query completed in {db_end - db_start:.2f} seconds")
+        
+        if not db_users:
+            current_app.logger.info("[DEBUG] No users found in database")
+            message = "No users found"
+            if sync_error:
+                message += f" (Device sync failed: {sync_error})"
+            return jsonify({"message": message, "data": [], "sync_status": {"success": sync_success, "synced_count": synced_count, "error": sync_error}})
+        
+        current_app.logger.info(f"[DEBUG] Found {len(db_users)} users in database, starting serialization")
         serialize_start = time.time()
-        # Serialize each User object to a dictionary
-        serialized_users = [serialize_user(user) for user in users]
+        
+        # Serialize database users to match frontend format
+        serialized_users = []
+        for user in db_users:
+            # Handle datetime fields safely
+            synced_at = None
+            if user.synced_at:
+                if hasattr(user.synced_at, 'isoformat'):
+                    synced_at = user.synced_at.isoformat()
+                else:
+                    synced_at = str(user.synced_at)
+            
+            created_at = None
+            if user.created_at:
+                if hasattr(user.created_at, 'isoformat'):
+                    created_at = user.created_at.isoformat()
+                else:
+                    created_at = str(user.created_at)
+            
+            serialized_users.append({
+                "id": user.user_id,
+                "name": user.name,
+                "groupId": user.group_id,
+                "privilege": user.privilege,
+                "card": user.card,
+                "device_id": user.device_id,
+                "is_synced": user.is_synced,
+                "synced_at": synced_at,
+                "created_at": created_at
+            })
+        
         serialize_end = time.time()
         current_app.logger.info(f"[DEBUG] Serialization completed in {serialize_end - serialize_start:.2f} seconds")
         
         total_time = time.time() - start_time
         current_app.logger.info(f"[DEBUG] Total API call completed in {total_time:.2f} seconds")
-        return jsonify({"message": "Users retrieved successfully", "data": serialized_users})
+        
+        return jsonify({
+            "message": "Users retrieved successfully", 
+            "data": serialized_users,
+            "sync_status": {
+                "success": sync_success, 
+                "synced_count": synced_count, 
+                "error": sync_error
+            },
+            "source": "database",
+            "device_connected": sync_success
+        })
+        
     except Exception as e:
         error_message = f"Error retrieving users: {str(e)}"
         current_app.logger.error(f"[DEBUG] Exception occurred: {error_message}")
         total_time = time.time() - start_time
         current_app.logger.error(f"[DEBUG] API call failed after {total_time:.2f} seconds")
         return jsonify({"message": error_message}), 500
-    
+
+@bp.route('/users/sync', methods=['POST'])
+def sync_users():
+    """Manual sync users from device endpoint"""
+    try:
+        device_id = request.json.get('device_id') if request.json else None
+        
+        current_app.logger.info(f"Manual sync users requested for device: {device_id or 'active device'}")
+        
+        sync_success, synced_count, sync_error = sync_users_from_device(device_id)
+        
+        if sync_success:
+            return jsonify({
+                "message": f"Successfully synced {synced_count} users from device",
+                "synced_count": synced_count,
+                "success": True
+            })
+        else:
+            return jsonify({
+                "message": f"Failed to sync users: {sync_error}",
+                "synced_count": 0,
+                "success": False,
+                "error": sync_error
+            }), 400
+            
+    except Exception as e:
+        error_message = f"Error during manual sync: {str(e)}"
+        current_app.logger.error(error_message)
+        return jsonify({
+            "message": error_message,
+            "success": False,
+            "error": error_message
+        }), 500
 
 @bp.route('/user/<user_id>', methods=['DELETE'])
 def delete_user(user_id):

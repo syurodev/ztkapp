@@ -1,4 +1,5 @@
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -26,21 +27,23 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { deviceAPI, userAPI } from "@/lib/api";
 import { useDevice } from "@/contexts/DeviceContext";
-import { AlertCircle, Monitor, Plus, RefreshCw, UserCheck, Users } from "lucide-react";
+import { deviceAPI, User, userAPI, UsersResponse } from "@/lib/api";
+import {
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+  Monitor,
+  Plus,
+  RefreshCw,
+  UserCheck,
+  Users,
+  XCircle,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
-interface User {
-  user_id: number;
-  name: string;
-  privilege: number;
-  password?: string;
-  group_id: number;
-  card: number;
-  fingerprints?: number[];
-}
+// Using User interface from API types
 
 interface UserFormData {
   name: string;
@@ -61,6 +64,10 @@ const initialFormData: UserFormData = {
 export function UserManagement() {
   const { activeDevice } = useDevice();
   const [users, setUsers] = useState<User[]>([]);
+  const [syncStatus, setSyncStatus] = useState<
+    UsersResponse["sync_status"] | null
+  >(null);
+  const [deviceConnected, setDeviceConnected] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -86,16 +93,15 @@ export function UserManagement() {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await userAPI.getUsers();
-      console.log(response);
-      const mappedUsers = response.data.map((user: any) => ({
-        user_id: parseInt(user.id, 10),
-        name: user.name,
-        privilege: user.privilege || 0, // Assuming default privilege is 0
-        group_id: parseInt(user.groupId, 10),
-        card: user.card || 0, // Assuming default card is 0
-      }));
-      setUsers(mappedUsers || []);
+      const response: UsersResponse = await userAPI.getUsers();
+      console.log("Users response:", response);
+
+      // Set sync status and device connection info
+      setSyncStatus(response.sync_status);
+      setDeviceConnected(response.device_connected);
+
+      // Use the data directly from response as it's already properly formatted
+      setUsers(response.data || []);
     } catch (err) {
       setError(
         "Failed to load users. Make sure the backend service is running."
@@ -120,7 +126,10 @@ export function UserManagement() {
     setIsLoading(true);
     try {
       // Generate unique user_id
-      const maxId = users.reduce((max, user) => Math.max(max, user.user_id), 0);
+      const maxId = users.reduce(
+        (max, user: User) => Math.max(max, user.user_id),
+        0
+      );
       const newUserId = maxId + 1;
 
       const userData = {
@@ -179,6 +188,8 @@ export function UserManagement() {
         toast.success(
           `Successfully synced ${result.employees_count} employees to external API`
         );
+        // Reload users to get updated sync status
+        await loadUsers();
       } else {
         toast.error(result.message);
       }
@@ -199,6 +210,45 @@ export function UserManagement() {
   const filteredUsers = users.filter((user) =>
     user.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const getSyncStatusBadge = (user: User) => {
+    if (user.is_synced) {
+      return (
+        <Badge
+          variant="default"
+          className="bg-green-100 text-green-800 border-green-300"
+        >
+          <CheckCircle2 className="h-3 w-3 mr-1" />
+          Synced
+        </Badge>
+      );
+    } else {
+      return (
+        <Badge
+          variant="secondary"
+          className="bg-yellow-100 text-yellow-800 border-yellow-300"
+        >
+          <Clock className="h-3 w-3 mr-1" />
+          Pending
+        </Badge>
+      );
+    }
+  };
+
+  const formatDate = (dateString: string | null) => {
+    if (!dateString) return "N/A";
+    try {
+      return new Date(dateString).toLocaleString("vi-VN", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return dateString;
+    }
+  };
 
   // const getPrivilegeLabel = (privilege: number) => {
   //   switch (privilege) {
@@ -224,9 +274,40 @@ export function UserManagement() {
             <Users className="h-6 w-6" />
             User Management
           </h2>
-          <p className="text-muted-foreground">
-            Manage users and their access permissions
-          </p>
+          <div className="flex items-center gap-4 mt-1">
+            <p className="text-muted-foreground">
+              Manage users and their access permissions
+            </p>
+            {syncStatus && (
+              <div className="flex items-center gap-2">
+                {deviceConnected ? (
+                  <Badge
+                    variant="default"
+                    className="bg-green-100 text-green-800 border-green-300"
+                  >
+                    <CheckCircle2 className="h-3 w-3 mr-1" />
+                    Device Connected
+                  </Badge>
+                ) : (
+                  <Badge
+                    variant="secondary"
+                    className="bg-orange-100 text-orange-800 border-orange-300"
+                  >
+                    <XCircle className="h-3 w-3 mr-1" />
+                    Device Offline
+                  </Badge>
+                )}
+                {syncStatus.success && syncStatus.synced_count > 0 && (
+                  <Badge
+                    variant="outline"
+                    className="bg-blue-50 text-blue-800 border-blue-300"
+                  >
+                    +{syncStatus.synced_count} new users synced
+                  </Badge>
+                )}
+              </div>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -369,13 +450,22 @@ export function UserManagement() {
         <Alert>
           <Monitor className="h-4 w-4" />
           <AlertDescription>
-            Please select a device first to manage users. Go to Device Management to configure a device.
+            Please select a device first to manage users. Go to Device
+            Management to configure a device.
           </AlertDescription>
         </Alert>
       ) : error ? (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : syncStatus?.error ? (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Device sync failed: {syncStatus.error}. Showing data from database
+            only.
+          </AlertDescription>
         </Alert>
       ) : null}
 
@@ -411,25 +501,35 @@ export function UserManagement() {
             </div>
           ) : (
             <Table>
-              <TableCaption>User list from ZKTeco device</TableCaption>
+              <TableCaption>
+                User list from ZKTeco device with sync status
+              </TableCaption>
               <TableHeader>
                 <TableRow>
                   <TableHead>STT</TableHead>
                   <TableHead>User ID</TableHead>
                   <TableHead>Name</TableHead>
                   <TableHead>Group</TableHead>
+                  <TableHead>Sync Status</TableHead>
+                  <TableHead>Synced At</TableHead>
+                  <TableHead>Created At</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredUsers.map((user, index) => {
                   return (
-                    <TableRow key={user.user_id}>
+                    <TableRow key={user.id}>
                       <TableCell className="font-medium">{index + 1}</TableCell>
-                      <TableCell className="font-medium">
-                        {user.user_id}
-                      </TableCell>
+                      <TableCell className="font-medium">{user.id}</TableCell>
                       <TableCell>{user.name}</TableCell>
-                      <TableCell>{user.group_id}</TableCell>
+                      <TableCell>{user.groupId}</TableCell>
+                      <TableCell>{getSyncStatusBadge(user)}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {formatDate(user.synced_at)}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {formatDate(user.created_at)}
+                      </TableCell>
                     </TableRow>
                   );
                 })}
@@ -440,7 +540,7 @@ export function UserManagement() {
       </Card>
 
       {/* Quick Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardHeader>
             <CardTitle className="text-lg">Total Users</CardTitle>
@@ -453,6 +553,38 @@ export function UserManagement() {
 
         <Card>
           <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-green-600" />
+              Synced Users
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-green-600">
+              {users.filter((user) => user.is_synced).length}
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Synced to external API
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Clock className="h-4 w-4 text-yellow-600" />
+              Pending Sync
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-yellow-600">
+              {users.filter((user) => !user.is_synced).length}
+            </div>
+            <p className="text-sm text-muted-foreground">Waiting to sync</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle className="text-lg">Administrators</CardTitle>
           </CardHeader>
           <CardContent>
@@ -460,24 +592,6 @@ export function UserManagement() {
               {users.filter((user) => user.privilege >= 2).length}
             </div>
             <p className="text-sm text-muted-foreground">Admin level users</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">With Fingerprints</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">
-              {
-                users.filter(
-                  (user) => user.fingerprints && user.fingerprints.length > 0
-                ).length
-              }
-            </div>
-            <p className="text-sm text-muted-foreground">
-              Users with biometric data
-            </p>
           </CardContent>
         </Card>
       </div>

@@ -87,13 +87,26 @@ export const serviceAPI = {
 
 // User Management API
 export const userAPI = {
-  // Get all users
+  // Get all users (with automatic sync from device)
   getUsers: async () => {
     try {
       const response = await api.get("/users");
       return response.data;
     } catch (error) {
       throw new Error("Failed to get users");
+    }
+  },
+
+  // Manual sync users from device
+  syncUsers: async (deviceId?: string) => {
+    try {
+      const response = await api.post(
+        "/users/sync",
+        deviceId ? { device_id: deviceId } : {}
+      );
+      return response.data;
+    } catch (error) {
+      throw new Error("Failed to sync users from device");
     }
   },
 
@@ -351,6 +364,31 @@ export interface DeviceInfo {
 export interface DevicesResponse {
   devices: Device[];
   active_device_id: string | null;
+}
+
+export interface User {
+  id: string;
+  user_id: number;
+  name: string;
+  groupId: number;
+  privilege: number;
+  card: number;
+  device_id: string;
+  is_synced: boolean;
+  synced_at: string | null;
+  created_at: string | null;
+}
+
+export interface UsersResponse {
+  message: string;
+  data: User[];
+  sync_status: {
+    success: boolean;
+    synced_count: number;
+    error: string | null;
+  };
+  source: string;
+  device_connected: boolean;
 }
 
 // Health check

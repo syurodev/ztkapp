@@ -1,0 +1,145 @@
+import sqlite3
+import os
+import threading
+from contextlib import contextmanager
+from typing import Optional, Any, Dict, List
+from datetime import datetime
+
+class DatabaseManager:
+    """SQLite database manager for ZKTeco application"""
+    
+    def __init__(self, db_path: str = "zkteco_app.db"):
+        self.db_path = db_path
+        self._local = threading.local()
+        self.init_database()
+    
+    def get_connection(self) -> sqlite3.Connection:
+        """Get thread-local database connection"""
+        if not hasattr(self._local, 'connection'):
+            self._local.connection = sqlite3.connect(
+                self.db_path,
+                check_same_thread=False,
+                timeout=30.0
+            )
+            # Enable foreign keys and row factory
+            self._local.connection.execute("PRAGMA foreign_keys = ON")
+            self._local.connection.row_factory = sqlite3.Row
+        return self._local.connection
+    
+    @contextmanager
+    def get_cursor(self):
+        """Context manager for database operations"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            yield cursor
+        except Exception:
+            conn.rollback()
+            raise
+        else:
+            conn.commit()
+        finally:
+            cursor.close()
+    
+    def init_database(self):
+        """Initialize database tables"""
+        with self.get_cursor() as cursor:
+            # Devices table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS devices (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    ip TEXT NOT NULL,
+                    port INTEGER DEFAULT 4370,
+                    password INTEGER DEFAULT 0,
+                    timeout INTEGER DEFAULT 10,
+                    retry_count INTEGER DEFAULT 3,
+                    retry_delay INTEGER DEFAULT 2,
+                    ping_interval INTEGER DEFAULT 30,
+                    force_udp BOOLEAN DEFAULT FALSE,
+                    is_active BOOLEAN DEFAULT TRUE,
+                    device_info TEXT, -- JSON string for device info
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # Users table with sync tracking
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    device_id TEXT,
+                    privilege INTEGER DEFAULT 0,
+                    group_id INTEGER DEFAULT 0,
+                    card INTEGER DEFAULT 0,
+                    password TEXT DEFAULT '',
+                    is_synced BOOLEAN DEFAULT FALSE,
+                    synced_at DATETIME NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (device_id) REFERENCES devices (id)
+                )
+            ''')
+            
+            # Attendance logs table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS attendance_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    device_id TEXT,
+                    timestamp DATETIME NOT NULL,
+                    method INTEGER NOT NULL, -- 1: fingerprint, 4: card
+                    action INTEGER NOT NULL, -- 0: checkin, 1: checkout, 2: overtime start, 3: overtime end, 4: unspecified
+                    raw_data TEXT, -- JSON string for raw attendance data
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (device_id) REFERENCES devices (id)
+                )
+            ''')
+            
+            # App settings table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    description TEXT,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # Create indexes for better performance
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_device_id ON users(device_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_sync_status ON users(is_synced)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_attendance_user_id ON attendance_logs(user_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_attendance_device_id ON attendance_logs(device_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_attendance_timestamp ON attendance_logs(timestamp)')
+            
+            print(f"Database initialized at: {os.path.abspath(self.db_path)}")
+    
+    def execute_query(self, query: str, params: tuple = ()) -> sqlite3.Cursor:
+        """Execute a single query"""
+        with self.get_cursor() as cursor:
+            cursor.execute(query, params)
+            return cursor
+    
+    def fetch_one(self, query: str, params: tuple = ()) -> Optional[sqlite3.Row]:
+        """Fetch single row"""
+        with self.get_cursor() as cursor:
+            cursor.execute(query, params)
+            return cursor.fetchone()
+    
+    def fetch_all(self, query: str, params: tuple = ()) -> List[sqlite3.Row]:
+        """Fetch all rows"""
+        with self.get_cursor() as cursor:
+            cursor.execute(query, params)
+            return cursor.fetchall()
+    
+    def close_connection(self):
+        """Close thread-local connection"""
+        if hasattr(self._local, 'connection'):
+            self._local.connection.close()
+            del self._local.connection
+
+# Global database manager instance
+db_manager = DatabaseManager()

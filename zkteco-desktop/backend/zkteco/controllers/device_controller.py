@@ -2,7 +2,7 @@ from flask import Blueprint, jsonify, request
 from zkteco.services.zk_service import ZkService, get_zk_service
 from zk import ZK
 from flask import current_app
-from zkteco.config.config_manager import config_manager
+from zkteco.config.config_manager_sqlite import config_manager
 
 bp = Blueprint('device', __name__, url_prefix='/')
 

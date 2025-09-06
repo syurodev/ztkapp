@@ -8,8 +8,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { liveAPI } from "@/lib/api";
 import { useDevice } from "@/contexts/DeviceContext";
+import { liveAPI } from "@/lib/api";
 import { Activity, Monitor, Wifi, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -28,19 +28,20 @@ const ATTENDANCE_METHOD_MAP: { [key: number]: string } = {
   4: "Card",
 };
 
-// Map for punch action (what the 'punch' field represents) 
+// Map for punch action (what the 'punch' field represents)
 const PUNCH_ACTION_MAP: { [key: number]: string } = {
   0: "Check-in",
   1: "Check-out",
-  2: "Overtime Start",
-  3: "Overtime End",
-  4: "Unspecified",
+  2: "Break",
+  3: "Interrupt",
+  4: "Overtime Start",
+  5: "Overtime End",
 };
 
 export function LiveAttendance() {
   const { activeDevice } = useDevice();
   const [liveAttendance, setLiveAttendance] = useState<LiveAttendanceRecord[]>(
-    [],
+    []
   );
   const [isConnected, setIsConnected] = useState(false);
 
@@ -80,11 +81,12 @@ export function LiveAttendance() {
         <Alert>
           <Monitor className="h-4 w-4" />
           <AlertDescription>
-            Please select a device first to view live attendance. Go to Device Management to configure a device.
+            Please select a device first to view live attendance. Go to Device
+            Management to configure a device.
           </AlertDescription>
         </Alert>
       )}
-      
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -105,9 +107,7 @@ export function LiveAttendance() {
             <div className="flex items-center justify-center py-8">
               <div className="text-center">
                 <Monitor className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <p className="text-muted-foreground">
-                  No device selected
-                </p>
+                <p className="text-muted-foreground">No device selected</p>
                 <p className="text-sm text-muted-foreground">
                   Select a device to view live attendance feed
                 </p>

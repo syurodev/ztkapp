@@ -154,4 +154,21 @@ class ConfigManager:
         
         return self.config.get('EXTERNAL_API_URL', '')
 
-config_manager = ConfigManager()
+# This file is DEPRECATED - Use config_manager_sqlite instead
+# Import SQLite-based config manager for backward compatibility
+from .config_manager_sqlite import config_manager
+
+# Legacy ConfigManager class is deprecated
+class DeprecatedConfigManager(ConfigManager):
+    def __init__(self, *args, **kwargs):
+        import warnings
+        warnings.warn(
+            "ConfigManager is deprecated. Use config_manager_sqlite instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        super().__init__(*args, **kwargs)
+
+# Keep the old ConfigManager class for reference/fallback
+# but use SQLite version by default
+_legacy_config_manager = ConfigManager()

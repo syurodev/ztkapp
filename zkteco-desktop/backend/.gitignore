@@ -1,21 +1,83 @@
-.vscode
+# IDE and Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Virtual Environment
 .venv/
 venv/
+env/
+ENV/
 
+# Python
 *.pyc
+*.pyo
+*.pyd
 __pycache__/
-
-instance/
-
-.pytest_cache/
-.coverage
-htmlcov/
-
+*.so
+*.egg
+*.egg-info/
 dist/
 build/
-*.egg-info/
+*.whl
 
-.env
+# Database
+*.db
+*.sqlite
+*.sqlite3
+database.db
+app.db
+
+# Configuration backups
+config.json.backup.*
+*.backup
+
+# Logs
 *.log
 app.log
 live-capture.log
+logs/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Flask
+instance/
+.flaskenv
+
+# Environment variables
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+~*
+.#*
+
+# JetBrains IDEs
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Visual Studio Code
+.vscode/
+*.code-workspace

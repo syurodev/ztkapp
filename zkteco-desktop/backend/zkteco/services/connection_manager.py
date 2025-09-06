@@ -81,7 +81,7 @@ class ZkConnectionManager:
     
     def configure(self, config: dict):
         """Legacy configure method - uses active device"""
-        from zkteco.config.config_manager import config_manager
+        from zkteco.config.config_manager_sqlite import config_manager
         active_device = config_manager.get_active_device()
         
         if active_device:
@@ -143,7 +143,7 @@ class ZkConnectionManager:
     
     def get_connection(self) -> ZK:
         """Legacy get connection method - uses active device"""
-        from zkteco.config.config_manager import config_manager
+        from zkteco.config.config_manager_sqlite import config_manager
         active_device = config_manager.get_active_device()
         
         if active_device:
@@ -231,7 +231,7 @@ class ZkConnectionManager:
     
     def ensure_connection(self) -> ZK:
         """Legacy ensure connection method - uses active device"""
-        from zkteco.config.config_manager import config_manager
+        from zkteco.config.config_manager_sqlite import config_manager
         active_device = config_manager.get_active_device()
         
         if active_device:
@@ -587,7 +587,7 @@ class ZkConnectionManager:
     
     def is_connected(self) -> bool:
         """Legacy check if currently connected"""
-        from zkteco.config.config_manager import config_manager
+        from zkteco.config.config_manager_sqlite import config_manager
         active_device = config_manager.get_active_device()
         
         if active_device:
@@ -613,7 +613,7 @@ class ZkConnectionManager:
     
     def reset_connection(self):
         """Legacy force reset the connection"""
-        from zkteco.config.config_manager import config_manager
+        from zkteco.config.config_manager_sqlite import config_manager
         active_device = config_manager.get_active_device()
         
         if active_device:

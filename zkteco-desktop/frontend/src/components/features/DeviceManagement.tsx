@@ -17,6 +17,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { DeviceForm, DeviceFormData } from "@/components/shared/DeviceForm";
+import { DeleteConfirmDialog } from "@/components/shared/DeleteConfirmDialog";
 import { Device, devicesAPI, DevicesResponse } from "@/lib/api";
 import {
   AlertCircle,
@@ -35,6 +36,7 @@ export function DeviceManagement() {
   const [isLoading, setIsLoading] = useState(false);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
 
   useEffect(() => {
@@ -75,6 +77,11 @@ export function DeviceManagement() {
     setIsEditDialogOpen(true);
   };
 
+  const openDeleteDialog = (device: Device) => {
+    setSelectedDevice(device);
+    setIsDeleteDialogOpen(true);
+  };
+
   const handleAddDevice = async (formData: DeviceFormData) => {
     setIsLoading(true);
     try {
@@ -112,15 +119,14 @@ export function DeviceManagement() {
     }
   };
 
-  const handleDeleteDevice = async (deviceId: string, deviceName: string) => {
-    if (!confirm(`Are you sure you want to delete device "${deviceName}"?`)) {
-      return;
-    }
-
+  const handleDeleteDevice = async () => {
+    if (!selectedDevice) return;
+    
     setIsLoading(true);
     try {
-      await devicesAPI.deleteDevice(deviceId);
+      await devicesAPI.deleteDevice(selectedDevice.id);
       toast.success("Device deleted successfully");
+      setIsDeleteDialogOpen(false);
       loadDevices();
     } catch (error) {
       toast.error("Failed to delete device");
@@ -281,9 +287,8 @@ export function DeviceManagement() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() =>
-                            handleDeleteDevice(device.id, device.name)
-                          }
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200 hover:border-red-300"
+                          onClick={() => openDeleteDialog(device)}
                           disabled={isLoading}
                         >
                           <Trash2 className="h-4 w-4" />
@@ -334,6 +339,16 @@ export function DeviceManagement() {
           />
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <DeleteConfirmDialog
+        open={isDeleteDialogOpen}
+        onOpenChange={setIsDeleteDialogOpen}
+        device={selectedDevice}
+        onConfirm={handleDeleteDevice}
+        isLoading={isLoading}
+        isActiveDevice={selectedDevice?.id === activeDeviceId}
+      />
     </div>
   );
 }

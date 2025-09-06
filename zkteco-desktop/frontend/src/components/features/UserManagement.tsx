@@ -8,16 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Table,
   TableBody,
@@ -34,7 +25,6 @@ import {
   CheckCircle2,
   Clock,
   Monitor,
-  Plus,
   RefreshCw,
   UserCheck,
   Users,
@@ -45,21 +35,21 @@ import { toast } from "sonner";
 
 // Using User interface from API types
 
-interface UserFormData {
-  name: string;
-  privilege: number;
-  password: string;
-  group_id: number;
-  card: number;
-}
+// interface UserFormData {
+//   name: string;
+//   privilege: number;
+//   password: string;
+//   group_id: number;
+//   card: number;
+// }
 
-const initialFormData: UserFormData = {
-  name: "",
-  privilege: 0,
-  password: "",
-  group_id: 0,
-  card: 0,
-};
+// const initialFormData: UserFormData = {
+//   name: "",
+//   privilege: 0,
+//   password: "",
+//   group_id: 0,
+//   card: 0,
+// };
 
 export function UserManagement() {
   const { activeDevice } = useDevice();
@@ -70,8 +60,8 @@ export function UserManagement() {
   const [deviceConnected, setDeviceConnected] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [formData, setFormData] = useState<UserFormData>(initialFormData);
+  // const [isDialogOpen, setIsDialogOpen] = useState(false);
+  // const [formData, setFormData] = useState<UserFormData>(initialFormData);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -112,49 +102,49 @@ export function UserManagement() {
     }
   };
 
-  const handleCreateUser = async () => {
-    if (!activeDevice) {
-      toast.error("Please select a device first");
-      return;
-    }
+  // const handleCreateUser = async () => {
+  //   if (!activeDevice) {
+  //     toast.error("Please select a device first");
+  //     return;
+  //   }
 
-    if (!formData.name.trim()) {
-      toast.error("User name is required");
-      return;
-    }
+  //   if (!formData.name.trim()) {
+  //     toast.error("User name is required");
+  //     return;
+  //   }
 
-    setIsLoading(true);
-    try {
-      // Generate unique user_id
-      const maxId = users.reduce(
-        (max, user: User) => Math.max(max, user.user_id),
-        0
-      );
-      const newUserId = maxId + 1;
+  //   setIsLoading(true);
+  //   try {
+  //     // Generate unique user_id
+  //     const maxId = users.reduce(
+  //       (max, user: User) => Math.max(max, user.user_id),
+  //       0
+  //     );
+  //     const newUserId = maxId + 1;
 
-      const userData = {
-        user_id: newUserId,
-        user_data: {
-          name: formData.name,
-          privilege: formData.privilege,
-          password: formData.password || "123456", // Default password
-          group_id: formData.group_id,
-          card: formData.card || 0,
-        },
-      };
+  //     const userData = {
+  //       user_id: newUserId,
+  //       user_data: {
+  //         name: formData.name,
+  //         privilege: formData.privilege,
+  //         password: formData.password || "123456", // Default password
+  //         group_id: formData.group_id,
+  //         card: formData.card || 0,
+  //       },
+  //     };
 
-      await userAPI.createUser(userData);
-      toast.success("User created successfully");
-      setIsDialogOpen(false);
-      setFormData(initialFormData);
-      await loadUsers(); // Reload users
-    } catch (err) {
-      toast.error("Failed to create user");
-      console.error("Error creating user:", err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  //     await userAPI.createUser(userData);
+  //     toast.success("User created successfully");
+  //     setIsDialogOpen(false);
+  //     setFormData(initialFormData);
+  //     await loadUsers(); // Reload users
+  //   } catch (err) {
+  //     toast.error("Failed to create user");
+  //     console.error("Error creating user:", err);
+  //   } finally {
+  //     setIsLoading(false);
+  //   }
+  // };
 
   // const handleDeleteUser = async (userId: number, userName: string) => {
   //   if (!confirm(`Are you sure you want to delete user "${userName}"?`)) {
@@ -321,7 +311,7 @@ export function UserManagement() {
             />
             {isSyncing ? "Syncing..." : "Sync Employee"}
           </Button>
-          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+          {/* <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
               <Button className="flex items-center gap-2">
                 <Plus className="h-4 w-4" />
@@ -429,7 +419,7 @@ export function UserManagement() {
                 </div>
               </div>
             </DialogContent>
-          </Dialog>
+          </Dialog> */}
         </div>
       </div>
 

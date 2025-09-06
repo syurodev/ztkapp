@@ -4,7 +4,6 @@ import {
   Pagination,
   PaginationContent,
   PaginationItem,
-  PaginationLink,
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination";
@@ -16,8 +15,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { attendanceAPI } from "@/lib/api";
 import { useDevice } from "@/contexts/DeviceContext";
+import { attendanceAPI } from "@/lib/api";
 import { AlertCircle, Clock, Monitor } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -40,7 +39,7 @@ const PUNCH_ACTION_MAP: { [key: number]: string } = {
   0: "Check-in",
   1: "Check-out",
   2: "Overtime Start",
-  3: "Overtime End", 
+  3: "Overtime End",
   4: "Unspecified",
 };
 
@@ -120,7 +119,7 @@ export function Attendance() {
   const totalPages = Math.ceil(attendance.length / PAGE_SIZE);
   const paginatedAttendance = attendance.slice(
     (currentPage - 1) * PAGE_SIZE,
-    currentPage * PAGE_SIZE,
+    currentPage * PAGE_SIZE
   );
 
   return (
@@ -130,11 +129,12 @@ export function Attendance() {
         <Alert>
           <Monitor className="h-4 w-4" />
           <AlertDescription>
-            Please select a device first to view attendance records. Go to Device Management to configure a device.
+            Please select a device first to view attendance records. Go to
+            Device Management to configure a device.
           </AlertDescription>
         </Alert>
       )}
-      
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -162,9 +162,7 @@ export function Attendance() {
             <div className="flex items-center justify-center py-8">
               <div className="text-center">
                 <Monitor className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <p className="text-muted-foreground">
-                  No device selected
-                </p>
+                <p className="text-muted-foreground">No device selected</p>
                 <p className="text-sm text-muted-foreground">
                   Select a device to view attendance records
                 </p>
@@ -235,61 +233,7 @@ export function Attendance() {
                           onClick={(e) => {
                             e.preventDefault();
                             setCurrentPage((prev) =>
-                              Math.min(prev + 1, totalPages),
-                            );
-                          }}
-                          aria-disabled={currentPage === totalPages}
-                          className={
-                            currentPage === totalPages
-                              ? "pointer-events-none opacity-50"
-                              : undefined
-                          }
-                        />
-                      </PaginationItem>
-                    </PaginationContent>
-                  </Pagination>
-                </div>
-              )}
-
-              {totalPages > 1 && (
-                <div className="flex items-center justify-center pt-4">
-                  <Pagination>
-                    <PaginationContent>
-                      <PaginationItem>
-                        <PaginationPrevious
-                          onClick={(e) => {
-                            e.preventDefault();
-                            setCurrentPage((prev) => Math.max(prev - 1, 1));
-                          }}
-                          aria-disabled={currentPage === 1}
-                          className={
-                            currentPage === 1
-                              ? "pointer-events-none opacity-50"
-                              : undefined
-                          }
-                        />
-                      </PaginationItem>
-                      <PaginationItem>
-                        <PaginationLink href="#">
-                          {currentPage - 1}
-                        </PaginationLink>
-                      </PaginationItem>
-                      <PaginationItem>
-                        <PaginationLink href="#" isActive>
-                          {currentPage}
-                        </PaginationLink>
-                      </PaginationItem>
-                      <PaginationItem>
-                        <PaginationLink href="#">
-                          {currentPage + 1}
-                        </PaginationLink>
-                      </PaginationItem>
-                      <PaginationItem>
-                        <PaginationNext
-                          onClick={(e) => {
-                            e.preventDefault();
-                            setCurrentPage((prev) =>
-                              Math.min(prev + 1, totalPages),
+                              Math.min(prev + 1, totalPages)
                             );
                           }}
                           aria-disabled={currentPage === totalPages}

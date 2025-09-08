@@ -33,7 +33,10 @@
       "icons/icon.ico"
     ],
     "externalBin": [
-      "../../backend/dist/zkteco-backend"
+      "../../backend/dist/zkteco-backend-x86_64-pc-windows-msvc.exe",
+      "../../backend/dist/zkteco-backend-aarch64-apple-darwin",
+      "../../backend/dist/zkteco-backend-x86_64-apple-darwin",
+      "../../backend/dist/zkteco-backend-x86_64-unknown-linux-gnu"
     ],
     "windows": {
       "certificateThumbprint": null,

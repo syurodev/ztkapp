@@ -5,13 +5,25 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     State,
 };
+use serde::Serialize;
 use std::sync::{Arc, Mutex};
 use tauri_plugin_shell::process::CommandChild;
 use std::collections::HashMap;
+use chrono::{DateTime, Utc};
 
 // Global state for backend process management
 type BackendProcess = Arc<Mutex<Option<CommandChild>>>;
 type ProcessStatus = Arc<Mutex<HashMap<String, String>>>;
+
+#[derive(Debug, Clone, serde::Serialize)]
+struct LogEntry {
+    timestamp: DateTime<Utc>,
+    level: String, // "error", "info", "warning"
+    message: String,
+    source: String, // "stderr", "stdout", "system"
+}
+
+type BackendLogs = Arc<Mutex<Vec<LogEntry>>>;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -62,7 +74,7 @@ fn cleanup_backend(backend_process: State<BackendProcess>) -> Result<String, Str
 }
 
 #[tauri::command]
-async fn start_backend(app: tauri::AppHandle, backend_process: State<'_, BackendProcess>, process_status: State<'_, ProcessStatus>) -> Result<String, String> {
+async fn start_backend(app: tauri::AppHandle, backend_process: State<'_, BackendProcess>, process_status: State<'_, ProcessStatus>, backend_logs: State<'_, BackendLogs>) -> Result<String, String> {
     // Check if process is already running
     match backend_process.lock() {
         Ok(process_guard) => {
@@ -102,17 +114,68 @@ async fn start_backend(app: tauri::AppHandle, backend_process: State<'_, Backend
                     
                     let status_for_monitor = process_status.inner().clone();
                     let backend_for_monitor = backend_process.inner().clone();
+                    let logs_for_monitor = backend_logs.inner().clone();
+                    
+                    // Log backend start attempt
+                    if let Ok(mut logs) = logs_for_monitor.lock() {
+                        logs.push(LogEntry {
+                            timestamp: Utc::now(),
+                            level: "info".to_string(),
+                            message: "Starting backend process...".to_string(),
+                            source: "system".to_string(),
+                        });
+                    }
                     
                     // Listen for sidecar output in background
                     tauri::async_runtime::spawn(async move {
                         while let Some(event) = rx.recv().await {
                             match event {
                                 tauri_plugin_shell::process::CommandEvent::Stdout(output) => {
-                                    println!("Backend stdout: {}", String::from_utf8_lossy(&output));
+                                    let stdout_str = String::from_utf8_lossy(&output).to_string();
+                                    println!("Backend stdout: {}", stdout_str);
+                                    
+                                    // Log stdout messages
+                                    if let Ok(mut logs) = logs_for_monitor.lock() {
+                                        logs.push(LogEntry {
+                                            timestamp: Utc::now(),
+                                            level: "info".to_string(),
+                                            message: stdout_str,
+                                            source: "stdout".to_string(),
+                                        });
+                                        
+                                        // Keep only last 100 log entries
+                                        if logs.len() > 100 {
+                                            logs.drain(0..logs.len()-100);
+                                        }
+                                    }
                                 },
                                 tauri_plugin_shell::process::CommandEvent::Stderr(output) => {
-                                    let stderr_str = String::from_utf8_lossy(&output);
+                                    let stderr_str = String::from_utf8_lossy(&output).to_string();
                                     eprintln!("Backend stderr: {}", stderr_str);
+                                    
+                                    // Log to backend logs
+                                    if let Ok(mut logs) = logs_for_monitor.lock() {
+                                        let level = if stderr_str.contains("ERROR") || stderr_str.contains("Error") || 
+                                                       stderr_str.contains("ModuleNotFoundError") || stderr_str.contains("Failed to execute") {
+                                            "error"
+                                        } else if stderr_str.contains("WARNING") || stderr_str.contains("Warning") {
+                                            "warning"
+                                        } else {
+                                            "info"
+                                        };
+                                        
+                                        logs.push(LogEntry {
+                                            timestamp: Utc::now(),
+                                            level: level.to_string(),
+                                            message: stderr_str.clone(),
+                                            source: "stderr".to_string(),
+                                        });
+                                        
+                                        // Keep only last 100 log entries
+                                        if logs.len() > 100 {
+                                            logs.drain(0..logs.len()-100);
+                                        }
+                                    }
                                     
                                     // Check for critical errors
                                     if stderr_str.contains("ModuleNotFoundError") || stderr_str.contains("Failed to execute script") {
@@ -122,13 +185,36 @@ async fn start_backend(app: tauri::AppHandle, backend_process: State<'_, Backend
                                     }
                                 },
                                 tauri_plugin_shell::process::CommandEvent::Error(error) => {
-                                    eprintln!("Backend error: {}", error);
+                                    let error_str = format!("{}", error);
+                                    eprintln!("Backend error: {}", error_str);
+                                    
+                                    // Log error
+                                    if let Ok(mut logs) = logs_for_monitor.lock() {
+                                        logs.push(LogEntry {
+                                            timestamp: Utc::now(),
+                                            level: "error".to_string(),
+                                            message: error_str.clone(),
+                                            source: "system".to_string(),
+                                        });
+                                    }
+                                    
                                     if let Ok(mut status_guard) = status_for_monitor.lock() {
-                                        status_guard.insert("backend_status".to_string(), format!("Backend error: {}", error));
+                                        status_guard.insert("backend_status".to_string(), format!("Backend error: {}", error_str));
                                     }
                                 },
                                 tauri_plugin_shell::process::CommandEvent::Terminated(payload) => {
-                                    eprintln!("Backend terminated with code: {:?}", payload.code);
+                                    let term_msg = format!("Backend terminated with code: {:?}", payload.code);
+                                    eprintln!("{}", term_msg);
+                                    
+                                    // Log termination
+                                    if let Ok(mut logs) = logs_for_monitor.lock() {
+                                        logs.push(LogEntry {
+                                            timestamp: Utc::now(),
+                                            level: "error".to_string(),
+                                            message: term_msg.clone(),
+                                            source: "system".to_string(),
+                                        });
+                                    }
                                     
                                     // Mark as startup failure if early termination
                                     if let Ok(mut status_guard) = status_for_monitor.lock() {
@@ -207,7 +293,7 @@ fn stop_backend(backend_process: State<BackendProcess>) -> Result<String, String
 }
 
 #[tauri::command]
-async fn restart_backend(app: tauri::AppHandle, backend_process: State<'_, BackendProcess>, process_status: State<'_, ProcessStatus>) -> Result<String, String> {
+async fn restart_backend(app: tauri::AppHandle, backend_process: State<'_, BackendProcess>, process_status: State<'_, ProcessStatus>, backend_logs: State<'_, BackendLogs>) -> Result<String, String> {
     // Stop first
     let _ = stop_backend(backend_process.clone());
     
@@ -215,7 +301,7 @@ async fn restart_backend(app: tauri::AppHandle, backend_process: State<'_, Backe
     tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
     
     // Start again
-    start_backend(app, backend_process, process_status).await
+    start_backend(app, backend_process, process_status, backend_logs).await
 }
 
 #[tauri::command]
@@ -226,16 +312,51 @@ fn is_backend_running(backend_process: State<BackendProcess>) -> bool {
     }
 }
 
+#[tauri::command]
+fn get_backend_logs(backend_logs: State<BackendLogs>) -> Result<Vec<LogEntry>, String> {
+    match backend_logs.lock() {
+        Ok(logs) => Ok(logs.clone()),
+        Err(e) => Err(format!("Failed to get backend logs: {}", e)),
+    }
+}
+
+#[tauri::command]
+fn clear_backend_logs(backend_logs: State<BackendLogs>) -> Result<String, String> {
+    match backend_logs.lock() {
+        Ok(mut logs) => {
+            logs.clear();
+            Ok("Backend logs cleared".to_string())
+        },
+        Err(e) => Err(format!("Failed to clear backend logs: {}", e)),
+    }
+}
+
+#[tauri::command]
+fn get_backend_error_logs(backend_logs: State<BackendLogs>) -> Result<Vec<LogEntry>, String> {
+    match backend_logs.lock() {
+        Ok(logs) => {
+            let error_logs: Vec<LogEntry> = logs.iter()
+                .filter(|log| log.level == "error")
+                .cloned()
+                .collect();
+            Ok(error_logs)
+        },
+        Err(e) => Err(format!("Failed to get backend error logs: {}", e)),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let backend_process: BackendProcess = Arc::new(Mutex::new(None));
     let process_status: ProcessStatus = Arc::new(Mutex::new(HashMap::new()));
+    let backend_logs: BackendLogs = Arc::new(Mutex::new(Vec::new()));
     
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .manage(backend_process.clone())
         .manage(process_status.clone())
+        .manage(backend_logs.clone())
         .setup(move |app| {
             // Create system tray
             let show_i = MenuItem::with_id(app, "show", "Show App", true, None::<&str>)?;
@@ -349,7 +470,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![greet, show_main_window, hide_to_tray, cleanup_backend, start_backend, stop_backend, restart_backend, is_backend_running])
+        .invoke_handler(tauri::generate_handler![greet, show_main_window, hide_to_tray, cleanup_backend, start_backend, stop_backend, restart_backend, is_backend_running, get_backend_logs, clear_backend_logs, get_backend_error_logs])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

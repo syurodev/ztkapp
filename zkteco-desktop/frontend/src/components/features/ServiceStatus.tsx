@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
+import { ErrorLogViewer } from "@/components/shared/ErrorLogViewer";
 import { useBackendHealth } from "@/hooks/useBackendHealth";
 import {
   Activity,
@@ -19,6 +20,7 @@ import {
   Server,
   Square,
   Loader2,
+  AlertTriangle,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -27,10 +29,14 @@ export function ServiceStatus() {
     isBackendRunning, 
     isStarting, 
     error, 
-    metrics, 
+    metrics,
+    logs,
+    errorLogs,
     startBackend, 
     stopBackend, 
-    restartBackend 
+    restartBackend,
+    refreshLogs,
+    clearLogs
   } = useBackendHealth();
   
   const [autoStart, setAutoStart] = useState(true);
@@ -115,7 +121,7 @@ export function ServiceStatus() {
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Service Controls */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Button
               onClick={() => handleServiceAction("start")}
               disabled={isBackendRunning || isStarting}
@@ -145,7 +151,54 @@ export function ServiceStatus() {
               {isStarting ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
               Restart
             </Button>
+            <div className="ml-auto">
+              <ErrorLogViewer 
+                logs={logs} 
+                errorLogs={errorLogs}
+                onClearLogs={clearLogs}
+                onRefreshLogs={refreshLogs}
+              />
+            </div>
           </div>
+
+          {/* Error Alert with Logs */}
+          {error && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle className="flex items-center justify-between">
+                <span>Backend Service Error</span>
+                <ErrorLogViewer 
+                  logs={logs} 
+                  errorLogs={errorLogs}
+                  onClearLogs={clearLogs}
+                  onRefreshLogs={refreshLogs}
+                  trigger={
+                    <Button variant="outline" size="sm" className="ml-2">
+                      View Details
+                      {errorLogs.length > 0 && (
+                        <Badge variant="destructive" className="ml-1 text-xs">
+                          {errorLogs.length}
+                        </Badge>
+                      )}
+                    </Button>
+                  }
+                />
+              </AlertTitle>
+              <AlertDescription className="mt-2">
+                <div className="space-y-2">
+                  <p>{error}</p>
+                  {errorLogs.length > 0 && (
+                    <div className="bg-red-900/10 border border-red-200 rounded p-2">
+                      <p className="text-sm font-medium text-red-800 mb-1">Recent Error:</p>
+                      <code className="text-xs text-red-700 block whitespace-pre-wrap">
+                        {errorLogs[errorLogs.length - 1]?.message}
+                      </code>
+                    </div>
+                  )}
+                </div>
+              </AlertDescription>
+            </Alert>
+          )}
 
           {/* Auto-start Setting */}
           <div className="flex items-center justify-between p-4 border rounded-lg">

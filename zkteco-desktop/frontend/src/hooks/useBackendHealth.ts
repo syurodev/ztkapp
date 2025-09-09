@@ -2,6 +2,13 @@ import { healthCheck, serviceAPI } from "@/lib/api";
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+export interface LogEntry {
+  timestamp: string;
+  level: string;
+  message: string;
+  source: string;
+}
+
 export interface ServiceMetrics {
   status: "running" | "stopped" | "error" | "starting";
   uptime: number;
@@ -17,11 +24,15 @@ interface BackendHealthHook {
   isStarting: boolean;
   error: string | null;
   metrics: ServiceMetrics | null;
+  logs: LogEntry[];
+  errorLogs: LogEntry[];
   startBackend: () => Promise<boolean>;
   stopBackend: () => Promise<boolean>;
   restartBackend: () => Promise<boolean>;
   checkHealth: () => Promise<boolean>;
   refreshMetrics: () => Promise<void>;
+  refreshLogs: () => Promise<void>;
+  clearLogs: () => Promise<void>;
 }
 
 const DEFAULT_METRICS: ServiceMetrics = {
@@ -39,6 +50,8 @@ export const useBackendHealth = (): BackendHealthHook => {
   const [metrics, setMetrics] = useState<ServiceMetrics | null>(
     DEFAULT_METRICS,
   );
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [errorLogs, setErrorLogs] = useState<LogEntry[]>([]);
 
   const healthCheckInterval = useRef<NodeJS.Timeout | null>(null);
   const metricsInterval = useRef<NodeJS.Timeout | null>(null);
@@ -91,6 +104,28 @@ export const useBackendHealth = (): BackendHealthHook => {
     }
   }, [isBackendRunning]);
 
+  const refreshLogs = useCallback(async (): Promise<void> => {
+    try {
+      const allLogs = await invoke<LogEntry[]>("get_backend_logs");
+      setLogs(allLogs);
+      
+      const errors = await invoke<LogEntry[]>("get_backend_error_logs");
+      setErrorLogs(errors);
+    } catch (err) {
+      console.error("Failed to refresh logs:", err);
+    }
+  }, []);
+
+  const clearLogs = useCallback(async (): Promise<void> => {
+    try {
+      await invoke<string>("clear_backend_logs");
+      setLogs([]);
+      setErrorLogs([]);
+    } catch (err) {
+      console.error("Failed to clear logs:", err);
+    }
+  }, []);
+
   const startBackend = useCallback(async (): Promise<boolean> => {
     setIsStarting(true);
     setError(null);
@@ -129,16 +164,33 @@ export const useBackendHealth = (): BackendHealthHook => {
       if (healthy) {
         console.log("Backend started successfully");
         await refreshMetrics();
+        await refreshLogs(); // Refresh logs after successful start
         setIsStarting(false);
         return true;
       } else {
-        // Double-check if process is still running
-        const stillRunning = await invoke<boolean>("is_backend_running");
-        if (!stillRunning) {
-          setError("Backend process terminated unexpectedly");
-        } else {
-          setError("Backend started but health check failed");
+        // Refresh logs to get error details
+        await refreshLogs();
+        
+        // Get recent error logs to show detailed error message
+        try {
+          const errors = await invoke<LogEntry[]>("get_backend_error_logs");
+          if (errors.length > 0) {
+            const recentError = errors[errors.length - 1];
+            setError(`Backend startup failed: ${recentError.message}`);
+          } else {
+            // Double-check if process is still running
+            const stillRunning = await invoke<boolean>("is_backend_running");
+            if (!stillRunning) {
+              setError("Backend process terminated unexpectedly");
+            } else {
+              setError("Backend started but health check failed");
+            }
+          }
+        } catch (logErr) {
+          console.error("Failed to get error logs:", logErr);
+          setError("Backend startup failed - unable to retrieve error details");
         }
+        
         setIsStarting(false);
         return false;
       }
@@ -151,7 +203,7 @@ export const useBackendHealth = (): BackendHealthHook => {
       setIsStarting(false);
       return false;
     }
-  }, [checkHealth, refreshMetrics]);
+  }, [checkHealth, refreshMetrics, refreshLogs]);
 
   const stopBackend = useCallback(async (): Promise<boolean> => {
     setError(null);
@@ -260,10 +312,14 @@ export const useBackendHealth = (): BackendHealthHook => {
     isStarting,
     error,
     metrics,
+    logs,
+    errorLogs,
     startBackend,
     stopBackend,
     restartBackend,
     checkHealth,
     refreshMetrics,
+    refreshLogs,
+    clearLogs,
   };
 };

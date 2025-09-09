@@ -29,7 +29,8 @@ build/
 database.db
 app.db
 
-# Configuration backups
+# Configuration files (deprecated - using SQLite now)
+config.json
 config.json.backup.*
 *.backup
 

@@ -39,10 +39,10 @@ else
     # Use different sed syntax for cross-platform compatibility
     if [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS
-        sed -i '' "s/hiddenimports=\[\]/hiddenimports=['zkteco.config.settings', 'zkteco.config.config_manager']/" zkteco-backend.spec
+        sed -i '' "s/hiddenimports=\[\]/hiddenimports=['zkteco.config.settings', 'zkteco.config.config_manager_sqlite', 'zkteco.database.models', 'zkteco.database.db_manager', 'sqlite3']/" zkteco-backend.spec
     else
         # Linux
-        sed -i "s/hiddenimports=\[\]/hiddenimports=['zkteco.config.settings', 'zkteco.config.config_manager']/" zkteco-backend.spec
+        sed -i "s/hiddenimports=\[\]/hiddenimports=['zkteco.config.settings', 'zkteco.config.config_manager_sqlite', 'zkteco.database.models', 'zkteco.database.db_manager', 'sqlite3']/" zkteco-backend.spec
     fi
     
     # Rebuild with the updated spec

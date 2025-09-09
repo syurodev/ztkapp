@@ -1,22 +1,13 @@
 import uuid
 from typing import Dict, Any, List, Optional
 from zkteco.database.models import Device, device_repo, setting_repo
-from zkteco.database.migration import run_migration
 
 class SQLiteConfigManager:
-    """SQLite-based configuration manager to replace JSON-based ConfigManager"""
+    """SQLite-based configuration manager - SQLite only, no JSON dependencies"""
     
-    def __init__(self, config_file: str = "config.json"):
-        self.config_file = config_file
-        # Run migration from JSON if needed
-        self._ensure_migration()
-    
-    def _ensure_migration(self):
-        """Ensure data is migrated from JSON to SQLite"""
-        try:
-            run_migration(self.config_file)
-        except Exception as e:
-            print(f"Warning: Migration check failed: {e}")
+    def __init__(self):
+        # Initialize database only - no JSON migration needed
+        pass
     
     def get_config(self) -> Dict[str, Any]:
         """Get configuration (for API compatibility)"""

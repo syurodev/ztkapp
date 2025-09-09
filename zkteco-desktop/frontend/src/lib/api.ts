@@ -1,7 +1,13 @@
+import { invoke } from "@tauri-apps/api/core";
 import axios from "axios";
 
 // API base configuration
 const API_BASE_URL = "http://127.0.0.1:5001";
+
+// Track backend startup attempts to prevent infinite loops
+let backendStartupAttempts = 0;
+const MAX_STARTUP_ATTEMPTS = 3;
+const STARTUP_COOLDOWN = 30000; // 30 seconds
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
@@ -16,30 +22,114 @@ export const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     console.log(
-      `Making ${config.method?.toUpperCase()} request to ${config.url}`
+      `Making ${config.method?.toUpperCase()} request to ${config.url}`,
     );
     return config;
   },
   (error) => {
     console.error("Request error:", error);
     return Promise.reject(error);
-  }
+  },
 );
 
-// Response interceptor
+// Auto-restart backend function
+const attemptBackendRestart = async (): Promise<boolean> => {
+  if (backendStartupAttempts >= MAX_STARTUP_ATTEMPTS) {
+    console.warn("Max backend startup attempts reached, skipping auto-restart");
+    return false;
+  }
+
+  try {
+    backendStartupAttempts++;
+    console.log(
+      `Attempting to start backend (attempt ${backendStartupAttempts}/${MAX_STARTUP_ATTEMPTS})`,
+    );
+
+    const result = await invoke<string>("start_backend");
+    console.log("Backend start result:", result);
+
+    // Wait for backend to initialize
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+
+    // Test if backend is responding
+    const healthResponse = await fetch(`${API_BASE_URL}/service/status`);
+    const isHealthy = healthResponse.ok;
+
+    if (isHealthy) {
+      console.log("Backend restarted successfully");
+      // Reset attempts counter on success
+      setTimeout(() => {
+        backendStartupAttempts = 0;
+      }, STARTUP_COOLDOWN);
+      return true;
+    } else {
+      console.warn("Backend started but health check failed");
+      return false;
+    }
+  } catch (error) {
+    console.error("Failed to restart backend:", error);
+    return false;
+  }
+};
+
+// Response interceptor with auto-restart capability
 api.interceptors.response.use(
   (response) => {
+    // Reset startup attempts on successful response
+    if (backendStartupAttempts > 0) {
+      setTimeout(() => {
+        backendStartupAttempts = 0;
+      }, STARTUP_COOLDOWN);
+    }
     return response;
   },
-  (error) => {
+  async (error) => {
     console.error("Response error:", error);
 
-    if (error.code === "ECONNREFUSED") {
-      console.error("Backend service is not running");
+    const isNetworkError =
+      error.code === "ECONNREFUSED" ||
+      error.code === "ERR_NETWORK" ||
+      error.message?.includes("Network Error") ||
+      !error.response;
+
+    if (isNetworkError) {
+      console.error("Backend service connection failed");
+
+      // Only attempt auto-restart for non-health-check requests
+      const isHealthCheckRequest =
+        error.config?.url?.includes("/service/status");
+
+      if (
+        !isHealthCheckRequest &&
+        backendStartupAttempts < MAX_STARTUP_ATTEMPTS
+      ) {
+        console.log("Attempting automatic backend restart...");
+
+        const restartSuccess = await attemptBackendRestart();
+
+        if (restartSuccess) {
+          // Retry the original request
+          console.log("Retrying original request after backend restart...");
+
+          // Wait a bit more for the backend to be fully ready
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+
+          try {
+            return await api.request(error.config);
+          } catch (retryError) {
+            console.error("Retry after restart failed:", retryError);
+            return Promise.reject(retryError);
+          }
+        }
+      }
+
+      // Enhance error message for network errors
+      error.message =
+        "Backend service is not available. Please check if the service is running.";
     }
 
     return Promise.reject(error);
-  }
+  },
 );
 
 // Service Status API
@@ -102,7 +192,7 @@ export const userAPI = {
     try {
       const response = await api.post(
         "/users/sync",
-        deviceId ? { device_id: deviceId } : {}
+        deviceId ? { device_id: deviceId } : {},
       );
       return response.data;
     } catch (error) {
@@ -159,7 +249,7 @@ export const fingerprintAPI = {
   deleteFingerprint: async (userId: number, tempId: number) => {
     try {
       const response = await api.delete(
-        `/user/${userId}/fingerprint/${tempId}`
+        `/user/${userId}/fingerprint/${tempId}`,
       );
       return response.data;
     } catch (error) {
@@ -396,7 +486,7 @@ export const liveAPI = {
   connect: (
     onMessage: (data: any) => void,
     onError: (error: Event) => void,
-    onOpen: () => void
+    onOpen: () => void,
   ) => {
     const eventSource = new EventSource(`${API_BASE_URL}/live-events`);
 

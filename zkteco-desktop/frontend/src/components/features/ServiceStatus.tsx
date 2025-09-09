@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
+import { useBackendHealth } from "@/hooks/useBackendHealth";
 import {
   Activity,
   Clock,
@@ -17,31 +18,21 @@ import {
   RotateCcw,
   Server,
   Square,
+  Loader2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
-interface ServiceMetrics {
-  status: "running" | "stopped" | "error";
-  uptime: number;
-  memoryUsage: number;
-  cpuUsage: number;
-  pid?: number;
-  port: number;
-  lastRestart?: Date;
-}
-
 export function ServiceStatus() {
-  const [metrics, setMetrics] = useState<ServiceMetrics>({
-    status: "running",
-    uptime: 3600, // seconds
-    memoryUsage: 45.2, // MB
-    cpuUsage: 2.1, // %
-    pid: 1234,
-    port: 5001,
-    lastRestart: new Date(),
-  });
-
-  const [isLoading, setIsLoading] = useState(false);
+  const { 
+    isBackendRunning, 
+    isStarting, 
+    error, 
+    metrics, 
+    startBackend, 
+    stopBackend, 
+    restartBackend 
+  } = useBackendHealth();
+  
   const [autoStart, setAutoStart] = useState(true);
 
   const formatUptime = (seconds: number) => {
@@ -51,55 +42,55 @@ export function ServiceStatus() {
   };
 
   const handleServiceAction = async (action: "start" | "stop" | "restart") => {
-    setIsLoading(true);
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-
-      if (action === "start") {
-        setMetrics((prev) => ({ ...prev, status: "running" }));
-      } else if (action === "stop") {
-        setMetrics((prev) => ({ ...prev, status: "stopped" }));
-      } else if (action === "restart") {
-        setMetrics((prev) => ({
-          ...prev,
-          status: "running",
-          lastRestart: new Date(),
-          uptime: 0,
-        }));
+      switch (action) {
+        case "start":
+          await startBackend();
+          break;
+        case "stop":
+          await stopBackend();
+          break;
+        case "restart":
+          await restartBackend();
+          break;
       }
     } catch (error) {
-      setMetrics((prev) => ({ ...prev, status: "error" }));
-    } finally {
-      setIsLoading(false);
+      console.error(`Failed to ${action} backend:`, error);
     }
   };
 
   const getStatusColor = () => {
-    switch (metrics.status) {
-      case "running":
-        return "text-green-600 bg-green-100 dark:bg-green-900/20";
-      case "stopped":
-        return "text-red-600 bg-red-100 dark:bg-red-900/20";
-      case "error":
-        return "text-yellow-600 bg-yellow-100 dark:bg-yellow-900/20";
+    if (isStarting) {
+      return "text-blue-600 bg-blue-100 dark:bg-blue-900/20";
     }
+    
+    if (error) {
+      return "text-yellow-600 bg-yellow-100 dark:bg-yellow-900/20";
+    }
+    
+    if (isBackendRunning) {
+      return "text-green-600 bg-green-100 dark:bg-green-900/20";
+    }
+    
+    return "text-red-600 bg-red-100 dark:bg-red-900/20";
   };
 
-  // Simulate real-time updates
+  const getStatusText = () => {
+    if (isStarting) return "STARTING";
+    if (error) return "ERROR";
+    return isBackendRunning ? "RUNNING" : "STOPPED";
+  };
+
+  // Auto-start logic (if enabled)
   useEffect(() => {
-    if (metrics.status === "running") {
-      const interval = setInterval(() => {
-        setMetrics((prev) => ({
-          ...prev,
-          uptime: prev.uptime + 1,
-          memoryUsage: 40 + Math.random() * 10,
-          cpuUsage: 1 + Math.random() * 3,
-        }));
+    if (autoStart && !isBackendRunning && !isStarting && !error) {
+      // Small delay to prevent rapid startup attempts
+      const timer = setTimeout(() => {
+        startBackend();
       }, 1000);
-      return () => clearInterval(interval);
+      return () => clearTimeout(timer);
     }
-  }, [metrics.status]);
+  }, [autoStart, isBackendRunning, isStarting, error, startBackend]);
 
   return (
     <div className="space-y-6">
@@ -117,7 +108,8 @@ export function ServiceStatus() {
               </CardDescription>
             </div>
             <Badge className={getStatusColor()}>
-              {metrics.status.toUpperCase()}
+              {isStarting && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
+              {getStatusText()}
             </Badge>
           </div>
         </CardHeader>
@@ -126,16 +118,16 @@ export function ServiceStatus() {
           <div className="flex items-center gap-2">
             <Button
               onClick={() => handleServiceAction("start")}
-              disabled={metrics.status === "running" || isLoading}
+              disabled={isBackendRunning || isStarting}
               size="sm"
               className="flex items-center gap-2"
             >
-              <Play className="h-4 w-4" />
+              {isStarting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
               Start
             </Button>
             <Button
               onClick={() => handleServiceAction("stop")}
-              disabled={metrics.status === "stopped" || isLoading}
+              disabled={!isBackendRunning || isStarting}
               variant="destructive"
               size="sm"
               className="flex items-center gap-2"
@@ -145,12 +137,12 @@ export function ServiceStatus() {
             </Button>
             <Button
               onClick={() => handleServiceAction("restart")}
-              disabled={metrics.status === "stopped" || isLoading}
+              disabled={!isBackendRunning || isStarting}
               variant="outline"
               size="sm"
               className="flex items-center gap-2"
             >
-              <RotateCcw className="h-4 w-4" />
+              {isStarting ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
               Restart
             </Button>
           </div>
@@ -177,7 +169,7 @@ export function ServiceStatus() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {formatUptime(metrics.uptime)}
+              {metrics ? formatUptime(metrics.uptime) : "0h 0m"}
             </div>
             <p className="text-xs text-muted-foreground">Since last restart</p>
           </CardContent>
@@ -190,7 +182,7 @@ export function ServiceStatus() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {metrics.memoryUsage.toFixed(1)} MB
+              {metrics ? `${metrics.memoryUsage.toFixed(1)} MB` : "0.0 MB"}
             </div>
             <p className="text-xs text-muted-foreground">RAM consumption</p>
           </CardContent>
@@ -203,7 +195,7 @@ export function ServiceStatus() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {metrics.cpuUsage.toFixed(1)}%
+              {metrics ? `${metrics.cpuUsage.toFixed(1)}%` : "0.0%"}
             </div>
             <p className="text-xs text-muted-foreground">Processor load</p>
           </CardContent>
@@ -215,29 +207,37 @@ export function ServiceStatus() {
             <Server className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">:{metrics.port}</div>
+            <div className="text-2xl font-bold">:{metrics?.port || 5001}</div>
             <p className="text-xs text-muted-foreground">Listening port</p>
           </CardContent>
         </Card>
       </div>
 
       {/* Status Alerts */}
-      {metrics.status === "error" && (
+      {error && (
         <Alert variant="destructive">
           <AlertTitle>Service Error</AlertTitle>
           <AlertDescription>
-            The ZKTeco service has encountered an error. Please check the logs
-            for more information.
+            {error}. Please check the logs or try restarting the service.
           </AlertDescription>
         </Alert>
       )}
 
-      {metrics.status === "stopped" && (
+      {!isBackendRunning && !isStarting && !error && (
         <Alert>
           <AlertTitle>Service Stopped</AlertTitle>
           <AlertDescription>
             The ZKTeco service is currently not running. Click "Start" to begin
             the service.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {isStarting && (
+        <Alert>
+          <AlertTitle>Service Starting</AlertTitle>
+          <AlertDescription>
+            The ZKTeco service is starting up. Please wait a moment...
           </AlertDescription>
         </Alert>
       )}

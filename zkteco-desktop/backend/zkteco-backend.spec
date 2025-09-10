@@ -3,10 +3,23 @@
 
 a = Analysis(
     ['service_app.py'],
-    pathex=[],
+    pathex=['./src/pyzk'],
     binaries=[],
     datas=[],
-    hiddenimports=['zkteco.config.settings', 'zkteco.config.config_manager_sqlite', 'zkteco.database.models', 'zkteco.database.db_manager', 'sqlite3', 'zk', 'zk.zkconst', 'zk.base', 'zk.exception', 'zk.finger', 'zk.attendance', 'zk.user', 'zk.zkmodule'],
+    hiddenimports=[
+        'zkteco.config.settings', 
+        'zkteco.config.config_manager_sqlite', 
+        'zkteco.database.models', 
+        'zkteco.database.db_manager', 
+        'sqlite3',
+        'zk',
+        'zk.base',
+        'zk.const', 
+        'zk.exception', 
+        'zk.finger', 
+        'zk.attendance', 
+        'zk.user'
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

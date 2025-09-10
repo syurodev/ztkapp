@@ -143,12 +143,21 @@ if exist "zkteco-backend.spec" (
 ) else (
     echo [INFO] Creating new spec file...
     pyinstaller --name "zkteco-backend" --onefile --console --noconfirm ^
+                --paths="./src/pyzk" ^
                 --hidden-import=zkteco.config.settings ^
                 --hidden-import=zkteco.config.config_manager_sqlite ^
                 --hidden-import=zkteco.database.models ^
+                --hidden-import=zkteco.database.db_manager ^
                 --hidden-import=zkteco.services ^
                 --hidden-import=zkteco.controllers ^
                 --hidden-import=sqlite3 ^
+                --hidden-import=zk ^
+                --hidden-import=zk.base ^
+                --hidden-import=zk.const ^
+                --hidden-import=zk.exception ^
+                --hidden-import=zk.finger ^
+                --hidden-import=zk.attendance ^
+                --hidden-import=zk.user ^
                 --add-data="zkteco;zkteco" ^
                 service_app.py
 )

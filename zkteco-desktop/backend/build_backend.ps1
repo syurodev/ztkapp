@@ -36,6 +36,7 @@ if (Test-Path "zkteco-backend.spec") {
         "--name", "zkteco-backend",
         "--onefile",
         "--noconfirm",
+        "--paths", "./src/pyzk",
         "service_app.py"
     )
     
@@ -58,7 +59,7 @@ if (Test-Path "zkteco-backend.spec") {
     $specContent = Get-Content "zkteco-backend.spec" -Raw
     $updatedContent = $specContent -replace 
         'hiddenimports=\[\]', 
-        "hiddenimports=['zkteco.config.settings', 'zkteco.config.config_manager']"
+        "hiddenimports=['zkteco.config.settings', 'zkteco.config.config_manager_sqlite', 'zkteco.database.models', 'zkteco.database.db_manager', 'sqlite3', 'zk', 'zk.base', 'zk.const', 'zk.exception', 'zk.finger', 'zk.attendance', 'zk.user']"
     
     Set-Content "zkteco-backend.spec" -Value $updatedContent
     

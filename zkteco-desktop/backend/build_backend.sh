@@ -27,7 +27,8 @@ else
     # --name: Name of the executable
     # --onefile: Bundle everything into a single executable
     # --noconfirm: Overwrite output directory without asking
-    pyinstaller --name "zkteco-backend" --onefile --noconfirm service_app.py
+    # --paths: Add src/pyzk to Python path
+    pyinstaller --name "zkteco-backend" --onefile --noconfirm --paths "./src/pyzk" service_app.py
     
     if [ $? -ne 0 ]; then
         echo "Error: Initial PyInstaller run failed"
@@ -39,10 +40,10 @@ else
     # Use different sed syntax for cross-platform compatibility
     if [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS
-        sed -i '' "s/hiddenimports=\[\]/hiddenimports=['zkteco.config.settings', 'zkteco.config.config_manager_sqlite', 'zkteco.database.models', 'zkteco.database.db_manager', 'sqlite3']/" zkteco-backend.spec
+        sed -i '' "s/hiddenimports=\[\]/hiddenimports=['zkteco.config.settings', 'zkteco.config.config_manager_sqlite', 'zkteco.database.models', 'zkteco.database.db_manager', 'sqlite3', 'zk', 'zk.base', 'zk.const', 'zk.exception', 'zk.finger', 'zk.attendance', 'zk.user']/" zkteco-backend.spec
     else
         # Linux
-        sed -i "s/hiddenimports=\[\]/hiddenimports=['zkteco.config.settings', 'zkteco.config.config_manager_sqlite', 'zkteco.database.models', 'zkteco.database.db_manager', 'sqlite3']/" zkteco-backend.spec
+        sed -i "s/hiddenimports=\[\]/hiddenimports=['zkteco.config.settings', 'zkteco.config.config_manager_sqlite', 'zkteco.database.models', 'zkteco.database.db_manager', 'sqlite3', 'zk', 'zk.base', 'zk.const', 'zk.exception', 'zk.finger', 'zk.attendance', 'zk.user']/" zkteco-backend.spec
     fi
     
     # Rebuild with the updated spec

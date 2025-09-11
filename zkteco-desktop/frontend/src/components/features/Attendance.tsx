@@ -98,16 +98,16 @@ export function Attendance() {
     } else {
       setIsPageLoading(true);
     }
-    
+
     setError(null);
     try {
       const offset = (page - 1) * PAGE_SIZE;
       const response = await attendanceAPI.getAttendance({
         limit: PAGE_SIZE,
         offset: offset,
-        device_id: activeDevice.id
+        device_id: activeDevice.id,
       });
-      
+
       const data: AttendanceRecord[] = response.data || [];
       setAttendance(data);
       setTotalCount(response.pagination?.total_count || 0);
@@ -154,7 +154,7 @@ export function Attendance() {
     // Only allow numbers and limit length based on totalPages digits
     const maxLength = totalPages.toString().length;
     const numbersOnly = value.replace(/[^0-9]/g, "");
-    
+
     if (numbersOnly.length <= maxLength) {
       setPageInputValue(numbersOnly);
     }
@@ -162,7 +162,7 @@ export function Attendance() {
 
   const handlePageJump = () => {
     const pageNumber = parseInt(pageInputValue.trim());
-    
+
     // Validation
     if (isNaN(pageNumber) || pageNumber < 1) {
       toast.error("Lỗi", {
@@ -170,19 +170,19 @@ export function Attendance() {
       });
       return;
     }
-    
+
     if (pageNumber > totalPages) {
       toast.error("Lỗi", {
         description: `Trang phải trong khoảng từ 1 đến ${totalPages.toLocaleString()}.`,
       });
       return;
     }
-    
+
     if (pageNumber === currentPage) {
       setPageInputValue(""); // Clear input if same page
       return;
     }
-    
+
     // Navigate to page
     loadAttendance(pageNumber);
     setPageInputValue(""); // Clear input after successful navigation
@@ -214,10 +214,9 @@ export function Attendance() {
           {activeDevice && (
             <div className="flex items-center justify-between pb-4">
               <p className="text-sm text-muted-foreground">
-                {totalCount > 0 
+                {totalCount > 0
                   ? `Displaying ${totalCount.toLocaleString()} records from the local database.`
-                  : "Displaying logs from the local database."
-                }
+                  : "Displaying logs from the local database."}
               </p>
               <div className="flex gap-2">
                 <Button
@@ -231,7 +230,7 @@ export function Attendance() {
                   ) : (
                     <Download className="mr-2 h-4 w-4" />
                   )}
-                  Lấy log từ máy
+                  Get logs from {activeDevice.name}
                 </Button>
                 <Button
                   variant="outline"
@@ -244,7 +243,7 @@ export function Attendance() {
                   ) : (
                     <RefreshCw className="mr-2 h-4 w-4" />
                   )}
-                  Làm mới
+                  Refresh
                 </Button>
               </div>
             </div>
@@ -335,7 +334,9 @@ export function Attendance() {
                           <Input
                             type="text"
                             value={pageInputValue}
-                            onChange={(e) => handlePageInputChange(e.target.value)}
+                            onChange={(e) =>
+                              handlePageInputChange(e.target.value)
+                            }
                             onKeyDown={(e) => {
                               if (e.key === "Enter") {
                                 e.preventDefault();
@@ -353,7 +354,11 @@ export function Attendance() {
                             variant="outline"
                             size="sm"
                             onClick={handlePageJump}
-                            disabled={isPageLoading || isLoading || !pageInputValue.trim()}
+                            disabled={
+                              isPageLoading ||
+                              isLoading ||
+                              !pageInputValue.trim()
+                            }
                             className="h-8 px-3"
                           >
                             Đi
@@ -376,7 +381,9 @@ export function Attendance() {
                               loadAttendance(currentPage + 1);
                             }
                           }}
-                          aria-disabled={currentPage === totalPages || isPageLoading}
+                          aria-disabled={
+                            currentPage === totalPages || isPageLoading
+                          }
                           className={
                             currentPage === totalPages || isPageLoading
                               ? "pointer-events-none opacity-50"

@@ -4,6 +4,8 @@ import os
 from datetime import datetime
 from zk import ZK
 from zkteco.database.models import AttendanceLog, attendance_repo, device_repo, user_repo
+from zkteco.logger import app_logger
+from zkteco.events import events_queue
 from struct import unpack
 from socket import timeout
 import struct
@@ -30,17 +32,33 @@ def live_capture_worker():
         _mock_live_capture_worker()
         return
 
-    # Main implementation for real devices
-    ip = os.environ.get('DEVICE_IP')
-    port = int(os.environ.get('DEVICE_PORT', 4370))
-    password = int(os.environ.get('PASSWORD', 0))
-
+    # Main implementation for real devices - get active device from database
+    from zkteco.config.config_manager_sqlite import config_manager
+    
     zk = None
 
     while True:
         try:
-            app_logger.info("Live capture thread: Connecting to device...")
-            zk = ZK(ip, port=port, password=password, timeout=30, verbose=False)
+            # Get active device from database
+            active_device = config_manager.get_active_device()
+            if not active_device:
+                app_logger.error("No active device found in database for live capture")
+                time.sleep(10)
+                continue
+                
+            ip = active_device.get('ip')
+            port = int(active_device.get('port', 4370))
+            password = int(active_device.get('password', 0))
+            timeout = int(active_device.get('timeout', 30))
+            force_udp = bool(active_device.get('force_udp', False))
+            
+            if not ip:
+                app_logger.error("Active device has no IP address configured")
+                time.sleep(10)
+                continue
+            
+            app_logger.info(f"Live capture thread: Connecting to device {active_device.get('name', 'Unknown')} at {ip}:{port}...")
+            zk = ZK(ip, port=port, password=password, timeout=timeout, force_udp=force_udp, verbose=False)
             zk.connect()
             app_logger.info("Live capture thread: Connected successfully.")
 

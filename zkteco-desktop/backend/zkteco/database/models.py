@@ -307,6 +307,17 @@ class AttendanceRepository:
             )
         return [self._row_to_log(row) for row in rows]
 
+    def get_total_count(self, device_id: str = None) -> int:
+        """Get total count of attendance logs"""
+        if device_id:
+            result = db_manager.fetch_one(
+                "SELECT COUNT(*) as count FROM attendance_logs WHERE device_id = ?",
+                (device_id,)
+            )
+        else:
+            result = db_manager.fetch_one("SELECT COUNT(*) as count FROM attendance_logs")
+        return result['count'] if result else 0
+
     def get_by_user(self, user_id: str, limit: int = 100) -> List[AttendanceLog]:
         """Get attendance logs for specific user"""
         rows = db_manager.fetch_all(

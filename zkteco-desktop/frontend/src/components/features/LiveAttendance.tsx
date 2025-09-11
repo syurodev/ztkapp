@@ -10,38 +10,24 @@ import {
 } from "@/components/ui/table";
 import { useDevice } from "@/contexts/DeviceContext";
 import { liveAPI } from "@/lib/api";
+import { ATTENDANCE_METHOD_MAP, PUNCH_ACTION_MAP } from "@/types/constant";
 import { Activity, Monitor, Wifi, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
 
 interface LiveAttendanceRecord {
   user_id: string;
+  name: string;
   timestamp: string;
-  status: number;
-  punch: number;
+  method: number;
+  action: number;
 }
 
 const MAX_RECORDS = 50;
 
-// Map for attendance method (what the 'status' field represents)
-const ATTENDANCE_METHOD_MAP: { [key: number]: string } = {
-  1: "Fingerprint",
-  4: "Card",
-};
-
-// Map for punch action (what the 'punch' field represents)
-const PUNCH_ACTION_MAP: { [key: number]: string } = {
-  0: "Check-in",
-  1: "Check-out",
-  2: "Break",
-  3: "Interrupt",
-  4: "Overtime Start",
-  5: "Overtime End",
-};
-
 export function LiveAttendance() {
   const { activeDevice } = useDevice();
   const [liveAttendance, setLiveAttendance] = useState<LiveAttendanceRecord[]>(
-    []
+    [],
   );
   const [isConnected, setIsConnected] = useState(false);
 
@@ -118,6 +104,7 @@ export function LiveAttendance() {
               <TableHeader>
                 <TableRow>
                   <TableHead>User ID</TableHead>
+                  <TableHead>Name</TableHead>
                   <TableHead>Timestamp</TableHead>
                   <TableHead>Method</TableHead>
                   <TableHead>Action</TableHead>
@@ -127,7 +114,7 @@ export function LiveAttendance() {
                 {liveAttendance.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={4}
+                      colSpan={5}
                       className="h-48 text-center text-muted-foreground"
                     >
                       {isConnected
@@ -137,16 +124,19 @@ export function LiveAttendance() {
                   </TableRow>
                 ) : (
                   liveAttendance.map((record, index) => (
-                    <TableRow key={index}>
+                    <TableRow
+                      key={`${record.user_id}-${record.timestamp}-${index}`}
+                    >
                       <TableCell className="font-medium">
                         {record.user_id}
                       </TableCell>
+                      <TableCell>{record.name}</TableCell>
                       <TableCell>{record.timestamp}</TableCell>
                       <TableCell>
-                        {ATTENDANCE_METHOD_MAP[record.status] || "Unknown"}
+                        {ATTENDANCE_METHOD_MAP[record.method] || "Unknown"}
                       </TableCell>
                       <TableCell>
-                        {PUNCH_ACTION_MAP[record.punch] || "Unknown"}
+                        {PUNCH_ACTION_MAP[record.action] || "Unknown"}
                       </TableCell>
                     </TableRow>
                   ))

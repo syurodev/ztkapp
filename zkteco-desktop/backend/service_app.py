@@ -134,17 +134,27 @@ class ZKTecoService:
 
 
 def main():
-    """Main entry point"""
+    """Main entry point with Windows terminal persistence"""
+    import platform
+    
     try:
         service = ZKTecoService()
         service.start()
+    except KeyboardInterrupt:
+        print("\n⏹️  Service stopped by user")
     except Exception as e:
-        # Print to stderr for debugging
-        print(f"Failed to start ZKTeco service: {e}", file=sys.stderr)
+        print(f"\n❌ Service crashed: {e}")
+        
+        # Print full traceback for debugging
+        import traceback
+        print("\n" + "="*50)
+        print("ERROR DETAILS:")
+        print("="*50)
+        traceback.print_exc()
+        print("="*50)
         
         # Try to log the error if possible
         try:
-            import traceback
             from zkteco.logger import get_user_log_dir
             log_dir = get_user_log_dir()
             error_log_path = os.path.join(log_dir, 'startup_error.log')
@@ -153,8 +163,13 @@ def main():
                 f.write(f"Error: {e}\n")
                 f.write(f"Traceback:\n{traceback.format_exc()}\n")
                 f.write("--- End Error ---\n\n")
+            print(f"\n📋 Error logged to: {error_log_path}")
         except Exception:
-            pass  # If we can't log, just continue
+            print("📋 Could not save error log")
+        
+        # Keep terminal open on Windows when running as executable
+        if platform.system() == "Windows" and getattr(sys, 'frozen', False):
+            input("\nPress Enter to close...")
         
         # Exit with error code
         sys.exit(1)

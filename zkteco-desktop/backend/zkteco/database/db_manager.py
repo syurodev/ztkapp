@@ -80,8 +80,7 @@ class DatabaseManager:
                     is_synced BOOLEAN DEFAULT FALSE,
                     synced_at DATETIME NULL,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (device_id) REFERENCES devices (id)
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
             

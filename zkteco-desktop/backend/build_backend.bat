@@ -91,11 +91,26 @@ if exist "dist" rmdir /s /q dist
 
 REM Check if spec file exists
 if exist "zkteco-backend.spec" (
-    echo Using existing spec file...
-    pyinstaller --clean --noconfirm zkteco-backend.spec
+    echo Updating existing spec file with UAC manifest...
+    REM Delete old spec to recreate with manifest
+    del "zkteco-backend.spec"
+    echo Creating new spec file with admin privileges...
+    pyinstaller --name "zkteco-backend" --onefile --console --noconfirm ^
+                --manifest="zkteco-backend.manifest" ^
+                --hidden-import=zkteco.config.settings ^
+                --hidden-import=zkteco.config.config_manager_sqlite ^
+                --hidden-import=zkteco.database.models ^
+                --hidden-import=zkteco.database.db_manager ^
+                --hidden-import=zkteco.database.models ^
+                --hidden-import=zkteco.services ^
+                --hidden-import=zkteco.controllers ^
+                --hidden-import=sqlite3 ^
+                --add-data="zkteco;zkteco" ^
+                service_app.py
 ) else (
     echo Creating new spec file...
     pyinstaller --name "zkteco-backend" --onefile --console --noconfirm ^
+                --manifest="zkteco-backend.manifest" ^
                 --hidden-import=zkteco.config.settings ^
                 --hidden-import=zkteco.config.config_manager_sqlite ^
                 --hidden-import=zkteco.database.models ^
@@ -114,6 +129,10 @@ if exist "dist\zkteco-backend.exe" (
     echo ====================================
     echo     BUILD SUCCESSFUL!
     echo ====================================
+    echo.
+    echo ⚡ UAC ADMIN PRIVILEGES ENABLED:
+    echo   - Executable will prompt for admin rights
+    echo   - Required for device access on Windows
     
     REM Get file size
     for %%A in ("dist\zkteco-backend.exe") do (

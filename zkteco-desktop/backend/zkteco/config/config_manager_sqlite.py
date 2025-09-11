@@ -48,8 +48,16 @@ class SQLiteConfigManager:
         return setting_repo.get('active_device_id')
     
     def add_device(self, device_data: Dict[str, Any]) -> str:
-        """Add new device"""
+        """Add new device with serial_number uniqueness validation"""
         device_id = device_data.get('id') or str(uuid.uuid4())
+        
+        # Validate serial_number uniqueness if provided
+        serial_number = device_data.get('serial_number')
+        if serial_number:
+            existing_devices = device_repo.get_all()
+            for existing in existing_devices:
+                if existing.serial_number == serial_number:
+                    raise ValueError(f"Device with serial number '{serial_number}' already exists")
         
         device = Device(
             id=device_id,
@@ -63,7 +71,8 @@ class SQLiteConfigManager:
             ping_interval=device_data.get('ping_interval', 30),
             force_udp=device_data.get('force_udp', False),
             is_active=device_data.get('is_active', True),
-            device_info=device_data.get('device_info', {})
+            device_info=device_data.get('device_info', {}),
+            serial_number=serial_number
         )
         
         created_device = device_repo.create(device)
@@ -76,7 +85,15 @@ class SQLiteConfigManager:
         return device_id
     
     def update_device(self, device_id: str, device_data: Dict[str, Any]) -> bool:
-        """Update existing device"""
+        """Update existing device with serial_number uniqueness validation"""
+        # Validate serial_number uniqueness if provided
+        serial_number = device_data.get('serial_number')
+        if serial_number:
+            existing_devices = device_repo.get_all()
+            for existing in existing_devices:
+                if existing.serial_number == serial_number and existing.id != device_id:
+                    raise ValueError(f"Device with serial number '{serial_number}' already exists")
+        
         return device_repo.update(device_id, device_data)
     
     def delete_device(self, device_id: str) -> bool:

@@ -1,8 +1,35 @@
 import { invoke } from "@tauri-apps/api/core";
 import axios from "axios";
 
-// API base configuration
-const API_BASE_URL = "http://127.0.0.1:5001";
+// API base configuration with fallbacks
+const API_HOSTS = [
+  "http://127.0.0.1:5001",
+  "http://localhost:5001", 
+  "http://0.0.0.0:5001"
+];
+
+// Try to detect working API host
+let API_BASE_URL = API_HOSTS[0];
+
+// Function to test and set the working API host
+const detectApiHost = async (): Promise<string> => {
+  for (const host of API_HOSTS) {
+    try {
+      const response = await fetch(`${host}/service/status`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(2000)
+      });
+      if (response.ok) {
+        console.log(`Detected working API host: ${host}`);
+        return host;
+      }
+    } catch (error) {
+      console.log(`Host ${host} not reachable:`, error instanceof Error ? error.message : error);
+    }
+  }
+  console.warn('No working API host found, using default');
+  return API_HOSTS[0];
+};
 
 // Track backend startup attempts to prevent infinite loops
 let backendStartupAttempts = 0;
@@ -525,12 +552,63 @@ export const liveAPI = {
   },
 };
 
-// Health check
-export const healthCheck = async () => {
-  try {
-    const response = await api.get("/service/status");
-    return response.status === 200;
-  } catch (error) {
-    return false;
+// Health check with better error handling and retries
+export const healthCheck = async (retries = 3, delay = 1000): Promise<boolean> => {
+  // First try to detect the correct API host
+  console.log('Detecting API host...');
+  API_BASE_URL = await detectApiHost();
+  
+  for (let i = 0; i < retries; i++) {
+    // Try all possible hosts on each retry
+    for (const host of API_HOSTS) {
+      try {
+        console.log(`Health check attempt ${i + 1}/${retries} on ${host}`);
+        
+        // Try with fetch first as it's more direct
+        const response = await fetch(`${host}/service/status`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          // Timeout for fetch
+          signal: AbortSignal.timeout(5000)
+        });
+        
+        console.log(`Health check response status: ${response.status} for ${host}`);
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log('Health check successful:', data);
+          // Update API_BASE_URL to working host
+          API_BASE_URL = host;
+          // Update axios instance
+          api.defaults.baseURL = host;
+          return true;
+        } else {
+          console.warn(`Health check failed with status: ${response.status} for ${host}`);
+        }
+      } catch (error) {
+        console.error(`Health check on ${host} failed:`, error);
+        
+        // Log detailed error information
+        if (error instanceof Error) {
+          console.error('Error details:', {
+            message: error.message,
+            name: error.name,
+            host: host
+          });
+        }
+      }
+    }
+    
+    // Wait before retry (except for last attempt)
+    if (i < retries - 1) {
+      console.log(`Waiting ${delay}ms before retry...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      delay *= 1.5; // Exponential backoff
+    }
   }
+  
+  console.error('All health check attempts failed on all hosts');
+  return false;
 };

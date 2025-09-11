@@ -94,7 +94,9 @@ async fn start_backend(app: tauri::AppHandle, backend_process: State<'_, Backend
     // Start the backend sidecar
     match app.shell().sidecar("zkteco-backend") {
         Ok(sidecar_command) => {
-            let sidecar_with_env = sidecar_command.env("SECRET_KEY", "your-secret-key-here");
+            let sidecar_with_env = sidecar_command
+                .env("SECRET_KEY", "your-secret-key-here")
+                .env("LOG_LEVEL", "INFO");
             match sidecar_with_env.spawn() {
                 Ok((mut rx, child)) => {
                     println!("Backend sidecar started successfully");
@@ -255,14 +257,16 @@ async fn start_backend(app: tauri::AppHandle, backend_process: State<'_, Backend
                     Ok("Backend started successfully".to_string())
                 },
                 Err(e) => {
-                    eprintln!("Failed to spawn backend sidecar: {}", e);
-                    Err(format!("Failed to spawn backend sidecar: {}", e))
+                    let error_msg = format!("Failed to spawn backend sidecar: {}. This may be due to permission issues or missing dependencies.", e);
+                    eprintln!("{}", error_msg);
+                    Err(error_msg)
                 }
             }
         },
         Err(e) => {
-            eprintln!("Failed to create backend sidecar command: {}", e);
-            Err(format!("Failed to create backend sidecar command: {}", e))
+            let error_msg = format!("Failed to create backend sidecar command: {}. Make sure the backend executable exists in the bundle.", e);
+            eprintln!("{}", error_msg);
+            Err(error_msg)
         }
     }
 }
@@ -424,7 +428,9 @@ pub fn run() {
             // - Linux: zkteco-backend-x86_64-unknown-linux-gnu
             match app.shell().sidecar("zkteco-backend") {
                 Ok(sidecar_command) => {
-                    let sidecar_with_env = sidecar_command.env("SECRET_KEY", "your-secret-key-here");
+                    let sidecar_with_env = sidecar_command
+                        .env("SECRET_KEY", "your-secret-key-here")
+                        .env("LOG_LEVEL", "INFO");
                     match sidecar_with_env.spawn() {
                         Ok((mut rx, child)) => {
                             println!("Backend sidecar started successfully");
@@ -461,12 +467,12 @@ pub fn run() {
                             });
                         },
                         Err(e) => {
-                            eprintln!("Failed to spawn backend sidecar: {}", e);
+                            eprintln!("Failed to spawn backend sidecar during startup: {}. This may indicate permission issues or missing dependencies.", e);
                         }
                     }
                 },
                 Err(e) => {
-                    eprintln!("Failed to create backend sidecar command: {}", e);
+                    eprintln!("Failed to create backend sidecar command during startup: {}. The backend executable might be missing from the bundle.", e);
                 }
             }
             Ok(())

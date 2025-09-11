@@ -20,7 +20,7 @@ from zkteco.logger import app_logger
 from zkteco.zk_mock import ZKMock
 from zkteco.services.connection_manager import connection_manager
 from zkteco.config.config_manager_sqlite import config_manager
-from zkteco.database.models import user_repo
+from zkteco.database.models import user_repo, attendance_repo, AttendanceLog
 
 load_dotenv()
 
@@ -201,17 +201,84 @@ class ZkService:
                 zk_instance.enable_device()
 
     def get_attendance(self, device_id: str = None):
+        """Get attendance records from device (smart sync with duplicate prevention)"""
         target_device_id = device_id or self.device_id
+        app_logger.info(f"get_attendance() called for device {target_device_id}")
         zk_instance = None
+        synced_count = 0
+        duplicate_count = 0
+        
         try:
             if target_device_id:
                 zk_instance = connection_manager.ensure_device_connection(target_device_id)
             else:
                 zk_instance = connection_manager.ensure_connection()
+            
+            # Get device info for serial_number
+            device_info = config_manager.get_device(target_device_id) if target_device_id else config_manager.get_active_device()
+            device_serial = None
+            if device_info:
+                device_serial = device_info.get('serial_number')
+                if not device_serial:
+                    # Fallback to device_info if serial_number column is empty
+                    device_info_data = device_info.get('device_info', {})
+                    device_serial = device_info_data.get('serial_number') if device_info_data else None
+            
             zk_instance.disable_device()
-            attendance = zk_instance.get_attendance()
+            app_logger.info("Getting attendance records from device...")
+            attendance_records = zk_instance.get_attendance()
+            app_logger.info(f"Retrieved {len(attendance_records)} attendance records from device")
 
-            return attendance
+            # Process each record with smart sync logic
+            for record in attendance_records:
+                try:
+                    # Create AttendanceLog object with device timestamp
+                    attendance_log = AttendanceLog(
+                        user_id=str(record.user_id),
+                        timestamp=record.timestamp,  # This is already device timestamp from pyzk
+                        method=record.status,  # 1: fingerprint, 4: card, etc.
+                        action=record.punch,   # 0: checkin, 1: checkout, etc.
+                        device_id=target_device_id,
+                        serial_number=device_serial,
+                        raw_data={
+                            "uid": record.uid if hasattr(record, 'uid') else None,
+                            "original_status": record.status,
+                            "original_punch": record.punch,
+                            "device_timestamp": record.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+                            "sync_source": "manual_device_sync"
+                        },
+                        is_synced=False  # Default to not synced
+                    )
+                    
+                    # Use safe create to avoid duplicates
+                    saved_log, is_new = attendance_repo.create_safe(attendance_log)
+                    
+                    if is_new:
+                        synced_count += 1
+                        app_logger.debug(f"Synced new attendance record: user {record.user_id} at {record.timestamp}")
+                    else:
+                        duplicate_count += 1
+                        app_logger.debug(f"Skipped duplicate attendance record: user {record.user_id} at {record.timestamp}")
+                        
+                except Exception as record_error:
+                    app_logger.error(f"Error processing attendance record {record}: {record_error}")
+                    continue
+            
+            app_logger.info(f"Smart sync completed: {synced_count} new records, {duplicate_count} duplicates skipped")
+            
+            # Return original records for backward compatibility, but add sync stats
+            return {
+                'records': attendance_records,
+                'sync_stats': {
+                    'total_from_device': len(attendance_records),
+                    'new_records_saved': synced_count,
+                    'duplicates_skipped': duplicate_count
+                }
+            }
+            
+        except Exception as e:
+            app_logger.error(f"Error in get_attendance: {type(e).__name__}: {e}")
+            raise
         finally:
             if zk_instance:
                 zk_instance.enable_device()

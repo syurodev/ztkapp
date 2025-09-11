@@ -10,6 +10,9 @@ interface DeviceContextValue {
   loadDevices: () => Promise<void>;
   setActiveDevice: (deviceId: string) => Promise<void>;
   refreshDevices: () => Promise<void>;
+  addDevice: (device: Device) => void;
+  updateDevice: (deviceId: string, device: Device) => void;
+  removeDevice: (deviceId: string) => void;
 }
 
 const DeviceContext = createContext<DeviceContextValue | undefined>(undefined);
@@ -55,6 +58,25 @@ export function DeviceProvider({ children }: DeviceProviderProps) {
     await loadDevices();
   };
 
+  // Optimistic update methods for immediate UI updates
+  const addDevice = (device: Device) => {
+    setDevices(prev => [...prev, device]);
+  };
+
+  const updateDevice = (deviceId: string, updatedDevice: Device) => {
+    setDevices(prev => prev.map(device => 
+      device.id === deviceId ? updatedDevice : device
+    ));
+  };
+
+  const removeDevice = (deviceId: string) => {
+    setDevices(prev => prev.filter(device => device.id !== deviceId));
+    // If removing active device, clear active device
+    if (activeDeviceId === deviceId) {
+      setActiveDeviceId(null);
+    }
+  };
+
   useEffect(() => {
     loadDevices();
   }, []);
@@ -67,6 +89,9 @@ export function DeviceProvider({ children }: DeviceProviderProps) {
     loadDevices,
     setActiveDevice,
     refreshDevices,
+    addDevice,
+    updateDevice,
+    removeDevice,
   };
 
   return (

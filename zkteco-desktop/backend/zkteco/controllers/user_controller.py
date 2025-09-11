@@ -67,11 +67,19 @@ def sync_users_from_device(device_id=None):
                     current_app.logger.debug(f"User {device_user.user_id} already exists, skipping...")
                     continue
                 
+                # Get device serial_number for tracking
+                device_serial = active_device.get('serial_number')
+                if not device_serial:
+                    # Fallback to device_info if serial_number column is empty
+                    device_info = active_device.get('device_info', {})
+                    device_serial = device_info.get('serial_number') if device_info else None
+                
                 # Create new user in database
                 user = User(
                     user_id=str(device_user.user_id),
                     name=device_user.name or f"User {device_user.user_id}",
                     device_id=target_device_id,
+                    serial_number=device_serial,
                     privilege=getattr(device_user, 'privilege', 0),
                     group_id=getattr(device_user, 'group_id', 0),
                     card=getattr(device_user, 'card', 0),

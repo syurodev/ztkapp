@@ -18,7 +18,8 @@ import {
 } from "@/components/ui/table";
 import { DeviceForm, DeviceFormData } from "@/components/shared/DeviceForm";
 import { DeleteConfirmDialog } from "@/components/shared/DeleteConfirmDialog";
-import { Device, devicesAPI, DevicesResponse } from "@/lib/api";
+import { Device, devicesAPI } from "@/lib/api";
+import { useDevice } from "@/contexts/DeviceContext";
 import {
   AlertCircle,
   CheckCircle2,
@@ -27,45 +28,21 @@ import {
   Settings,
   Trash2,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 export function DeviceManagement() {
-  const [devices, setDevices] = useState<Device[]>([]);
-  const [activeDeviceId, setActiveDeviceId] = useState<string | null>(null);
+  // Use DeviceContext instead of local state
+  const { devices, activeDeviceId, refreshDevices, isLoading: contextLoading } = useDevice();
+  
   const [isLoading, setIsLoading] = useState(false);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
 
-  useEffect(() => {
-    loadDevices();
-  }, []);
-
-  const loadDevices = async () => {
-    setIsLoading(true);
-    try {
-      const response: DevicesResponse = await devicesAPI.getAllDevices();
-      setDevices(response.devices);
-      setActiveDeviceId(response.active_device_id);
-    } catch (error: any) {
-      console.error("Error loading devices:", error);
-      
-      // Only show error toast for actual server errors (5xx) or network issues
-      const status = error.status || error.response?.status;
-      
-      if (error.code === 'ECONNREFUSED' || error.message?.includes('Network Error')) {
-        toast.error("Cannot connect to server. Please check if the backend is running.");
-      } else if (status >= 500) {
-        toast.error("Server error while loading devices. Please try again.");
-      }
-      // For 4xx errors or successful empty responses, don't show toast error
-      // as empty device list is a normal state
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  // Use context loading state or local loading state
+  const loading = isLoading || contextLoading;
 
   const openAddDialog = () => {
     setSelectedDevice(null);
@@ -88,7 +65,8 @@ export function DeviceManagement() {
       await devicesAPI.addDevice(formData);
       toast.success("Device added successfully");
       setIsAddDialogOpen(false);
-      loadDevices();
+      // Refresh devices in context - this will also update DeviceSelector
+      await refreshDevices();
     } catch (error) {
       toast.error("Failed to add device");
       console.error("Error adding device:", error);
@@ -109,7 +87,8 @@ export function DeviceManagement() {
       await devicesAPI.updateDevice(selectedDevice.id, formData);
       toast.success("Device updated successfully");
       setIsEditDialogOpen(false);
-      loadDevices();
+      // Refresh devices in context - this will also update DeviceSelector
+      await refreshDevices();
     } catch (error) {
       toast.error("Failed to update device");
       console.error("Error updating device:", error);
@@ -127,7 +106,8 @@ export function DeviceManagement() {
       await devicesAPI.deleteDevice(selectedDevice.id);
       toast.success("Device deleted successfully");
       setIsDeleteDialogOpen(false);
-      loadDevices();
+      // Refresh devices in context - this will also update DeviceSelector
+      await refreshDevices();
     } catch (error) {
       toast.error("Failed to delete device");
       console.error("Error deleting device:", error);
@@ -141,8 +121,8 @@ export function DeviceManagement() {
     try {
       await devicesAPI.activateDevice(deviceId);
       toast.success("Device activated successfully");
-      setActiveDeviceId(deviceId);
-      loadDevices();
+      // Refresh devices in context - this will also update DeviceSelector
+      await refreshDevices();
     } catch (error) {
       toast.error("Failed to activate device");
       console.error("Error activating device:", error);
@@ -254,7 +234,7 @@ export function DeviceManagement() {
                           size="sm"
                           variant="outline"
                           onClick={() => handleTestDevice(device.id)}
-                          disabled={isLoading}
+                          disabled={loading}
                         >
                           Test
                         </Button>
@@ -263,7 +243,7 @@ export function DeviceManagement() {
                             size="sm"
                             variant="outline"
                             onClick={() => handleActivateDevice(device.id)}
-                            disabled={isLoading}
+                            disabled={loading}
                           >
                             Activate
                           </Button>
@@ -272,7 +252,7 @@ export function DeviceManagement() {
                           size="sm"
                           variant="outline"
                           onClick={() => handleSyncEmployees(device.id)}
-                          disabled={isLoading}
+                          disabled={loading}
                         >
                           Sync
                         </Button>
@@ -280,7 +260,7 @@ export function DeviceManagement() {
                           size="sm"
                           variant="outline"
                           onClick={() => openEditDialog(device)}
-                          disabled={isLoading}
+                          disabled={loading}
                         >
                           <Settings className="h-4 w-4" />
                         </Button>
@@ -289,7 +269,7 @@ export function DeviceManagement() {
                           variant="outline"
                           className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200 hover:border-red-300"
                           onClick={() => openDeleteDialog(device)}
-                          disabled={isLoading}
+                          disabled={loading}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -316,7 +296,7 @@ export function DeviceManagement() {
             mode="add"
             onSubmit={handleAddDevice}
             onCancel={() => setIsAddDialogOpen(false)}
-            isLoading={isLoading}
+            isLoading={loading}
           />
         </DialogContent>
       </Dialog>
@@ -335,7 +315,7 @@ export function DeviceManagement() {
             initialData={selectedDevice || undefined}
             onSubmit={handleUpdateDevice}
             onCancel={() => setIsEditDialogOpen(false)}
-            isLoading={isLoading}
+            isLoading={loading}
           />
         </DialogContent>
       </Dialog>
@@ -346,7 +326,7 @@ export function DeviceManagement() {
         onOpenChange={setIsDeleteDialogOpen}
         device={selectedDevice}
         onConfirm={handleDeleteDevice}
-        isLoading={isLoading}
+        isLoading={loading}
         isActiveDevice={selectedDevice?.id === activeDeviceId}
       />
     </div>

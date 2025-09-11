@@ -29,13 +29,13 @@ def device_connect():
 def update_config():
     """Legacy config update - maintains backward compatibility"""
     data = request.json
-    
+
     # Save general config (non-device specific settings)
     general_config = {
         'EXTERNAL_API_DOMAIN': data.get('EXTERNAL_API_DOMAIN', '')
     }
     config_manager.save_config(general_config)
-    
+
     return jsonify({"message": "Configuration updated successfully"})
 
 @bp.route('/config', methods=['GET'])
@@ -51,7 +51,7 @@ def get_all_devices():
         devices = config_manager.get_all_devices()
         active_device_id = config_manager.get_active_device()
         active_device_id = active_device_id['id'] if active_device_id else None
-        
+
         return jsonify({
             "devices": devices,
             "active_device_id": active_device_id
@@ -64,17 +64,17 @@ def get_all_devices():
 def add_device():
     """Add a new device"""
     data = request.json
-    
+
     try:
         # Validate required fields
         if not data.get('ip'):
             return jsonify({"error": "Device IP is required"}), 400
         if not data.get('name'):
             return jsonify({"error": "Device name is required"}), 400
-            
+
         # Test connection before adding
         current_app.logger.info(f"Testing connection to new device {data.get('name')} at {data.get('ip')}:{data.get('port', 4370)}")
-        
+
         from zk import ZK
         test_zk = ZK(
             ip=data.get('ip'),
@@ -84,13 +84,13 @@ def add_device():
             force_udp=bool(data.get('force_udp', False)),
             verbose=current_app.config.get('DEBUG', False)
         )
-        
+
         # Try to connect
         test_zk.connect()
-        
+
         if not test_zk.is_connect:
             return jsonify({"error": "Failed to connect to device"}), 400
-        
+
         # Get device info
         try:
             test_zk.disable_device()
@@ -104,7 +104,7 @@ def add_device():
                 'fp_version': test_zk.get_fp_version(),
                 'platform': test_zk.get_platform()
             }
-            
+
             try:
                 network_info = test_zk.get_network_params()
                 device_info['network'] = {
@@ -114,7 +114,7 @@ def add_device():
                 }
             except Exception:
                 device_info['network'] = None
-                
+
         except Exception as device_info_error:
             current_app.logger.warning(f"Failed to get device info: {device_info_error}")
             device_info = {}
@@ -124,21 +124,22 @@ def add_device():
                 test_zk.disconnect()
             except Exception:
                 pass
-        
+
         # Add device info to data
         data['device_info'] = device_info
-        
+        data['serial_number'] = device_info.get('serial_number')
+
         # Add the device
         device_id = config_manager.add_device(data)
-        
+
         current_app.logger.info(f"Device {data.get('name')} added successfully with ID: {device_id}")
-        
+
         return jsonify({
             "message": "Device added successfully",
             "device_id": device_id,
             "device_info": device_info
         })
-        
+
     except Exception as e:
         error_message = f"Failed to add device: {str(e)}"
         current_app.logger.error(error_message)
@@ -148,19 +149,19 @@ def add_device():
 def update_device(device_id):
     """Update an existing device"""
     data = request.json
-    
+
     try:
         # Check if device exists
         existing_device = config_manager.get_device(device_id)
         if not existing_device:
             return jsonify({"error": "Device not found"}), 404
-            
+
         # If IP or port changed, test the connection
-        if (data.get('ip') != existing_device.get('ip') or 
+        if (data.get('ip') != existing_device.get('ip') or
             data.get('port') != existing_device.get('port')):
-            
+
             current_app.logger.info(f"Testing connection to updated device {device_id}")
-            
+
             from zk import ZK
             test_zk = ZK(
                 ip=data.get('ip', existing_device.get('ip')),
@@ -170,26 +171,26 @@ def update_device(device_id):
                 force_udp=bool(data.get('force_udp', existing_device.get('force_udp'))),
                 verbose=current_app.config.get('DEBUG', False)
             )
-            
+
             test_zk.connect()
-            
+
             if not test_zk.is_connect:
                 return jsonify({"error": "Failed to connect to device with new settings"}), 400
-                
+
             test_zk.disconnect()
-        
+
         # Update the device
         success = config_manager.update_device(device_id, data)
-        
+
         if not success:
             return jsonify({"error": "Device not found"}), 404
-            
+
         # Reset connection for this device if it exists
         from zkteco.services.connection_manager import connection_manager
         connection_manager.reset_device_connection(device_id)
-        
+
         return jsonify({"message": "Device updated successfully"})
-        
+
     except Exception as e:
         error_message = f"Failed to update device: {str(e)}"
         current_app.logger.error(error_message)
@@ -200,16 +201,16 @@ def delete_device(device_id):
     """Delete a device"""
     try:
         success = config_manager.delete_device(device_id)
-        
+
         if not success:
             return jsonify({"error": "Device not found"}), 404
-            
+
         # Disconnect and clean up
         from zkteco.services.connection_manager import connection_manager
         connection_manager.disconnect_device(device_id)
-        
+
         return jsonify({"message": "Device deleted successfully"})
-        
+
     except Exception as e:
         error_message = f"Failed to delete device: {str(e)}"
         return jsonify({"error": error_message}), 500
@@ -219,12 +220,12 @@ def activate_device(device_id):
     """Set a device as the active device"""
     try:
         success = config_manager.set_active_device(device_id)
-        
+
         if not success:
             return jsonify({"error": "Device not found"}), 404
-            
+
         return jsonify({"message": "Device activated successfully"})
-        
+
     except Exception as e:
         error_message = f"Failed to activate device: {str(e)}"
         return jsonify({"error": error_message}), 500
@@ -236,7 +237,7 @@ def test_device_connection(device_id):
         device = config_manager.get_device(device_id)
         if not device:
             return jsonify({"error": "Device not found"}), 404
-            
+
         from zk import ZK
         test_zk = ZK(
             ip=device.get('ip'),
@@ -246,19 +247,19 @@ def test_device_connection(device_id):
             force_udp=bool(device.get('force_udp')),
             verbose=current_app.config.get('DEBUG', False)
         )
-        
+
         test_zk.connect()
-        
+
         if not test_zk.is_connect:
             return jsonify({"success": False, "error": "Failed to connect to device"}), 400
-            
+
         test_zk.disconnect()
-        
+
         return jsonify({
             "success": True,
             "message": "Device connection successful"
         })
-        
+
     except Exception as e:
         return jsonify({
             "success": False,
@@ -297,7 +298,7 @@ def get_device_specific_info(device_id):
         device = config_manager.get_device(device_id)
         if not device:
             return jsonify({"error": "Device not found"}), 404
-            
+
         from zkteco.services.zk_service import ZkService
         service = ZkService()
         device_info = service.get_device_info(device_id)
@@ -313,7 +314,7 @@ def sync_employee_from_device(device_id):
         device = config_manager.get_device(device_id)
         if not device:
             return jsonify({"error": "Device not found"}), 404
-            
+
         from zkteco.services.zk_service import ZkService
         service = ZkService()
         sync_result = service.sync_employee(device_id)

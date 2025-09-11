@@ -12,6 +12,7 @@ import logging
 from dotenv import load_dotenv
 from flask import Flask, jsonify
 from zkteco import create_app
+from zkteco.logger import get_user_log_dir
 import psutil
 
 # Load environment variables
@@ -27,15 +28,21 @@ class ZKTecoService:
     def setup_logging(self):
         """Setup service logging"""
         log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
+        
+        # Get user-writable log directory
+        log_dir = get_user_log_dir()
+        log_file_path = os.path.join(log_dir, 'zkteco-service.log')
+        
         logging.basicConfig(
             level=getattr(logging, log_level),
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
             handlers=[
-                logging.FileHandler('/tmp/zkteco-service.log'),
+                logging.FileHandler(log_file_path),
                 logging.StreamHandler()
             ]
         )
         self.logger = logging.getLogger('ZKTecoService')
+        self.log_file_path = log_file_path  # Store for use in service endpoints
 
     def create_service_app(self):
         """Create Flask app with additional service endpoints"""
@@ -83,7 +90,7 @@ class ZKTecoService:
         def service_logs():
             """Get recent service logs"""
             try:
-                with open('/tmp/zkteco-service.log', 'r') as f:
+                with open(self.log_file_path, 'r') as f:
                     lines = f.readlines()
                     # Return last 100 lines
                     recent_logs = lines[-100:] if len(lines) > 100 else lines
@@ -104,7 +111,7 @@ class ZKTecoService:
         signal.signal(signal.SIGINT, self.signal_handler)
 
         try:
-            host = os.getenv('HOST', '127.0.0.1')
+            host = os.getenv('HOST', '0.0.0.0')
             port = int(os.getenv('PORT', 5001))
 
             self.logger.info(f"Service starting on {host}:{port}")
@@ -128,8 +135,29 @@ class ZKTecoService:
 
 def main():
     """Main entry point"""
-    service = ZKTecoService()
-    service.start()
+    try:
+        service = ZKTecoService()
+        service.start()
+    except Exception as e:
+        # Print to stderr for debugging
+        print(f"Failed to start ZKTeco service: {e}", file=sys.stderr)
+        
+        # Try to log the error if possible
+        try:
+            import traceback
+            from zkteco.logger import get_user_log_dir
+            log_dir = get_user_log_dir()
+            error_log_path = os.path.join(log_dir, 'startup_error.log')
+            with open(error_log_path, 'a') as f:
+                f.write(f"\n--- Startup Error at {time.ctime()} ---\n")
+                f.write(f"Error: {e}\n")
+                f.write(f"Traceback:\n{traceback.format_exc()}\n")
+                f.write("--- End Error ---\n\n")
+        except Exception:
+            pass  # If we can't log, just continue
+        
+        # Exit with error code
+        sys.exit(1)
 
 
 if __name__ == "__main__":

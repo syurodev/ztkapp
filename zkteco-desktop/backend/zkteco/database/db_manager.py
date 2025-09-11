@@ -59,6 +59,7 @@ class DatabaseManager:
                     force_udp BOOLEAN DEFAULT FALSE,
                     is_active BOOLEAN DEFAULT TRUE,
                     device_info TEXT, -- JSON string for device info
+                    serial_number TEXT UNIQUE,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
@@ -71,6 +72,7 @@ class DatabaseManager:
                     user_id TEXT NOT NULL,
                     name TEXT NOT NULL,
                     device_id TEXT,
+                    serial_number TEXT,
                     privilege INTEGER DEFAULT 0,
                     group_id INTEGER DEFAULT 0,
                     card INTEGER DEFAULT 0,
@@ -83,18 +85,21 @@ class DatabaseManager:
                 )
             ''')
             
-            # Attendance logs table
+            # Attendance logs table with sync tracking and duplicate prevention
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS attendance_logs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id TEXT NOT NULL,
                     device_id TEXT,
+                    serial_number TEXT,
                     timestamp DATETIME NOT NULL,
                     method INTEGER NOT NULL, -- 1: fingerprint, 4: card
                     action INTEGER NOT NULL, -- 0: checkin, 1: checkout, 2: overtime start, 3: overtime end, 4: unspecified
                     raw_data TEXT, -- JSON string for raw attendance data
+                    is_synced BOOLEAN DEFAULT FALSE,
+                    synced_at DATETIME NULL,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (device_id) REFERENCES devices (id)
+                    CONSTRAINT unique_attendance UNIQUE(user_id, device_id, timestamp, method, action)
                 )
             ''')
             
@@ -108,14 +113,57 @@ class DatabaseManager:
                 )
             ''')
             
+            # Migrate existing attendance_logs table to add sync tracking columns and unique constraint
+            self._migrate_attendance_logs_table(cursor)
+            
             # Create indexes for better performance
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_device_id ON users(device_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_sync_status ON users(is_synced)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_attendance_user_id ON attendance_logs(user_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_attendance_device_id ON attendance_logs(device_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_attendance_timestamp ON attendance_logs(timestamp)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_attendance_sync_status ON attendance_logs(is_synced)')
             
             print(f"Database initialized at: {os.path.abspath(self.db_path)}")
+    
+    def _migrate_attendance_logs_table(self, cursor):
+        """Migrate existing attendance_logs table to add sync tracking columns and unique constraint"""
+        # Check if columns already exist
+        cursor.execute("PRAGMA table_info(attendance_logs)")
+        columns = [column[1] for column in cursor.fetchall()]
+        
+        if 'is_synced' not in columns:
+            print("Adding is_synced column to attendance_logs table...")
+            cursor.execute('ALTER TABLE attendance_logs ADD COLUMN is_synced BOOLEAN DEFAULT FALSE')
+            
+        if 'synced_at' not in columns:
+            print("Adding synced_at column to attendance_logs table...")
+            cursor.execute('ALTER TABLE attendance_logs ADD COLUMN synced_at DATETIME NULL')
+        
+        # Check if unique constraint already exists
+        cursor.execute("PRAGMA index_list(attendance_logs)")
+        constraints = cursor.fetchall()
+        
+        unique_constraint_exists = False
+        for constraint in constraints:
+            if 'unique_attendance' in constraint[1]:
+                unique_constraint_exists = True
+                break
+        
+        if not unique_constraint_exists:
+            try:
+                print("Adding unique constraint to prevent duplicate attendance records...")
+                # Note: SQLite doesn't support adding constraints to existing tables directly
+                # We'll create a unique index instead, which provides the same functionality
+                cursor.execute('''
+                    CREATE UNIQUE INDEX IF NOT EXISTS unique_attendance 
+                    ON attendance_logs(user_id, device_id, timestamp, method, action)
+                ''')
+                print("Unique constraint added successfully")
+            except Exception as e:
+                # If constraint creation fails due to existing duplicates, log it
+                print(f"Warning: Could not add unique constraint due to existing duplicates: {e}")
+                print("Please clean up duplicate records manually if needed")
     
     def execute_query(self, query: str, params: tuple = ()) -> sqlite3.Cursor:
         """Execute a single query"""

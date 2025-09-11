@@ -10,7 +10,8 @@ a = Analysis(
         'zkteco.config.settings', 
         'zkteco.config.config_manager_sqlite', 
         'zkteco.database.models', 
-        'zkteco.database.db_manager', 
+        'zkteco.database.db_manager',
+        'zkteco.logger',
         'sqlite3',
         'zk',
         'zk.base',
@@ -18,7 +19,8 @@ a = Analysis(
         'zk.exception', 
         'zk.finger', 
         'zk.attendance', 
-        'zk.user'
+        'zk.user',
+        'logging.handlers'
     ],
     hookspath=[],
     hooksconfig={},

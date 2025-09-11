@@ -19,8 +19,12 @@ def create_app():
     # create and configure the app
     app = Flask(__name__)
 
-    # Enable CORS for all origins
-    CORS(app)
+    # Enable CORS for all origins including Tauri
+    CORS(app, 
+         origins=["*"],
+         allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
+         methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+         supports_credentials=True)
 
     app.config.from_object("zkteco.config.settings")
 

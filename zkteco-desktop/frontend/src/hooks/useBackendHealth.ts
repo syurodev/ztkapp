@@ -155,10 +155,12 @@ export const useBackendHealth = (): BackendHealthHook => {
         return false;
       }
 
-      // Wait a moment for backend to initialize
-      await new Promise((resolve) => setTimeout(resolve, 3000));
+      // Wait longer for backend to initialize
+      console.log("Waiting for backend to initialize...");
+      await new Promise((resolve) => setTimeout(resolve, 5000));
 
-      // Verify backend is running with health check
+      // Verify backend is running with health check (with retries)
+      console.log("Verifying backend health...");
       const healthy = await checkHealth();
 
       if (healthy) {
@@ -271,8 +273,15 @@ export const useBackendHealth = (): BackendHealthHook => {
 
   // Initialize health checking on mount
   useEffect(() => {
-    // Initial health check
-    checkHealth();
+    // Initial health check with delay to allow backend to start
+    const initializeHealthCheck = async () => {
+      console.log("Initializing health check...");
+      // Wait a bit for backend to start if it's starting up
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      await checkHealth();
+    };
+    
+    initializeHealthCheck();
 
     // Set up periodic health checks (every 30 seconds)
     healthCheckInterval.current = setInterval(checkHealth, 30000);

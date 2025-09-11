@@ -344,6 +344,7 @@ export const devicesAPI = {
   addDevice: async (deviceData: any) => {
     try {
       const response = await api.post("/devices", deviceData);
+      console.log(response);
       return response.data;
     } catch (error) {
       throw new Error("Failed to add device");
@@ -412,14 +413,18 @@ export const devicesAPI = {
 };
 
 export const attendanceAPI = {
-  getAttendance: async (options?: { limit?: number; offset?: number; device_id?: string }) => {
+  getAttendance: async (options?: {
+    limit?: number;
+    offset?: number;
+    device_id?: string;
+  }) => {
     try {
       const params = new URLSearchParams();
-      if (options?.limit) params.set('limit', options.limit.toString());
-      if (options?.offset) params.set('offset', options.offset.toString());
-      if (options?.device_id) params.set('device_id', options.device_id);
-      
-      const url = `/attendance/logs${params.toString() ? `?${params.toString()}` : ''}`;
+      if (options?.limit) params.set("limit", options.limit.toString());
+      if (options?.offset) params.set("offset", options.offset.toString());
+      if (options?.device_id) params.set("device_id", options.device_id);
+
+      const url = `/attendance/logs${params.toString() ? `?${params.toString()}` : ""}`;
       const response = await api.get(url);
       return response.data;
     } catch (error) {

@@ -66,11 +66,47 @@ def add_device():
     data = request.json
 
     try:
+        # Validate request data
+        if not data:
+            return jsonify({
+                "error": "Request body is required",
+                "error_type": "validation_error"
+            }), 400
+            
         # Validate required fields
         if not data.get('ip'):
-            return jsonify({"error": "Device IP is required"}), 400
+            return jsonify({
+                "error": "Device IP address is required",
+                "error_type": "validation_error"
+            }), 400
+            
         if not data.get('name'):
-            return jsonify({"error": "Device name is required"}), 400
+            return jsonify({
+                "error": "Device name is required", 
+                "error_type": "validation_error"
+            }), 400
+            
+        # Validate IP format
+        import ipaddress
+        try:
+            ipaddress.ip_address(data.get('ip'))
+        except ValueError:
+            return jsonify({
+                "error": "Invalid IP address format",
+                "error_type": "validation_error"
+            }), 400
+            
+        # Validate port range
+        port = data.get('port', 4370)
+        try:
+            port = int(port)
+            if not (1 <= port <= 65535):
+                raise ValueError()
+        except ValueError:
+            return jsonify({
+                "error": "Port must be a number between 1 and 65535",
+                "error_type": "validation_error"
+            }), 400
 
         # Test connection before adding
         current_app.logger.info(f"Testing connection to new device {data.get('name')} at {data.get('ip')}:{data.get('port', 4370)}")
@@ -85,11 +121,26 @@ def add_device():
             verbose=current_app.config.get('DEBUG', False)
         )
 
-        # Try to connect
-        test_zk.connect()
+        # Try to connect with timeout handling
+        try:
+            test_zk.connect()
+        except Exception as conn_error:
+            try:
+                test_zk.disconnect()
+            except Exception:
+                pass
+            
+            # Check for specific connection errors
+            error_str = str(conn_error).lower()
+            if "timeout" in error_str or "timed out" in error_str:
+                raise TimeoutError(f"Connection timeout: {conn_error}")
+            elif "refused" in error_str or "unreachable" in error_str:
+                raise ConnectionError(f"Network unreachable: {conn_error}")
+            else:
+                raise ConnectionError(f"Connection failed: {conn_error}")
 
         if not test_zk.is_connect:
-            return jsonify({"error": "Failed to connect to device"}), 400
+            raise ConnectionError("Device connection failed - unable to establish connection")
 
         # Get device info
         try:
@@ -140,10 +191,41 @@ def add_device():
             "device_info": device_info
         })
 
-    except Exception as e:
-        error_message = f"Failed to add device: {str(e)}"
+    except ValueError as e:
+        # Handle specific validation errors (e.g. duplicate serial number)
+        error_message = str(e)
+        current_app.logger.warning(f"Device validation failed: {error_message}")
+        return jsonify({
+            "error": error_message,
+            "error_type": "validation_error"
+        }), 400
+    
+    except ConnectionError as e:
+        # Handle connection-related errors
+        error_message = f"Cannot connect to device: {str(e)}"
         current_app.logger.error(error_message)
-        return jsonify({"error": error_message}), 400
+        return jsonify({
+            "error": error_message,
+            "error_type": "connection_error"
+        }), 400
+        
+    except TimeoutError as e:
+        # Handle timeout errors
+        error_message = "Device connection timed out. Please check IP address and network connectivity."
+        current_app.logger.error(f"Device connection timeout: {str(e)}")
+        return jsonify({
+            "error": error_message,
+            "error_type": "timeout_error"
+        }), 400
+        
+    except Exception as e:
+        # Handle all other unexpected errors
+        error_message = f"Failed to add device: {str(e)}"
+        current_app.logger.error(f"Unexpected error adding device: {error_message}")
+        return jsonify({
+            "error": error_message,
+            "error_type": "server_error"
+        }), 500
 
 @bp.route('/devices/<device_id>', methods=['PUT'])
 def update_device(device_id):

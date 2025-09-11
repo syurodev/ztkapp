@@ -112,7 +112,8 @@ class DatabaseManager:
                 )
             ''')
             
-            # Migrate existing attendance_logs table to add sync tracking columns and unique constraint
+            # Migrate existing tables to add new columns
+            self._migrate_devices_table(cursor)
             self._migrate_attendance_logs_table(cursor)
             
             # Create indexes for better performance
@@ -124,6 +125,22 @@ class DatabaseManager:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_attendance_sync_status ON attendance_logs(is_synced)')
             
             print(f"Database initialized at: {os.path.abspath(self.db_path)}")
+    
+    def _migrate_devices_table(self, cursor):
+        """Migrate existing devices table to add serial_number column"""
+        # Check if column already exists
+        cursor.execute("PRAGMA table_info(devices)")
+        columns = [column[1] for column in cursor.fetchall()]
+        
+        if 'serial_number' not in columns:
+            try:
+                print("Adding serial_number column to devices table...")
+                # Add column without UNIQUE constraint first (SQLite limitation)
+                cursor.execute('ALTER TABLE devices ADD COLUMN serial_number TEXT')
+                print("serial_number column added successfully")
+            except Exception as e:
+                print(f"Warning: Could not add serial_number column: {e}")
+                print("This may be normal if the column already exists in some form")
     
     def _migrate_attendance_logs_table(self, cursor):
         """Migrate existing attendance_logs table to add sync tracking columns and unique constraint"""

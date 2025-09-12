@@ -1,3 +1,5 @@
+import { DeleteConfirmDialog } from "@/components/shared/DeleteConfirmDialog";
+import { DeviceForm, DeviceFormData } from "@/components/shared/DeviceForm";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,10 +18,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { DeviceForm, DeviceFormData } from "@/components/shared/DeviceForm";
-import { DeleteConfirmDialog } from "@/components/shared/DeleteConfirmDialog";
-import { Device, devicesAPI } from "@/lib/api";
 import { useDevice } from "@/contexts/DeviceContext";
+import { Device, devicesAPI } from "@/lib/api";
 import {
   AlertCircle,
   CheckCircle2,
@@ -33,8 +33,13 @@ import { toast } from "sonner";
 
 export function DeviceManagement() {
   // Use DeviceContext instead of local state
-  const { devices, activeDeviceId, refreshDevices, isLoading: contextLoading } = useDevice();
-  
+  const {
+    devices,
+    activeDeviceId,
+    refreshDevices,
+    isLoading: contextLoading,
+  } = useDevice();
+
   const [isLoading, setIsLoading] = useState(false);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
@@ -100,7 +105,7 @@ export function DeviceManagement() {
 
   const handleDeleteDevice = async () => {
     if (!selectedDevice) return;
-    
+
     setIsLoading(true);
     try {
       await devicesAPI.deleteDevice(selectedDevice.id);
@@ -161,7 +166,6 @@ export function DeviceManagement() {
     }
   };
 
-
   return (
     <div className="container mx-auto p-4 space-y-6">
       <div className="flex justify-between items-center">
@@ -193,6 +197,7 @@ export function DeviceManagement() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Name</TableHead>
+                  <TableHead>Device Name</TableHead>
                   <TableHead>IP Address</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Serial Number</TableHead>
@@ -204,13 +209,16 @@ export function DeviceManagement() {
                   <TableRow key={device.id}>
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2">
-                        {device.device_info.device_name}
+                        {device.name}
                         {activeDeviceId === device.id && (
                           <Badge variant="default" className="bg-teal-400">
                             Active
                           </Badge>
                         )}
                       </div>
+                    </TableCell>
+                    <TableCell className="font-medium">
+                      {device.device_info.device_name}
                     </TableCell>
                     <TableCell>
                       {device.ip}:{device.port}

@@ -98,20 +98,39 @@ class SQLiteConfigManager:
     
     def delete_device(self, device_id: str) -> bool:
         """Delete device"""
-        # Check if this is the active device
-        active_id = self.get_active_device_id()
-        
-        success = device_repo.delete(device_id)
-        
-        if success and active_id == device_id:
-            # Set new active device if available
-            all_devices = device_repo.get_all()
-            if all_devices:
-                self.set_active_device(all_devices[0].id)
-            else:
-                setting_repo.set('active_device_id', '', 'No active device')
-        
-        return success
+        from zkteco.logger import app_logger
+
+        try:
+            app_logger.info(f"ConfigManager: Starting delete_device for {device_id}")
+
+            # Check if this is the active device
+            active_id = self.get_active_device_id()
+            app_logger.info(f"ConfigManager: Current active device: {active_id}")
+
+            app_logger.info(f"ConfigManager: Calling device_repo.delete({device_id})")
+            success = device_repo.delete(device_id)
+            app_logger.info(f"ConfigManager: device_repo.delete returned: {success}")
+
+            if success and active_id == device_id:
+                app_logger.info(f"ConfigManager: Deleted device was active, finding new active device")
+                # Set new active device if available
+                all_devices = device_repo.get_all()
+                app_logger.info(f"ConfigManager: Found {len(all_devices)} remaining devices")
+
+                if all_devices:
+                    new_active = all_devices[0].id
+                    app_logger.info(f"ConfigManager: Setting new active device: {new_active}")
+                    self.set_active_device(new_active)
+                else:
+                    app_logger.info(f"ConfigManager: No devices left, clearing active device")
+                    setting_repo.set('active_device_id', '', 'No active device')
+
+            app_logger.info(f"ConfigManager: delete_device completed successfully for {device_id}")
+            return success
+
+        except Exception as e:
+            app_logger.error(f"ConfigManager: Error in delete_device({device_id}): {e}", exc_info=True)
+            raise
     
     def get_device(self, device_id: str) -> Optional[Dict[str, Any]]:
         """Get device by ID"""

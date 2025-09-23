@@ -95,7 +95,8 @@ class DatabaseManager:
                     method INTEGER NOT NULL, -- 1: fingerprint, 4: card
                     action INTEGER NOT NULL, -- 0: checkin, 1: checkout, 2: overtime start, 3: overtime end, 4: unspecified
                     raw_data TEXT, -- JSON string for raw attendance data
-                    is_synced BOOLEAN DEFAULT FALSE,
+                    sync_status TEXT DEFAULT 'pending', -- pending, synced, skipped
+                    is_synced BOOLEAN DEFAULT FALSE, -- kept for backward compatibility
                     synced_at DATETIME NULL,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     CONSTRAINT unique_attendance UNIQUE(user_id, device_id, timestamp, method, action)
@@ -124,6 +125,9 @@ class DatabaseManager:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_attendance_device_id ON attendance_logs(device_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_attendance_timestamp ON attendance_logs(timestamp)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_attendance_sync_status ON attendance_logs(is_synced)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_attendance_sync_status_new ON attendance_logs(sync_status)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_attendance_date_action ON attendance_logs(DATE(timestamp), action)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_attendance_user_date ON attendance_logs(user_id, DATE(timestamp))')
             
             print(f"Database initialized at: {os.path.abspath(self.db_path)}")
     
@@ -163,7 +167,8 @@ class DatabaseManager:
         # Check if columns already exist
         cursor.execute("PRAGMA table_info(attendance_logs)")
         columns = [column[1] for column in cursor.fetchall()]
-        
+        column_names = [column[1] for column in cursor.fetchall()]
+
         if 'serial_number' not in columns:
             try:
                 print("Adding serial_number column to attendance_logs table...")
@@ -171,11 +176,34 @@ class DatabaseManager:
                 print("serial_number column added to attendance_logs table successfully")
             except Exception as e:
                 print(f"Warning: Could not add serial_number column to attendance_logs table: {e}")
-        
+
+        # Handle migration from is_synced to sync_status
+        if 'sync_status' not in columns:
+            if 'is_synced' in columns:
+                print("Migrating from is_synced to sync_status...")
+                # Add new sync_status column
+                cursor.execute('ALTER TABLE attendance_logs ADD COLUMN sync_status TEXT DEFAULT "pending"')
+
+                # Migrate existing data: is_synced=1 -> 'synced', is_synced=0 -> 'pending'
+                cursor.execute('''
+                    UPDATE attendance_logs
+                    SET sync_status = CASE
+                        WHEN is_synced = 1 THEN 'synced'
+                        ELSE 'pending'
+                    END
+                ''')
+                print("Data migrated from is_synced to sync_status successfully")
+
+                # Note: We keep is_synced column for backward compatibility during transition
+                print("Note: is_synced column kept for backward compatibility")
+            else:
+                print("Adding sync_status column to attendance_logs table...")
+                cursor.execute('ALTER TABLE attendance_logs ADD COLUMN sync_status TEXT DEFAULT "pending"')
+
         if 'is_synced' not in columns:
             print("Adding is_synced column to attendance_logs table...")
             cursor.execute('ALTER TABLE attendance_logs ADD COLUMN is_synced BOOLEAN DEFAULT FALSE')
-            
+
         if 'synced_at' not in columns:
             print("Adding synced_at column to attendance_logs table...")
             cursor.execute('ALTER TABLE attendance_logs ADD COLUMN synced_at DATETIME NULL')

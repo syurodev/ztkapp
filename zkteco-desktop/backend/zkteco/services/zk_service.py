@@ -20,7 +20,7 @@ from zkteco.logger import app_logger
 from zkteco.zk_mock import ZKMock
 from zkteco.services.connection_manager import connection_manager
 from zkteco.config.config_manager_sqlite import config_manager
-from zkteco.database.models import user_repo, attendance_repo, AttendanceLog
+from zkteco.database.models import user_repo, attendance_repo, AttendanceLog, SyncStatus
 
 load_dotenv()
 
@@ -247,7 +247,8 @@ class ZkService:
                             "device_timestamp": record.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
                             "sync_source": "manual_device_sync"
                         },
-                        is_synced=False  # Default to not synced
+                        sync_status=SyncStatus.PENDING,  # Default to pending
+                        is_synced=False  # kept for backward compatibility
                     )
                     
                     # Use safe create to avoid duplicates

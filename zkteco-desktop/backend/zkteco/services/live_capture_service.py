@@ -10,7 +10,116 @@ from struct import unpack
 from socket import timeout
 import struct
 
-# To prevent starting multiple threads
+# Multi-device live capture support
+from .multi_device_live_capture import (
+    multi_device_config, 
+    device_health_monitor, 
+    device_safety_manager
+)
+
+class MultiDeviceLiveCaptureManager:
+    """Manages live capture threads for multiple devices"""
+    
+    def __init__(self):
+        self.device_threads = {}  # device_id -> thread
+        self.device_locks = {}    # device_id -> lock
+        self.main_lock = threading.Lock()
+        self.max_concurrent_devices = multi_device_config.get('max_concurrent_devices', 10)
+        
+    def start_device_capture(self, device_id: str):
+        """Start live capture for a specific device with safety checks"""
+        with self.main_lock:
+            # Check if already running
+            if device_id in self.device_threads and self.device_threads[device_id].is_alive():
+                app_logger.info(f"Live capture already running for device {device_id}")
+                return
+            
+            # Safety validation
+            active_count = len([t for t in self.device_threads.values() if t.is_alive()])
+            can_start, reason = device_safety_manager.validate_device_start(device_id, active_count)
+            
+            if not can_start:
+                app_logger.error(f"Cannot start device {device_id}: {reason}")
+                return
+                
+            # Create device-specific lock if needed
+            if device_id not in self.device_locks:
+                self.device_locks[device_id] = threading.Lock()
+            
+            app_logger.info(f"Starting live capture thread for device {device_id}")
+            
+            try:
+                thread = threading.Thread(
+                    target=self._device_capture_wrapper, 
+                    args=(device_id,), 
+                    daemon=True,
+                    name=f"LiveCapture-{device_id}"
+                )
+                self.device_threads[device_id] = thread
+                thread.start()
+                
+                # Record successful start
+                device_health_monitor.record_connection(device_id)
+                app_logger.info(f"Live capture thread started successfully for device {device_id}")
+                
+            except Exception as e:
+                app_logger.error(f"Failed to start live capture thread for device {device_id}: {e}")
+                device_health_monitor.record_error(device_id, str(e))
+                # Clean up on failure
+                if device_id in self.device_threads:
+                    del self.device_threads[device_id]
+    
+    def _device_capture_wrapper(self, device_id: str):
+        """Wrapper for device capture with error isolation and monitoring"""
+        try:
+            live_capture_worker(device_id)
+        except Exception as e:
+            app_logger.error(f"Live capture worker error for device {device_id}: {e}")
+            device_health_monitor.record_error(device_id, str(e))
+        finally:
+            device_health_monitor.record_disconnection(device_id)
+            app_logger.info(f"Live capture worker finished for device {device_id}")
+    
+    def stop_device_capture(self, device_id: str):
+        """Stop live capture for a specific device"""
+        with self.main_lock:
+            if device_id in self.device_threads:
+                thread = self.device_threads[device_id]
+                if thread.is_alive():
+                    app_logger.info(f"Stopping live capture thread for device {device_id}")
+                    # Thread will stop on next connection check
+                device_health_monitor.record_disconnection(device_id)
+                del self.device_threads[device_id]
+                
+    def stop_all_captures(self):
+        """Stop all live capture threads"""
+        with self.main_lock:
+            device_ids = list(self.device_threads.keys())
+            for device_id in device_ids:
+                self.stop_device_capture(device_id)
+    
+    def get_active_devices(self):
+        """Get list of devices with active capture threads"""
+        with self.main_lock:
+            active_devices = []
+            for device_id, thread in list(self.device_threads.items()):
+                if thread.is_alive():
+                    active_devices.append(device_id)
+                else:
+                    # Clean up dead threads
+                    del self.device_threads[device_id]
+            return active_devices
+    
+    def is_device_active(self, device_id: str):
+        """Check if device has active capture thread"""
+        with self.main_lock:
+            return (device_id in self.device_threads and 
+                   self.device_threads[device_id].is_alive())
+
+# Global multi-device manager instance
+multi_device_manager = MultiDeviceLiveCaptureManager()
+
+# Legacy support - single thread capture
 capture_thread = None
 capture_lock = threading.Lock()
 
@@ -21,70 +130,103 @@ def strtobool(val):
 # ====================
 # OLD IMPLEMENTATION - RESTORED WITH ENHANCED PARSING (Date: 2025-09-05)
 # ====================
-def live_capture_worker():
-    """The background worker function that captures attendance with enhanced parsing."""
+def live_capture_worker(device_id=None):
+    """The background worker function that captures attendance with enhanced parsing.
+    
+    Args:
+        device_id (str, optional): Specific device ID to capture from. 
+                                 If None, uses active device (legacy mode).
+    """
 
     use_mock = bool(strtobool(os.getenv("USE_MOCK_DEVICE", "false")))
 
     if use_mock:
         # Use mock implementation for testing
-        app_logger.info("Using mock device for live capture")
-        _mock_live_capture_worker()
+        app_logger.info(f"Using mock device for live capture (device_id: {device_id})")
+        _mock_live_capture_worker(device_id)
         return
 
-    # Main implementation for real devices - get active device from database
+    # Import here to avoid circular imports
     from zkteco.config.config_manager_sqlite import config_manager
+    from zkteco.services.connection_manager import connection_manager
     
     zk = None
+    target_device = None
 
     while True:
         try:
-            # Get active device from database
-            active_device = config_manager.get_active_device()
-            if not active_device:
-                app_logger.error("No active device found in database for live capture")
-                time.sleep(10)
-                continue
+            # Get target device info
+            if device_id:
+                # Multi-device mode - get specific device
+                target_device = config_manager.get_device(device_id)
+                if not target_device:
+                    app_logger.error(f"Device {device_id} not found in database")
+                    time.sleep(10)
+                    continue
+                    
+                if not target_device.get('is_active', True):
+                    app_logger.info(f"Device {device_id} is inactive, stopping live capture")
+                    break
+                    
+            else:
+                # Legacy mode - get active device
+                target_device = config_manager.get_active_device()
+                if not target_device:
+                    app_logger.error("No active device found in database for live capture")
+                    time.sleep(10)
+                    continue
+                device_id = target_device.get('id')
                 
-            ip = active_device.get('ip')
-            port = int(active_device.get('port', 4370))
-            password = int(active_device.get('password', 0))
-            timeout = int(active_device.get('timeout', 30))
-            force_udp = bool(active_device.get('force_udp', False))
-            
+            ip = target_device.get('ip')
             if not ip:
-                app_logger.error("Active device has no IP address configured")
+                app_logger.error(f"Device {device_id} has no IP address configured")
                 time.sleep(10)
                 continue
             
-            app_logger.info(f"Live capture thread: Connecting to device {active_device.get('name', 'Unknown')} at {ip}:{port}...")
-            zk = ZK(ip, port=port, password=password, timeout=timeout, force_udp=force_udp, verbose=False)
-            zk.connect()
-            app_logger.info("Live capture thread: Connected successfully.")
+            app_logger.info(f"Live capture thread: Connecting to device {target_device.get('name', 'Unknown')} (ID: {device_id}) at {ip}...")
+            
+            # Use connection manager for device-specific connection
+            if device_id:
+                # Configure device in connection manager if not already done
+                device_config = {
+                    'ip': target_device.get('ip'),
+                    'port': target_device.get('port', 4370),
+                    'password': target_device.get('password', 0),
+                    'timeout': target_device.get('timeout', 30),
+                    'force_udp': target_device.get('force_udp', False),
+                    'verbose': False
+                }
+                connection_manager.configure_device(device_id, device_config)
+                zk = connection_manager.get_device_connection(device_id)
+            else:
+                # Legacy mode
+                zk = connection_manager.get_connection()
+                
+            app_logger.info(f"Live capture thread: Connected successfully to device {device_id}")
 
             # Use custom live capture with enhanced parsing
-            _enhanced_live_capture(zk)
+            _enhanced_live_capture(zk, device_id)
 
         except (OSError, BrokenPipeError, ConnectionError) as e:
-            app_logger.error(f"Live capture socket error: {e}")
+            app_logger.error(f"Live capture socket error for device {device_id}: {e}")
             if zk:
                 try:
                     zk.disconnect()
                 except:
                     pass
-            app_logger.info("Live capture thread: Reconnecting in 10 seconds...")
+            app_logger.info(f"Live capture thread for device {device_id}: Reconnecting in 10 seconds...")
             time.sleep(10)
         except Exception as e:
-            app_logger.error(f"Live capture thread error: {e}")
+            app_logger.error(f"Live capture thread error for device {device_id}: {e}")
             if zk:
                 try:
                     zk.disconnect()
                 except:
                     pass
-            app_logger.info("Live capture thread: Reconnecting in 10 seconds...")
+            app_logger.info(f"Live capture thread for device {device_id}: Reconnecting in 10 seconds...")
             time.sleep(10)
         else:
-            app_logger.warning("Live capture loop exited. Reconnecting in 10 seconds.")
+            app_logger.warning(f"Live capture loop exited for device {device_id}. Reconnecting in 10 seconds.")
             if zk:
                 try:
                     zk.disconnect()
@@ -92,33 +234,57 @@ def live_capture_worker():
                     pass
             time.sleep(10)
 
-def _mock_live_capture_worker():
-    """Mock implementation for testing"""
+def _mock_live_capture_worker(device_id=None):
+    """Mock implementation for testing
+    
+    Args:
+        device_id (str, optional): Specific device ID for mock capture.
+                                 If None, uses environment variables.
+    """
     from zkteco.zk_mock import ZKMock
-
-    ip = os.environ.get('DEVICE_IP')
-    port = int(os.environ.get('DEVICE_PORT', 4370))
-    password = int(os.environ.get('PASSWORD', 0))
+    from zkteco.config.config_manager_sqlite import config_manager
 
     zk = None
+    target_device = None
+    
     while True:
         try:
-            app_logger.info("Mock live capture: Connecting to device...")
+            if device_id:
+                # Multi-device mock mode
+                target_device = config_manager.get_device(device_id)
+                if not target_device:
+                    app_logger.error(f"Mock device {device_id} not found in database")
+                    time.sleep(10)
+                    continue
+                    
+                ip = target_device.get('ip')
+                port = int(target_device.get('port', 4370))
+                password = int(target_device.get('password', 0))
+                
+                app_logger.info(f"Mock live capture: Connecting to device {device_id}...")
+            else:
+                # Legacy mock mode
+                ip = os.environ.get('DEVICE_IP')
+                port = int(os.environ.get('DEVICE_PORT', 4370))
+                password = int(os.environ.get('PASSWORD', 0))
+                
+                app_logger.info("Mock live capture: Connecting to device...")
+            
             zk = ZKMock(ip, port=port, password=password, timeout=30, verbose=False)
             zk.connect()
-            app_logger.info("Mock live capture: Connected successfully.")
+            app_logger.info(f"Mock live capture: Connected successfully (device_id: {device_id})")
 
             for attendance in zk.live_capture():
                 if attendance is None:
                     continue
 
-                app_logger.info(f"Mock live capture: Received attendance event for user {attendance}")
+                app_logger.info(f"Mock live capture: Received attendance event for user {attendance} (device_id: {device_id})")
 
                 # Use updated function that gets device info from database
-                _queue_attendance_event(attendance.user_id, attendance.status, attendance.punch, None)
+                _queue_attendance_event(attendance.user_id, attendance.status, attendance.punch, device_id)
 
         except Exception as e:
-            app_logger.error(f"Mock live capture error: {e}")
+            app_logger.error(f"Mock live capture error (device_id: {device_id}): {e}")
             if zk:
                 try:
                     zk.disconnect()
@@ -130,9 +296,14 @@ def _mock_live_capture_worker():
 # ENHANCED LIVE CAPTURE WITH CUSTOM PARSING - Integrated from NEW IMPLEMENTATION (Date: 2025-09-05)
 # ====================
 
-def _enhanced_live_capture(zk):
-    """Enhanced live capture with custom socket parsing and proper error handling"""
-    app_logger.info("Starting enhanced live capture with custom socket parsing")
+def _enhanced_live_capture(zk, device_id=None):
+    """Enhanced live capture with custom socket parsing and proper error handling
+    
+    Args:
+        zk: ZK device connection instance
+        device_id (str, optional): Device ID for logging and event processing
+    """
+    app_logger.info(f"Starting enhanced live capture with custom socket parsing (device_id: {device_id})")
 
     try:
         zk.cancel_capture()
@@ -181,10 +352,10 @@ def _enhanced_live_capture(zk):
                     # Parse device timestamp from _timehex
                     device_timestamp = _parse_device_timestamp(_timehex)
 
-                    app_logger.info(f"Live capture: Attendance detected for user_id: {user_id}, status: {_status}, punch: {_punch}, device_time: {device_timestamp}")
+                    app_logger.info(f"Live capture: Attendance detected for user_id: {user_id}, status: {_status}, punch: {_punch}, device_time: {device_timestamp} (device_id: {device_id})")
 
                     # Use updated function that gets device info from database
-                    _queue_attendance_event(user_id, _status, _punch, None, device_timestamp)
+                    _queue_attendance_event(user_id, _status, _punch, device_id, device_timestamp)
 
             except timeout:
                 app_logger.debug("Socket timeout in live capture - continuing...")
@@ -336,9 +507,20 @@ def _queue_attendance_event(member_id, method, action, device_id=None, device_ti
     """Queue attendance event to events_queue and save to database"""
     try:
         current_time = datetime.now()
+        serial_number = None
 
-        # Get active device info if device_id not provided
-        if not device_id:
+        # Get device info - support both specific device_id and fallback
+        if device_id:
+            # Multi-device mode: get specific device info
+            from zkteco.config.config_manager_sqlite import config_manager
+            device = config_manager.get_device(device_id)
+            if device:
+                serial_number = device.get('serial_number')
+                app_logger.debug(f"Using specific device: device_id={device_id}, serial_number={serial_number}")
+            else:
+                app_logger.warning(f"Device {device_id} not found in database, using provided device_id")
+        else:
+            # Legacy mode: get active device info
             device_id, serial_number = _get_active_device_info()
             app_logger.info(f"Using active device: device_id={device_id}, serial_number={serial_number}")
 
@@ -347,7 +529,7 @@ def _queue_attendance_event(member_id, method, action, device_id=None, device_ti
 
         # Log timestamp source for debugging
         timestamp_source = "device" if device_timestamp else "server"
-        app_logger.debug(f"Using {timestamp_source} timestamp: {actual_timestamp}")
+        app_logger.debug(f"Using {timestamp_source} timestamp: {actual_timestamp} for device {device_id}")
 
         # Create AttendanceLog object
         attendance_log = AttendanceLog(
@@ -356,7 +538,7 @@ def _queue_attendance_event(member_id, method, action, device_id=None, device_ti
             method=method,  # 1: fingerprint, 4: card, etc.
             action=action,   # 0: checkin, 1: checkout, etc.
             device_id=device_id,
-            serial_number=serial_number if 'serial_number' in locals() else None,
+            serial_number=serial_number,
             raw_data={
                 "original_status": method,
                 "original_punch": action,
@@ -365,7 +547,7 @@ def _queue_attendance_event(member_id, method, action, device_id=None, device_ti
                 "timestamp_source": timestamp_source,
                 "device_info": {
                     "device_id": device_id,
-                    "serial_number": serial_number if 'serial_number' in locals() else None
+                    "serial_number": serial_number
                 }
             },
             is_synced=False  # Default to not synced
@@ -413,11 +595,125 @@ def _queue_attendance_event(member_id, method, action, device_id=None, device_ti
             app_logger.error(f"Error queuing fallback event: {queue_error}")
 
 
+# ====================
+# MULTI-DEVICE FUNCTIONS
+# ====================
+
+def start_multi_device_capture():
+    """Start live capture for all active devices in the database."""
+    from zkteco.config.config_manager_sqlite import config_manager
+    
+    try:
+        # Get all active devices
+        active_devices = config_manager.get_devices_by_status(is_active=True)
+        
+        if not active_devices:
+            app_logger.warning("No active devices found for multi-device live capture")
+            return
+            
+        app_logger.info(f"Starting multi-device live capture for {len(active_devices)} devices")
+        
+        for device in active_devices:
+            device_id = device.get('id')
+            device_name = device.get('name', 'Unknown')
+            
+            try:
+                multi_device_manager.start_device_capture(device_id)
+                app_logger.info(f"Started live capture for device: {device_name} (ID: {device_id})")
+            except Exception as e:
+                app_logger.error(f"Failed to start live capture for device {device_name} (ID: {device_id}): {e}")
+                
+        # Log current status
+        active_captures = multi_device_manager.get_active_devices()
+        app_logger.info(f"Multi-device live capture started. Active captures: {len(active_captures)} devices")
+        
+    except Exception as e:
+        app_logger.error(f"Error starting multi-device live capture: {e}")
+
+def stop_multi_device_capture():
+    """Stop live capture for all devices."""
+    try:
+        active_devices = multi_device_manager.get_active_devices()
+        app_logger.info(f"Stopping multi-device live capture for {len(active_devices)} devices")
+        
+        multi_device_manager.stop_all_captures()
+        app_logger.info("Multi-device live capture stopped")
+        
+    except Exception as e:
+        app_logger.error(f"Error stopping multi-device live capture: {e}")
+
+def start_device_capture(device_id: str):
+    """Start live capture for a specific device.
+    
+    Args:
+        device_id (str): Device ID to start capture for
+    """
+    try:
+        from zkteco.config.config_manager_sqlite import config_manager
+        
+        # Verify device exists and is active
+        device = config_manager.get_device(device_id)
+        if not device:
+            app_logger.error(f"Device {device_id} not found")
+            return False
+            
+        if not device.get('is_active', True):
+            app_logger.warning(f"Device {device_id} is not active")
+            return False
+            
+        multi_device_manager.start_device_capture(device_id)
+        app_logger.info(f"Started live capture for device {device_id}")
+        return True
+        
+    except Exception as e:
+        app_logger.error(f"Error starting live capture for device {device_id}: {e}")
+        return False
+
+def stop_device_capture(device_id: str):
+    """Stop live capture for a specific device.
+    
+    Args:
+        device_id (str): Device ID to stop capture for
+    """
+    try:
+        multi_device_manager.stop_device_capture(device_id)
+        app_logger.info(f"Stopped live capture for device {device_id}")
+        return True
+        
+    except Exception as e:
+        app_logger.error(f"Error stopping live capture for device {device_id}: {e}")
+        return False
+
+def get_capture_status():
+    """Get status of all live capture threads.
+    
+    Returns:
+        dict: Status information about active captures
+    """
+    try:
+        active_devices = multi_device_manager.get_active_devices()
+        
+        status = {
+            'active_captures': len(active_devices),
+            'devices': active_devices,
+            'max_concurrent': multi_device_manager.max_concurrent_devices
+        }
+        
+        return status
+        
+    except Exception as e:
+        app_logger.error(f"Error getting capture status: {e}")
+        return {'error': str(e)}
+
+# ====================
+# LEGACY FUNCTIONS (for backward compatibility)
+# ====================
+
 def start_live_capture_thread():
-    """Starts the live capture thread if it's not already running."""
+    """Starts the live capture thread if it's not already running (legacy mode)."""
     global capture_thread
     with capture_lock:
         if capture_thread is None or not capture_thread.is_alive():
-            app_logger.info("Starting live capture background thread.")
+            app_logger.info("Starting live capture background thread (legacy mode)")
             capture_thread = threading.Thread(target=live_capture_worker, daemon=True)
             capture_thread.start()

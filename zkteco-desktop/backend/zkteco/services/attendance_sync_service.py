@@ -1,0 +1,734 @@
+import time
+import requests
+from datetime import datetime, date, timedelta
+from typing import Optional, Dict, Any, List
+from collections import defaultdict
+
+from zkteco.logger import app_logger
+from zkteco.database.models import attendance_repo, user_repo, SyncStatus
+from zkteco.database.db_manager import db_manager
+from zkteco.config.config_manager_sqlite import config_manager
+
+
+class AttendanceSyncService:
+    """Service for syncing daily attendance data with first checkin/last checkout logic"""
+
+    def __init__(self):
+        self.logger = app_logger
+
+    def sync_attendance_daily(self, target_date: Optional[str] = None, device_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Sync daily attendance data with first checkin/last checkout logic and anti-duplicate protection
+
+        Args:
+            target_date: Date in YYYY-MM-DD format (default: today)
+            device_id: Specific device ID (optional)
+
+        Returns:
+            Dict with sync results and statistics
+        """
+        try:
+            # Parse target date or get all pending dates
+            if target_date:
+                sync_dates = [datetime.strptime(target_date, '%Y-%m-%d').date()]
+            else:
+                # Get all dates with pending records
+                pending_dates = attendance_repo.get_pending_sync_dates(device_id)
+                if not pending_dates:
+                    return {
+                        'success': True,
+                        'message': 'No pending attendance data found',
+                        'dates_processed': [],
+                        'count': 0
+                    }
+
+                # Convert string dates to date objects
+                sync_dates = [datetime.strptime(date_str, '%Y-%m-%d').date() for date_str in pending_dates]
+
+            self.logger.info(f"Starting attendance sync for dates: {sync_dates}, device: {device_id or 'all'}")
+
+            total_synced = 0
+            processed_dates = []
+            all_attendance_summaries = []
+
+            # Process each date and collect all data
+            for sync_date in sync_dates:
+                self.logger.info(f"Processing attendance for date: {sync_date}")
+
+                # Apply anti-duplicate logic and get attendance data
+                attendance_summary = self._calculate_daily_attendance_with_dedup(sync_date, device_id)
+
+                if attendance_summary:
+                    # Add date and device info to each user summary
+                    for user_summary in attendance_summary:
+                        user_summary['date'] = str(sync_date)
+                        user_summary['device_id'] = device_id
+
+                        # Get device serial for this summary
+                        if device_id:
+                            device = config_manager.get_device(device_id)
+                        else:
+                            device = config_manager.get_active_device()
+
+                        serial_number = 'unknown'
+                        if device:
+                            device_info = device.get('device_info', {})
+                            serial_number = device_info.get('serial_number', device.get('serial_number', device_id or 'unknown'))
+
+                        user_summary['device_serial'] = serial_number
+
+                    total_synced += len(attendance_summary)
+                    all_attendance_summaries.extend(attendance_summary)
+
+                processed_dates.append(str(sync_date))
+
+            # Save attendance summaries to JSON file for debugging
+            import json
+            import os
+            debug_file = os.path.join(os.path.dirname(__file__), '..', '..', 'attendance_debug.json')
+            with open(debug_file, 'w', encoding='utf-8') as f:
+                json.dump(all_attendance_summaries, f, indent=2, ensure_ascii=False, default=str)
+            app_logger.info(f"Saved {len(all_attendance_summaries)} attendance summaries to {debug_file}")
+
+            # Send all collected data to external API in one request
+            # if all_attendance_summaries:
+            #     # Get external API configuration
+            #     external_api_domain = config_manager.get_external_api_url()
+            #     if not external_api_domain:
+            #         raise ValueError("EXTERNAL_API_DOMAIN not configured in config.json")
+
+            #     # Send all data to external API
+            #     sync_result = self._send_consolidated_to_external_api(all_attendance_summaries, external_api_domain)
+
+            #     # Extract synced IDs from API response (if provided)
+            #     synced_ids = sync_result.get('synced_ids', [])
+
+            #     # Mark processed records as synced based on returned IDs
+            #     self._finalize_sync_status_by_ids(all_attendance_summaries, synced_ids)
+
+            self.logger.info(f"Attendance sync completed for {len(processed_dates)} dates: {total_synced} total records")
+
+            return {
+                'success': True,
+                'dates_processed': processed_dates,
+                'count': total_synced,
+                'attendance_summary': all_attendance_summaries,
+                'total_dates': len(processed_dates)
+            }
+
+        except Exception as e:
+            self.logger.error(f"Error in sync_attendance_daily: {type(e).__name__}: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'dates_processed': []
+            }
+
+    def _calculate_daily_attendance(self, target_date: date, device_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Calculate first checkin and last checkout for each user on target date
+
+        Args:
+            target_date: Target date for calculation
+            device_id: Optional device filter
+
+        Returns:
+            List of attendance summaries per user
+        """
+        try:
+            # Query attendance logs for the target date
+            start_datetime = datetime.combine(target_date, datetime.min.time())
+            end_datetime = datetime.combine(target_date, datetime.max.time())
+
+            # Get pending attendance logs for the date range
+            if device_id:
+                query = """
+                    SELECT * FROM attendance_logs
+                    WHERE device_id = ? AND timestamp BETWEEN ? AND ? AND sync_status = ?
+                    ORDER BY user_id, timestamp
+                """
+                logs = db_manager.fetch_all(query, (device_id, start_datetime, end_datetime, SyncStatus.PENDING))
+            else:
+                query = """
+                    SELECT * FROM attendance_logs
+                    WHERE timestamp BETWEEN ? AND ? AND sync_status = ?
+                    ORDER BY user_id, timestamp
+                """
+                logs = db_manager.fetch_all(query, (start_datetime, end_datetime, SyncStatus.PENDING))
+
+            if not logs:
+                return []
+
+            # Group logs by user_id
+            user_logs = defaultdict(list)
+            for log in logs:
+                user_logs[log['user_id']].append(log)
+
+            # Get user names mapping
+            users = user_repo.get_all(device_id)
+            user_name_map = {user.user_id: user.name for user in users}
+
+            # Calculate first checkin and last checkout for each user
+            attendance_summary = []
+
+            for user_id, logs_list in user_logs.items():
+                # Separate checkin and checkout records
+                checkins = [log for log in logs_list if log['action'] == 0]  # action=0 is checkin
+                checkouts = [log for log in logs_list if log['action'] == 1]  # action=1 is checkout
+
+                first_checkin = None
+                last_checkout = None
+
+                # Find first checkin (earliest timestamp)
+                if checkins:
+                    first_checkin_log = min(checkins, key=lambda x: x['timestamp'])
+                    timestamp = first_checkin_log['timestamp']
+                    # Handle both string and datetime objects
+                    if isinstance(timestamp, str):
+                        first_checkin = timestamp
+                    else:
+                        first_checkin = timestamp.strftime('%Y-%m-%d %H:%M:%S')
+
+                # Find last checkout (latest timestamp)
+                if checkouts:
+                    last_checkout_log = max(checkouts, key=lambda x: x['timestamp'])
+                    timestamp = last_checkout_log['timestamp']
+                    # Handle both string and datetime objects
+                    if isinstance(timestamp, str):
+                        last_checkout = timestamp
+                    else:
+                        last_checkout = timestamp.strftime('%Y-%m-%d %H:%M:%S')
+
+                # Only include users who have at least one checkin or checkout
+                if first_checkin or last_checkout:
+                    user_summary = {
+                        'user_id': user_id,
+                        'name': user_name_map.get(user_id, 'Unknown User'),
+                        'first_checkin': first_checkin,
+                        'last_checkout': last_checkout,
+                        'total_checkins': len(checkins),
+                        'total_checkouts': len(checkouts)
+                    }
+                    attendance_summary.append(user_summary)
+
+            self.logger.info(f"Calculated attendance for {len(attendance_summary)} users on {target_date}")
+            return attendance_summary
+
+        except Exception as e:
+            self.logger.error(f"Error calculating daily attendance: {e}")
+            raise
+
+    def _calculate_daily_attendance_with_dedup(self, target_date: date, device_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Calculate first checkin and last checkout with anti-duplicate logic
+
+        Args:
+            target_date: Target date for calculation
+            device_id: Optional device filter
+
+        Returns:
+            List of attendance summaries per user with deduplication applied (includes record IDs)
+        """
+        try:
+            # Get basic attendance summary with record IDs
+            attendance_summary = self._calculate_daily_attendance_with_ids(target_date, device_id)
+
+            if not attendance_summary:
+                return []
+
+            # Apply anti-duplicate logic for each user
+            final_summary = []
+            target_date_str = str(target_date)
+
+            for user_summary in attendance_summary:
+                user_id = user_summary['user_id']
+
+                # Check if this user already has synced checkin for this date
+                has_synced_checkin = attendance_repo.has_synced_record_for_date_action(
+                    user_id, target_date_str, 0, device_id  # action=0 is checkin
+                )
+
+                # Check if this user already has synced checkout for this date
+                has_synced_checkout = attendance_repo.has_synced_record_for_date_action(
+                    user_id, target_date_str, 1, device_id  # action=1 is checkout
+                )
+
+                # Modify user summary based on existing synced records
+                if has_synced_checkin:
+                    user_summary['first_checkin'] = None  # Don't sync checkin again
+                    user_summary['first_checkin_id'] = None
+                    self.logger.info(f"User {user_id} already has synced checkin for {target_date_str}, skipping")
+
+                if has_synced_checkout:
+                    user_summary['last_checkout'] = None  # Don't sync checkout again
+                    user_summary['last_checkout_id'] = None
+                    self.logger.info(f"User {user_id} already has synced checkout for {target_date_str}, skipping")
+
+                # Only include user if they have at least one valid record to sync
+                if user_summary['first_checkin'] or user_summary['last_checkout']:
+                    final_summary.append(user_summary)
+                else:
+                    self.logger.info(f"User {user_id} has no new records to sync for {target_date_str}")
+
+            self.logger.info(f"After deduplication: {len(final_summary)} users to sync for {target_date}")
+            return final_summary
+
+        except Exception as e:
+            self.logger.error(f"Error calculating daily attendance with dedup: {e}")
+            raise
+
+    def _calculate_daily_attendance_with_ids(self, target_date: date, device_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Calculate first checkin and last checkout for each user on target date with record IDs
+
+        Args:
+            target_date: Target date for calculation
+            device_id: Optional device filter
+
+        Returns:
+            List of attendance summaries per user including record IDs
+        """
+        try:
+            # Query attendance logs for the target date
+            start_datetime = datetime.combine(target_date, datetime.min.time())
+            end_datetime = datetime.combine(target_date, datetime.max.time())
+
+            # Get pending attendance logs for the date range
+            if device_id:
+                query = """
+                    SELECT * FROM attendance_logs
+                    WHERE device_id = ? AND timestamp BETWEEN ? AND ? AND sync_status = ?
+                    ORDER BY user_id, timestamp
+                """
+                logs = db_manager.fetch_all(query, (device_id, start_datetime, end_datetime, SyncStatus.PENDING))
+            else:
+                query = """
+                    SELECT * FROM attendance_logs
+                    WHERE timestamp BETWEEN ? AND ? AND sync_status = ?
+                    ORDER BY user_id, timestamp
+                """
+                logs = db_manager.fetch_all(query, (start_datetime, end_datetime, SyncStatus.PENDING))
+
+            if not logs:
+                return []
+
+            # Group logs by user_id
+            user_logs = defaultdict(list)
+            for log in logs:
+                user_logs[log['user_id']].append(log)
+
+            # Get user names mapping
+            users = user_repo.get_all(device_id)
+            user_name_map = {user.user_id: user.name for user in users}
+
+            # Calculate first checkin and last checkout for each user with IDs
+            attendance_summary = []
+
+            for user_id, logs_list in user_logs.items():
+                # Separate checkin and checkout records
+                checkins = [log for log in logs_list if log['action'] == 0]  # action=0 is checkin
+                checkouts = [log for log in logs_list if log['action'] == 1]  # action=1 is checkout
+
+                first_checkin = None
+                first_checkin_id = None
+                last_checkout = None
+                last_checkout_id = None
+
+                # Find first checkin (earliest timestamp)
+                if checkins:
+                    first_checkin_log = min(checkins, key=lambda x: x['timestamp'])
+                    timestamp = first_checkin_log['timestamp']
+                    # Handle both string and datetime objects
+                    if isinstance(timestamp, str):
+                        first_checkin = timestamp
+                    else:
+                        first_checkin = timestamp.strftime('%Y-%m-%d %H:%M:%S')
+                    first_checkin_id = first_checkin_log['id']
+
+                # Find last checkout (latest timestamp)
+                if checkouts:
+                    last_checkout_log = max(checkouts, key=lambda x: x['timestamp'])
+                    timestamp = last_checkout_log['timestamp']
+                    # Handle both string and datetime objects
+                    if isinstance(timestamp, str):
+                        last_checkout = timestamp
+                    else:
+                        last_checkout = timestamp.strftime('%Y-%m-%d %H:%M:%S')
+                    last_checkout_id = last_checkout_log['id']
+
+                # Only include users who have at least one checkin or checkout
+                if first_checkin or last_checkout:
+                    user_summary = {
+                        'user_id': user_id,
+                        'name': user_name_map.get(user_id, 'Unknown User'),
+                        'first_checkin': first_checkin,
+                        'first_checkin_id': first_checkin_id,
+                        'last_checkout': last_checkout,
+                        'last_checkout_id': last_checkout_id,
+                        'total_checkins': len(checkins),
+                        'total_checkouts': len(checkouts)
+                    }
+                    attendance_summary.append(user_summary)
+
+            self.logger.info(f"Calculated attendance with IDs for {len(attendance_summary)} users on {target_date}")
+            return attendance_summary
+
+        except Exception as e:
+            self.logger.error(f"Error calculating daily attendance with IDs: {e}")
+            raise
+
+    def _finalize_sync_status(self, attendance_summary: List[Dict[str, Any]], sync_date: date, device_id: Optional[str] = None, synced_ids: List[int] = None):
+        """
+        Mark appropriate records as synced and others as skipped
+
+        Args:
+            attendance_summary: List of user attendance summaries that were sent to API
+            sync_date: Date that was synced
+            device_id: Optional device filter
+            synced_ids: List of record IDs that were successfully synced (from API response)
+        """
+        try:
+            target_date_str = str(sync_date)
+
+            for user_summary in attendance_summary:
+                user_id = user_summary['user_id']
+
+                # If checkin was synced, mark the first checkin as synced and others as skipped
+                if user_summary.get('first_checkin') and user_summary.get('first_checkin_id'):
+                    checkin_id = user_summary['first_checkin_id']
+
+                    # Check if this ID was successfully synced (if API provided feedback)
+                    if synced_ids is None or checkin_id in synced_ids:
+                        attendance_repo.update_sync_status(checkin_id, SyncStatus.SYNCED)
+                        self.logger.info(f"User {user_id} checkin {checkin_id} marked as synced")
+                    else:
+                        self.logger.warning(f"User {user_id} checkin {checkin_id} was not confirmed by external API")
+
+                    # Mark other checkin records as skipped
+                    self._mark_other_records_as_skipped(user_id, target_date_str, 0, checkin_id, device_id)
+
+                # If checkout was synced, mark the last checkout as synced and others as skipped
+                if user_summary.get('last_checkout') and user_summary.get('last_checkout_id'):
+                    checkout_id = user_summary['last_checkout_id']
+
+                    # Check if this ID was successfully synced (if API provided feedback)
+                    if synced_ids is None or checkout_id in synced_ids:
+                        attendance_repo.update_sync_status(checkout_id, SyncStatus.SYNCED)
+                        self.logger.info(f"User {user_id} checkout {checkout_id} marked as synced")
+                    else:
+                        self.logger.warning(f"User {user_id} checkout {checkout_id} was not confirmed by external API")
+
+                    # Mark other checkout records as skipped
+                    self._mark_other_records_as_skipped(user_id, target_date_str, 1, checkout_id, device_id)
+
+            self.logger.info(f"Finalized sync status for {len(attendance_summary)} users on {target_date_str}")
+
+        except Exception as e:
+            self.logger.error(f"Error finalizing sync status: {e}")
+            raise
+
+    def _finalize_sync_status_by_ids(self, attendance_summaries: List[Dict[str, Any]], synced_ids: List[int]):
+        """
+        Mark records as synced based on returned IDs from consolidated API response
+
+        Args:
+            attendance_summaries: List of all attendance summaries that were sent
+            synced_ids: List of record IDs that were successfully synced (from API response)
+        """
+        try:
+            for user_summary in attendance_summaries:
+                user_id = user_summary['user_id']
+                date = user_summary['date']
+                device_id = user_summary.get('device_id')
+
+                # Check and mark checkin record
+                if user_summary.get('first_checkin') and user_summary.get('first_checkin_id'):
+                    checkin_id = user_summary['first_checkin_id']
+
+                    if synced_ids is None or checkin_id in synced_ids:
+                        attendance_repo.update_sync_status(checkin_id, SyncStatus.SYNCED)
+                        self.logger.info(f"User {user_id} checkin {checkin_id} marked as synced")
+                    else:
+                        self.logger.warning(f"User {user_id} checkin {checkin_id} was not confirmed by external API")
+
+                    # Mark other checkin records as skipped
+                    self._mark_other_records_as_skipped(user_id, date, 0, checkin_id, device_id)
+
+                # Check and mark checkout record
+                if user_summary.get('last_checkout') and user_summary.get('last_checkout_id'):
+                    checkout_id = user_summary['last_checkout_id']
+
+                    if synced_ids is None or checkout_id in synced_ids:
+                        attendance_repo.update_sync_status(checkout_id, SyncStatus.SYNCED)
+                        self.logger.info(f"User {user_id} checkout {checkout_id} marked as synced")
+                    else:
+                        self.logger.warning(f"User {user_id} checkout {checkout_id} was not confirmed by external API")
+
+                    # Mark other checkout records as skipped
+                    self._mark_other_records_as_skipped(user_id, date, 1, checkout_id, device_id)
+
+            self.logger.info(f"Finalized sync status for {len(attendance_summaries)} attendance summaries")
+
+        except Exception as e:
+            self.logger.error(f"Error finalizing sync status by IDs: {e}")
+            raise
+
+    def _mark_other_records_as_skipped(self, user_id: str, target_date_str: str, action: int, exclude_id: int, device_id: Optional[str] = None):
+        """Mark other records as skipped (excluding the synced one)"""
+        try:
+            other_record_ids = attendance_repo.get_other_records_for_date_action(
+                user_id, target_date_str, action, exclude_id, device_id
+            )
+
+            if other_record_ids:
+                attendance_repo.mark_records_as_skipped(other_record_ids)
+                action_name = "checkin" if action == 0 else "checkout"
+                self.logger.info(f"User {user_id} {target_date_str}: marked {len(other_record_ids)} other {action_name} records as skipped")
+
+        except Exception as e:
+            self.logger.error(f"Error marking other records as skipped: {e}")
+            raise
+
+    def _mark_first_record_as_synced_others_skipped(self, user_id: str, target_date_str: str, action: int, device_id: Optional[str] = None):
+        """Mark first record (earliest) as synced, others as skipped"""
+        try:
+            # Get all pending records for this user, date, and action
+            if device_id:
+                query = """
+                    SELECT id FROM attendance_logs
+                    WHERE user_id = ? AND DATE(timestamp) = ? AND action = ? AND device_id = ? AND sync_status = ?
+                    ORDER BY timestamp ASC
+                """
+                rows = db_manager.fetch_all(query, (user_id, target_date_str, action, device_id, SyncStatus.PENDING))
+            else:
+                query = """
+                    SELECT id FROM attendance_logs
+                    WHERE user_id = ? AND DATE(timestamp) = ? AND action = ? AND sync_status = ?
+                    ORDER BY timestamp ASC
+                """
+                rows = db_manager.fetch_all(query, (user_id, target_date_str, action, SyncStatus.PENDING))
+
+            if rows:
+                first_record_id = rows[0]['id']
+                other_record_ids = [row['id'] for row in rows[1:]]
+
+                # Mark first record as synced
+                attendance_repo.update_sync_status(first_record_id, SyncStatus.SYNCED)
+
+                # Mark other records as skipped
+                if other_record_ids:
+                    attendance_repo.mark_records_as_skipped(other_record_ids)
+
+                action_name = "checkin" if action == 0 else "checkout"
+                self.logger.info(f"User {user_id} {target_date_str}: marked 1 {action_name} as synced, {len(other_record_ids)} as skipped")
+
+        except Exception as e:
+            self.logger.error(f"Error marking first record as synced: {e}")
+            raise
+
+    def _mark_last_record_as_synced_others_skipped(self, user_id: str, target_date_str: str, action: int, device_id: Optional[str] = None):
+        """Mark last record (latest) as synced, others as skipped"""
+        try:
+            # Get all pending records for this user, date, and action
+            if device_id:
+                query = """
+                    SELECT id FROM attendance_logs
+                    WHERE user_id = ? AND DATE(timestamp) = ? AND action = ? AND device_id = ? AND sync_status = ?
+                    ORDER BY timestamp DESC
+                """
+                rows = db_manager.fetch_all(query, (user_id, target_date_str, action, device_id, SyncStatus.PENDING))
+            else:
+                query = """
+                    SELECT id FROM attendance_logs
+                    WHERE user_id = ? AND DATE(timestamp) = ? AND action = ? AND sync_status = ?
+                    ORDER BY timestamp DESC
+                """
+                rows = db_manager.fetch_all(query, (user_id, target_date_str, action, SyncStatus.PENDING))
+
+            if rows:
+                last_record_id = rows[0]['id']
+                other_record_ids = [row['id'] for row in rows[1:]]
+
+                # Mark last record as synced
+                attendance_repo.update_sync_status(last_record_id, SyncStatus.SYNCED)
+
+                # Mark other records as skipped
+                if other_record_ids:
+                    attendance_repo.mark_records_as_skipped(other_record_ids)
+
+                action_name = "checkin" if action == 0 else "checkout"
+                self.logger.info(f"User {user_id} {target_date_str}: marked 1 {action_name} as synced, {len(other_record_ids)} as skipped")
+
+        except Exception as e:
+            self.logger.error(f"Error marking last record as synced: {e}")
+            raise
+
+    def _send_consolidated_to_external_api(self, attendance_summaries: List[Dict[str, Any]], external_api_domain: str) -> Dict[str, Any]:
+        """
+        Send consolidated attendance summaries to external API
+
+        Args:
+            attendance_summaries: List of all attendance summaries (with date and device info embedded)
+            external_api_domain: External API domain URL
+
+        Returns:
+            API response data
+        """
+        try:
+            # Construct API URL
+            external_api_url = external_api_domain + '/attendance/daily-sync'
+
+            # Prepare sync data with simplified structure
+            sync_data = {
+                'timestamp': int(time.time()),
+                'attendance_summary': attendance_summaries
+            }
+
+            # Prepare headers
+            headers = {
+                'Content-Type': 'application/json',
+                'ProjectId': '1055'
+            }
+
+            self.logger.info(f"Sending consolidated attendance data to {external_api_url} for {len(attendance_summaries)} records")
+
+            # Make API request
+            response = requests.post(
+                external_api_url,
+                json=sync_data,
+                headers=headers,
+                timeout=30
+            )
+
+            response.raise_for_status()
+            response_data = response.json()
+
+            self.logger.info(f"Successfully sent consolidated attendance data to external API: {response.status_code}")
+
+            return {
+                'status_code': response.status_code,
+                'response_data': response_data,
+                'sent_count': len(attendance_summaries),
+                'synced_ids': response_data.get('synced_ids') if response_data else None
+            }
+
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"HTTP error sending consolidated attendance data: {e}")
+            raise
+        except Exception as e:
+            self.logger.error(f"Error sending consolidated attendance data to external API: {e}")
+            raise
+
+    def _send_to_external_api(self, attendance_summary: List[Dict[str, Any]], sync_date: date,
+                             external_api_domain: str, device_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Send attendance summary to external API
+
+        Args:
+            attendance_summary: List of user attendance summaries
+            sync_date: Date being synced
+            external_api_domain: External API domain URL
+            device_id: Optional device ID
+
+        Returns:
+            API response data
+        """
+        try:
+            # Construct API URL
+            external_api_url = external_api_domain + '/attendance/daily-sync'
+
+            # Get device info for serial number
+            if device_id:
+                device = config_manager.get_device(device_id)
+            else:
+                device = config_manager.get_active_device()
+
+            serial_number = 'unknown'
+            if device:
+                device_info = device.get('device_info', {})
+                serial_number = device_info.get('serial_number', device.get('serial_number', device_id or 'unknown'))
+
+            # Prepare sync data
+            sync_data = {
+                'timestamp': int(time.time()),
+                'date': str(sync_date),
+                'device_id': device_id,
+                'device_serial': serial_number,
+                'attendance_summary': attendance_summary
+            }
+
+            # Prepare headers (similar to sync_employee)
+            headers = {
+                'Content-Type': 'application/json',
+                'x-device-sync': serial_number,
+                'ProjectId': '1055'
+            }
+
+            self.logger.info(f"Sending attendance data to {external_api_url} for {len(attendance_summary)} users")
+
+            # Make API request
+            response = requests.post(
+                external_api_url,
+                json=sync_data,
+                headers=headers,
+                timeout=30
+            )
+
+            response.raise_for_status()
+            response_data = response.json()
+
+            self.logger.info(f"Successfully sent attendance data to external API: {response.status_code}")
+
+            return {
+                'status_code': response.status_code,
+                'response_data': response_data,
+                'sent_count': len(attendance_summary),
+                'synced_ids': response_data.get('synced_ids') if response_data else None
+            }
+
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"HTTP error sending attendance data: {e}")
+            raise
+        except Exception as e:
+            self.logger.error(f"Error sending attendance data to external API: {e}")
+            raise
+
+    def get_daily_attendance_preview(self, target_date: Optional[str] = None, device_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Get preview of daily attendance data without sending to external API
+
+        Args:
+            target_date: Date in YYYY-MM-DD format (default: today)
+            device_id: Specific device ID (optional)
+
+        Returns:
+            Dict with attendance summary data
+        """
+        try:
+            # Parse target date
+            if target_date:
+                sync_date = datetime.strptime(target_date, '%Y-%m-%d').date()
+            else:
+                sync_date = date.today()
+
+            # Get attendance data for the target date
+            attendance_summary = self._calculate_daily_attendance(sync_date, device_id)
+
+            return {
+                'success': True,
+                'date': str(sync_date),
+                'count': len(attendance_summary),
+                'attendance_summary': attendance_summary
+            }
+
+        except Exception as e:
+            self.logger.error(f"Error in get_daily_attendance_preview: {type(e).__name__}: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'date': str(target_date or date.today())
+            }
+
+
+# Service instance
+attendance_sync_service = AttendanceSyncService()

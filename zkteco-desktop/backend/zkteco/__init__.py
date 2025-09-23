@@ -4,6 +4,7 @@ from flask_cors import CORS
 import os
 import logging
 import sentry_sdk
+import atexit
 from logging.handlers import RotatingFileHandler
 # from zkteco.services.zk_service import get_zk_service  # Lazy load to avoid blocking
 from zkteco.controllers.user_controller import bp as user_blueprint
@@ -11,6 +12,7 @@ from zkteco.controllers.device_controller import bp as device_blueprint
 from zkteco.controllers.attendance_controller import bp as attendance_blueprint
 from zkteco.controllers.event_controller import bp as event_blueprint
 from zkteco.logger import create_log_handler
+from zkteco.services.scheduler_service import scheduler_service
 
 load_dotenv()
 
@@ -39,6 +41,20 @@ def create_app():
     app.register_blueprint(device_blueprint)
     app.register_blueprint(attendance_blueprint)
     app.register_blueprint(event_blueprint)
+
+    # Initialize and start the scheduler
+    try:
+        scheduler_service.start()
+        app.logger.info("Scheduler service started successfully")
+
+        # Register cleanup function to stop scheduler when app shuts down
+        def cleanup_scheduler():
+            scheduler_service.stop()
+
+        atexit.register(cleanup_scheduler)
+
+    except Exception as e:
+        app.logger.error(f"Failed to start scheduler service: {e}")
 
     return app
 

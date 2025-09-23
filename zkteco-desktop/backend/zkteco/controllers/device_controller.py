@@ -4,6 +4,25 @@ from zk import ZK
 from flask import current_app
 from zkteco.config.config_manager_sqlite import config_manager
 
+# Try importing live capture service with error handling
+try:
+    from zkteco.services.live_capture_service import (
+        start_multi_device_capture,
+        stop_multi_device_capture,
+        start_device_capture,
+        stop_device_capture,
+        get_capture_status,
+        multi_device_manager
+    )
+    LIVE_CAPTURE_AVAILABLE = True
+    print("✓ Live capture service imported successfully")
+except ImportError as e:
+    print(f"✗ Failed to import live capture service: {e}")
+    LIVE_CAPTURE_AVAILABLE = False
+except Exception as e:
+    print(f"✗ Error importing live capture service: {e}")
+    LIVE_CAPTURE_AVAILABLE = False
+
 bp = Blueprint('device', __name__, url_prefix='/')
 
 def get_service():
@@ -282,19 +301,41 @@ def update_device(device_id):
 def delete_device(device_id):
     """Delete a device"""
     try:
+        current_app.logger.info(f"DELETE request received for device_id: {device_id}")
+
+        # Check if device exists first
+        existing_device = config_manager.get_device(device_id)
+        if not existing_device:
+            current_app.logger.warning(f"Device not found for deletion: {device_id}")
+            return jsonify({"error": "Device not found"}), 404
+
+        current_app.logger.info(f"Found device for deletion: {existing_device.get('name', 'Unknown')}")
+
+        # Delete the device
+        current_app.logger.info(f"Attempting to delete device: {device_id}")
         success = config_manager.delete_device(device_id)
+        current_app.logger.info(f"Delete operation result: {success}")
 
         if not success:
+            current_app.logger.error(f"Delete operation returned False for device: {device_id}")
             return jsonify({"error": "Device not found"}), 404
 
         # Disconnect and clean up
-        from zkteco.services.connection_manager import connection_manager
-        connection_manager.disconnect_device(device_id)
+        try:
+            current_app.logger.info(f"Cleaning up connections for device: {device_id}")
+            from zkteco.services.connection_manager import connection_manager
+            connection_manager.disconnect_device(device_id)
+            current_app.logger.info(f"Connection cleanup completed for device: {device_id}")
+        except Exception as cleanup_error:
+            current_app.logger.warning(f"Connection cleanup failed for device {device_id}: {cleanup_error}")
+            # Continue anyway since device is already deleted
 
+        current_app.logger.info(f"Device deleted successfully: {device_id}")
         return jsonify({"message": "Device deleted successfully"})
 
     except Exception as e:
-        error_message = f"Failed to delete device: {str(e)}"
+        error_message = f"Failed to delete device {device_id}: {str(e)}"
+        current_app.logger.error(error_message, exc_info=True)  # This will log the full stack trace
         return jsonify({"error": error_message}), 500
 
 @bp.route('/devices/<device_id>/activate', methods=['PUT'])
@@ -406,4 +447,186 @@ def sync_employee_from_device(device_id):
         return jsonify({"error": error_message}), 400
     except Exception as e:
         error_message = f"Error syncing employees: {str(e)}"
+        return jsonify({"error": error_message}), 500
+
+
+# Multi-Device Live Capture Endpoints
+@bp.route('/devices/capture/start-all', methods=['POST'])
+def start_all_device_capture():
+    """Start live capture for all active devices"""
+    if not LIVE_CAPTURE_AVAILABLE:
+        return jsonify({"error": "Live capture service is not available"}), 503
+
+    try:
+        start_multi_device_capture()
+
+        # Get current status
+        status = get_capture_status()
+
+        return jsonify({
+            "message": "Multi-device live capture started successfully",
+            "status": status
+        })
+    except Exception as e:
+        error_message = f"Error starting multi-device capture: {str(e)}"
+        current_app.logger.error(error_message)
+        return jsonify({"error": error_message}), 500
+
+
+@bp.route('/devices/capture/stop-all', methods=['POST'])
+def stop_all_device_capture():
+    """Stop live capture for all devices"""
+    if not LIVE_CAPTURE_AVAILABLE:
+        return jsonify({"error": "Live capture service is not available"}), 503
+
+    try:
+        stop_multi_device_capture()
+
+        return jsonify({
+            "message": "Multi-device live capture stopped successfully"
+        })
+    except Exception as e:
+        error_message = f"Error stopping multi-device capture: {str(e)}"
+        current_app.logger.error(error_message)
+        return jsonify({"error": error_message}), 500
+
+
+@bp.route('/devices/<device_id>/capture/start', methods=['POST'])
+def start_single_device_capture(device_id):
+    """Start live capture for a specific device"""
+    if not LIVE_CAPTURE_AVAILABLE:
+        return jsonify({"error": "Live capture service is not available"}), 503
+
+    try:
+        # Check if device exists
+        device = config_manager.get_device(device_id)
+        if not device:
+            return jsonify({"error": "Device not found"}), 404
+
+        # Check if device is active
+        if not device.get('is_active', True):
+            return jsonify({"error": "Device is not active"}), 400
+
+        success = start_device_capture(device_id)
+
+        if success:
+            return jsonify({
+                "message": f"Live capture started for device {device_id}",
+                "device_id": device_id
+            })
+        else:
+            return jsonify({
+                "error": f"Failed to start live capture for device {device_id}"
+            }), 500
+
+    except Exception as e:
+        error_message = f"Error starting capture for device {device_id}: {str(e)}"
+        current_app.logger.error(error_message)
+        return jsonify({"error": error_message}), 500
+
+
+@bp.route('/devices/<device_id>/capture/stop', methods=['POST'])
+def stop_single_device_capture(device_id):
+    """Stop live capture for a specific device"""
+    if not LIVE_CAPTURE_AVAILABLE:
+        return jsonify({"error": "Live capture service is not available"}), 503
+
+    try:
+        # Check if device exists
+        device = config_manager.get_device(device_id)
+        if not device:
+            return jsonify({"error": "Device not found"}), 404
+
+        success = stop_device_capture(device_id)
+
+        if success:
+            return jsonify({
+                "message": f"Live capture stopped for device {device_id}",
+                "device_id": device_id
+            })
+        else:
+            return jsonify({
+                "error": f"Failed to stop live capture for device {device_id}"
+            }), 500
+
+    except Exception as e:
+        error_message = f"Error stopping capture for device {device_id}: {str(e)}"
+        current_app.logger.error(error_message)
+        return jsonify({"error": error_message}), 500
+
+
+@bp.route('/devices/capture/status', methods=['GET'])
+def get_devices_capture_status():
+    """Get live capture status for all devices"""
+    if not LIVE_CAPTURE_AVAILABLE:
+        return jsonify({"error": "Live capture service is not available"}), 503
+
+    try:
+        # Get basic capture status
+        status = get_capture_status()
+
+        # Get device health information
+        from zkteco.services.multi_device_live_capture import device_health_monitor
+        health_stats = device_health_monitor.get_all_stats()
+
+        # Combine with device information
+        all_devices = config_manager.get_all_devices()
+        device_status = []
+
+        for device in all_devices:
+            device_id = device.get('id')
+            is_capturing = multi_device_manager.is_device_active(device_id)
+            health_info = device_health_monitor.get_device_stats(device_id)
+            is_healthy = device_health_monitor.is_device_healthy(device_id)
+
+            device_status.append({
+                "device_id": device_id,
+                "device_name": device.get('name', 'Unknown'),
+                "is_active": device.get('is_active', True),
+                "is_capturing": is_capturing,
+                "is_healthy": is_healthy,
+                "health_stats": health_info
+            })
+
+        return jsonify({
+            "overall_status": status,
+            "devices": device_status
+        })
+
+    except Exception as e:
+        error_message = f"Error getting capture status: {str(e)}"
+        current_app.logger.error(error_message)
+        return jsonify({"error": error_message}), 500
+
+
+@bp.route('/devices/<device_id>/capture/status', methods=['GET'])
+def get_single_device_capture_status(device_id):
+    """Get live capture status for a specific device"""
+    if not LIVE_CAPTURE_AVAILABLE:
+        return jsonify({"error": "Live capture service is not available"}), 503
+
+    try:
+        # Check if device exists
+        device = config_manager.get_device(device_id)
+        if not device:
+            return jsonify({"error": "Device not found"}), 404
+
+        # Get device health information
+        from zkteco.services.multi_device_live_capture import device_health_monitor
+        is_capturing = multi_device_manager.is_device_active(device_id)
+        health_info = device_health_monitor.get_device_stats(device_id)
+        is_healthy = device_health_monitor.is_device_healthy(device_id)
+
+        return jsonify({
+            "device_id": device_id,
+            "device_name": device.get('name', 'Unknown'),
+            "is_active": device.get('is_active', True),
+            "is_capturing": is_capturing,
+            "is_healthy": is_healthy,
+            "health_stats": health_info
+        })
+
+    except Exception as e:
+        error_message = f"Error getting capture status for device {device_id}: {str(e)}"
+        current_app.logger.error(error_message)
         return jsonify({"error": error_message}), 500

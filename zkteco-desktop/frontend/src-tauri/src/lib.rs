@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use tauri_plugin_shell::process::CommandChild;
 use std::collections::HashMap;
 use chrono::{DateTime, Utc};
+use std::time::Duration;
 
 // Global state for backend process management
 type BackendProcess = Arc<Mutex<Option<CommandChild>>>;
@@ -23,6 +24,53 @@ struct LogEntry {
 }
 
 type BackendLogs = Arc<Mutex<Vec<LogEntry>>>;
+
+// Helper function to check if backend is responding via HTTP
+async fn check_backend_health() -> bool {
+    match reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+    {
+        Ok(client) => {
+            match client.get("http://127.0.0.1:5001/service/status").send().await {
+                Ok(response) => {
+                    let is_healthy = response.status().is_success();
+                    println!("Backend HTTP health check: {}", if is_healthy { "healthy" } else { "unhealthy" });
+                    is_healthy
+                },
+                Err(e) => {
+                    println!("Backend HTTP health check failed: {}", e);
+                    false
+                }
+            }
+        },
+        Err(e) => {
+            println!("Failed to create HTTP client: {}", e);
+            false
+        }
+    }
+}
+
+// Helper function to detect existing backend process
+async fn detect_existing_backend(backend_process: &BackendProcess) -> bool {
+    // First check if we have a process tracked
+    let has_tracked_process = {
+        match backend_process.lock() {
+            Ok(process_guard) => process_guard.is_some(),
+            Err(_) => false,
+        }
+    };
+
+    // Then check HTTP health
+    let is_http_healthy = check_backend_health().await;
+
+    println!("Backend detection - Tracked process: {}, HTTP healthy: {}", has_tracked_process, is_http_healthy);
+
+    // Backend is considered existing if either:
+    // 1. We have a tracked process AND it's HTTP healthy
+    // 2. We don't have a tracked process BUT HTTP is healthy (orphaned process)
+    (has_tracked_process && is_http_healthy) || (!has_tracked_process && is_http_healthy)
+}
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -74,17 +122,15 @@ fn cleanup_backend(backend_process: State<BackendProcess>) -> Result<String, Str
 
 #[tauri::command]
 async fn start_backend(app: tauri::AppHandle, backend_process: State<'_, BackendProcess>, process_status: State<'_, ProcessStatus>, backend_logs: State<'_, BackendLogs>) -> Result<String, String> {
-    // Check if process is already running
-    match backend_process.lock() {
-        Ok(process_guard) => {
-            if process_guard.is_some() {
-                return Ok("Backend is already running".to_string());
-            }
-        },
-        Err(e) => {
-            return Err(format!("Failed to acquire backend process lock: {}", e));
-        }
+    println!("Start backend command called");
+
+    // Check for existing backend (comprehensive detection)
+    if detect_existing_backend(&backend_process).await {
+        println!("Backend already exists - skipping startup");
+        return Ok("Backend is already running".to_string());
     }
+
+    println!("No existing backend detected - proceeding with startup");
 
     // Clear any previous status
     if let Ok(mut status_guard) = process_status.lock() {
@@ -310,11 +356,15 @@ async fn restart_backend(app: tauri::AppHandle, backend_process: State<'_, Backe
 }
 
 #[tauri::command]
-fn is_backend_running(backend_process: State<BackendProcess>) -> bool {
-    match backend_process.lock() {
-        Ok(process_guard) => process_guard.is_some(),
-        Err(_) => false,
-    }
+async fn is_backend_running(backend_process: State<'_, BackendProcess>) -> Result<bool, String> {
+    let is_running = detect_existing_backend(&backend_process).await;
+    println!("Backend running check: {}", is_running);
+    Ok(is_running)
+}
+
+#[tauri::command]
+async fn check_backend_http_health() -> bool {
+    check_backend_health().await
 }
 
 #[tauri::command]
@@ -421,63 +471,87 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            // Start the backend sidecar
-            // Tauri automatically handles platform-specific naming:
-            // - macOS: zkteco-backend-aarch64-apple-darwin
-            // - Windows: zkteco-backend-x86_64-pc-windows-msvc.exe
-            // - Linux: zkteco-backend-x86_64-unknown-linux-gnu
-            match app.shell().sidecar("zkteco-backend") {
-                Ok(sidecar_command) => {
-                    let sidecar_with_env = sidecar_command
-                        .env("SECRET_KEY", "your-secret-key-here")
-                        .env("LOG_LEVEL", "INFO");
-                    match sidecar_with_env.spawn() {
-                        Ok((mut rx, child)) => {
-                            println!("Backend sidecar started successfully");
+            // Check for existing backend first
+            let backend_process_for_setup = backend_process.clone();
+            let app_for_startup = app.handle().clone();
 
-                            // Store the child process for later cleanup
-                            if let Ok(mut process_guard) = backend_process.lock() {
-                                *process_guard = Some(child);
-                                println!("Backend process stored for cleanup management");
-                            } else {
-                                eprintln!("Failed to store backend process reference");
-                            }
+            tauri::async_runtime::spawn(async move {
+                // Wait a moment for system to settle
+                tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
-                            // Listen for sidecar output
-                            tauri::async_runtime::spawn(async move {
-                                while let Some(event) = rx.recv().await {
-                                    match event {
-                                        tauri_plugin_shell::process::CommandEvent::Stdout(output) => {
-                                            println!("Backend stdout: {}", String::from_utf8_lossy(&output));
-                                        },
-                                        tauri_plugin_shell::process::CommandEvent::Stderr(output) => {
-                                            eprintln!("Backend stderr: {}", String::from_utf8_lossy(&output));
-                                        },
-                                        tauri_plugin_shell::process::CommandEvent::Error(error) => {
-                                            eprintln!("Backend error: {}", error);
-                                        },
-                                        tauri_plugin_shell::process::CommandEvent::Terminated(payload) => {
-                                            eprintln!("Backend terminated with code: {:?}", payload.code);
-                                        },
-                                        _ => {
-                                            println!("Backend event: {:?}", event);
-                                        }
-                                    }
-                                }
-                            });
-                        },
-                        Err(e) => {
-                            eprintln!("Failed to spawn backend sidecar during startup: {}. This may indicate permission issues or missing dependencies.", e);
-                        }
-                    }
-                },
-                Err(e) => {
-                    eprintln!("Failed to create backend sidecar command during startup: {}. The backend executable might be missing from the bundle.", e);
+                // Check if backend already exists
+                if detect_existing_backend(&backend_process_for_setup).await {
+                    println!("Backend already running - skipping startup backend launch");
+                    return;
                 }
-            }
+
+                println!("No existing backend detected during startup - launching backend");
+
+                // Start the backend sidecar
+                // Tauri automatically handles platform-specific naming:
+                // - macOS: zkteco-backend-aarch64-apple-darwin
+                // - Windows: zkteco-backend-x86_64-pc-windows-msvc.exe
+                // - Linux: zkteco-backend-x86_64-unknown-linux-gnu
+                startup_backend_sidecar(app_for_startup, backend_process_for_setup).await;
+            });
+
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![greet, show_main_window, hide_to_tray, cleanup_backend, start_backend, stop_backend, restart_backend, is_backend_running, get_backend_logs, clear_backend_logs, get_backend_error_logs])
+        .invoke_handler(tauri::generate_handler![greet, show_main_window, hide_to_tray, cleanup_backend, start_backend, stop_backend, restart_backend, is_backend_running, check_backend_http_health, get_backend_logs, clear_backend_logs, get_backend_error_logs])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+// Helper function to start backend sidecar (extracted from setup)
+async fn startup_backend_sidecar(app: tauri::AppHandle, backend_process: BackendProcess) {
+    match app.shell().sidecar("zkteco-backend") {
+        Ok(sidecar_command) => {
+            let sidecar_with_env = sidecar_command
+                .env("SECRET_KEY", "your-secret-key-here")
+                .env("LOG_LEVEL", "INFO");
+            match sidecar_with_env.spawn() {
+                Ok((mut rx, child)) => {
+                    println!("Backend sidecar started successfully during startup");
+
+                    // Store the child process for later cleanup
+                    if let Ok(mut process_guard) = backend_process.lock() {
+                        *process_guard = Some(child);
+                        println!("Backend process stored for cleanup management");
+                    } else {
+                        eprintln!("Failed to store backend process reference");
+                    }
+
+                    // Listen for sidecar output
+                    tauri::async_runtime::spawn(async move {
+                        while let Some(event) = rx.recv().await {
+                            match event {
+                                tauri_plugin_shell::process::CommandEvent::Stdout(output) => {
+                                    println!("Backend stdout: {}", String::from_utf8_lossy(&output));
+                                },
+                                tauri_plugin_shell::process::CommandEvent::Stderr(output) => {
+                                    eprintln!("Backend stderr: {}", String::from_utf8_lossy(&output));
+                                },
+                                tauri_plugin_shell::process::CommandEvent::Error(error) => {
+                                    eprintln!("Backend error: {}", error);
+                                },
+                                tauri_plugin_shell::process::CommandEvent::Terminated(payload) => {
+                                    eprintln!("Backend terminated with code: {:?}", payload.code);
+                                    break;
+                                },
+                                _ => {
+                                    println!("Backend event: {:?}", event);
+                                }
+                            }
+                        }
+                    });
+                },
+                Err(e) => {
+                    eprintln!("Failed to spawn backend sidecar during startup: {}. This may indicate permission issues or missing dependencies.", e);
+                }
+            }
+        },
+        Err(e) => {
+            eprintln!("Failed to create backend sidecar command during startup: {}. The backend executable might be missing from the bundle.", e);
+        }
+    }
 }

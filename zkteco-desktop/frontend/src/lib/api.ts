@@ -347,7 +347,8 @@ export const devicesAPI = {
       console.log(response);
       return response.data;
     } catch (error) {
-      throw new Error("Failed to add device");
+      // Re-throw the original error to preserve response data
+      throw error;
     }
   },
 
@@ -357,7 +358,8 @@ export const devicesAPI = {
       const response = await api.put(`/devices/${deviceId}`, deviceData);
       return response.data;
     } catch (error) {
-      throw new Error("Failed to update device");
+      // Re-throw the original error to preserve response data
+      throw error;
     }
   },
 
@@ -367,7 +369,8 @@ export const devicesAPI = {
       const response = await api.delete(`/devices/${deviceId}`);
       return response.data;
     } catch (error) {
-      throw new Error("Failed to delete device");
+      // Re-throw the original error to preserve response data
+      throw error;
     }
   },
 
@@ -377,7 +380,8 @@ export const devicesAPI = {
       const response = await api.put(`/devices/${deviceId}/activate`);
       return response.data;
     } catch (error) {
-      throw new Error("Failed to activate device");
+      // Re-throw the original error to preserve response data
+      throw error;
     }
   },
 
@@ -387,7 +391,8 @@ export const devicesAPI = {
       const response = await api.post(`/devices/${deviceId}/test`);
       return response.data;
     } catch (error) {
-      throw new Error("Failed to test device connection");
+      // Re-throw the original error to preserve response data
+      throw error;
     }
   },
 
@@ -407,7 +412,63 @@ export const devicesAPI = {
       const response = await api.post(`/devices/${deviceId}/sync-employee`);
       return response.data;
     } catch (error) {
-      throw new Error("Failed to sync employees from device");
+      // Re-throw the original error to preserve response data
+      throw error;
+    }
+  },
+
+  // Multi-Device Live Capture Management
+  startAllCapture: async () => {
+    try {
+      const response = await api.post("/devices/capture/start-all");
+      return response.data;
+    } catch (error) {
+      throw new Error("Failed to start multi-device capture");
+    }
+  },
+
+  stopAllCapture: async () => {
+    try {
+      const response = await api.post("/devices/capture/stop-all");
+      return response.data;
+    } catch (error) {
+      throw new Error("Failed to stop multi-device capture");
+    }
+  },
+
+  startDeviceCapture: async (deviceId: string) => {
+    try {
+      const response = await api.post(`/devices/${deviceId}/capture/start`);
+      return response.data;
+    } catch (error) {
+      throw new Error(`Failed to start capture for device ${deviceId}`);
+    }
+  },
+
+  stopDeviceCapture: async (deviceId: string) => {
+    try {
+      const response = await api.post(`/devices/${deviceId}/capture/stop`);
+      return response.data;
+    } catch (error) {
+      throw new Error(`Failed to stop capture for device ${deviceId}`);
+    }
+  },
+
+  getCaptureStatus: async () => {
+    try {
+      const response = await api.get("/devices/capture/status");
+      return response.data;
+    } catch (error) {
+      throw new Error("Failed to get capture status");
+    }
+  },
+
+  getDeviceCaptureStatus: async (deviceId: string) => {
+    try {
+      const response = await api.get(`/devices/${deviceId}/capture/status`);
+      return response.data;
+    } catch (error) {
+      throw new Error(`Failed to get capture status for device ${deviceId}`);
     }
   },
 };
@@ -442,6 +503,40 @@ export const attendanceAPI = {
       return response.data;
     } catch (error) {
       throw new Error("Failed to sync attendance");
+    }
+  },
+  syncDailyAttendance: async (options?: {
+    date?: string;
+    device_id?: string;
+  }) => {
+    try {
+      const response = await api.post(
+        "/attendance/sync-daily",
+        {
+          date: options?.date,
+          device_id: options?.device_id,
+        },
+        { timeout: 60000 },
+      );
+      return response.data;
+    } catch (error) {
+      throw new Error("Failed to sync daily attendance");
+    }
+  },
+  previewDailyAttendance: async (options?: {
+    date?: string;
+    device_id?: string;
+  }) => {
+    try {
+      const params = new URLSearchParams();
+      if (options?.date) params.set("date", options.date);
+      if (options?.device_id) params.set("device_id", options.device_id);
+
+      const url = `/attendance/daily-preview${params.toString() ? `?${params.toString()}` : ""}`;
+      const response = await api.get(url);
+      return response.data;
+    } catch (error) {
+      throw new Error("Failed to preview daily attendance");
     }
   },
 };
@@ -534,12 +629,51 @@ export interface UsersResponse {
   device_connected: boolean;
 }
 
+export interface DeviceCaptureStatus {
+  device_id: string;
+  device_name: string;
+  is_active: boolean;
+  is_capturing: boolean;
+  is_healthy: boolean;
+  health_stats: {
+    connections: number;
+    disconnections: number;
+    errors: number;
+    last_connected: string | null;
+    last_error: {
+      time: string;
+      message: string;
+    } | null;
+  };
+}
+
+export interface CaptureStatusResponse {
+  overall_status: {
+    active_captures: number;
+    devices: string[];
+    max_concurrent: number;
+  };
+  devices: DeviceCaptureStatus[];
+}
+
+export interface LiveAttendanceRecord {
+  id?: number;
+  user_id: string;
+  name: string;
+  timestamp: string;
+  method: number;
+  action: number;
+  device_id: string;
+  is_synced: boolean;
+}
+
 // Health check
 export const liveAPI = {
   connect: (
-    onMessage: (data: any) => void,
+    onMessage: (data: LiveAttendanceRecord) => void,
     onError: (error: Event) => void,
     onOpen: () => void,
+    deviceFilter?: string | "all" // Optional device filter
   ) => {
     const eventSource = new EventSource(`${API_BASE_URL}/live-events`);
 
@@ -558,8 +692,16 @@ export const liveAPI = {
     eventSource.addEventListener("attendance", (event) => {
       try {
         console.log("SSE attendance event received:", event.data);
-        const newRecord = JSON.parse(event.data);
+        const newRecord = JSON.parse(event.data) as LiveAttendanceRecord;
         console.log("Parsed attendance record:", newRecord);
+
+        // Apply device filter if specified
+        if (deviceFilter && deviceFilter !== "all") {
+          if (newRecord.device_id !== deviceFilter) {
+            return; // Skip this record if it doesn't match the filter
+          }
+        }
+
         onMessage(newRecord);
       } catch (error) {
         console.error("Failed to parse attendance event:", error);
@@ -575,6 +717,63 @@ export const liveAPI = {
     return () => {
       eventSource.close();
     };
+  },
+
+  // Multi-Device Live API functions
+  multiDevice: {
+    startAllCapture: async () => {
+      try {
+        const response = await api.post("/devices/capture/start-all");
+        return response.data;
+      } catch (error) {
+        throw new Error("Failed to start multi-device capture");
+      }
+    },
+
+    stopAllCapture: async () => {
+      try {
+        const response = await api.post("/devices/capture/stop-all");
+        return response.data;
+      } catch (error) {
+        throw new Error("Failed to stop multi-device capture");
+      }
+    },
+
+    startDeviceCapture: async (deviceId: string) => {
+      try {
+        const response = await api.post(`/devices/${deviceId}/capture/start`);
+        return response.data;
+      } catch (error) {
+        throw new Error(`Failed to start capture for device ${deviceId}`);
+      }
+    },
+
+    stopDeviceCapture: async (deviceId: string) => {
+      try {
+        const response = await api.post(`/devices/${deviceId}/capture/stop`);
+        return response.data;
+      } catch (error) {
+        throw new Error(`Failed to stop capture for device ${deviceId}`);
+      }
+    },
+
+    getCaptureStatus: async (): Promise<CaptureStatusResponse> => {
+      try {
+        const response = await api.get("/devices/capture/status");
+        return response.data;
+      } catch (error) {
+        throw new Error("Failed to get capture status");
+      }
+    },
+
+    getDeviceCaptureStatus: async (deviceId: string): Promise<DeviceCaptureStatus> => {
+      try {
+        const response = await api.get(`/devices/${deviceId}/capture/status`);
+        return response.data;
+      } catch (error) {
+        throw new Error(`Failed to get capture status for device ${deviceId}`);
+      }
+    },
   },
 };
 

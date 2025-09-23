@@ -25,6 +25,7 @@ import {
   CheckCircle2,
   Monitor,
   Plus,
+  RefreshCw,
   Settings,
   Trash2,
 } from "lucide-react";
@@ -48,6 +49,20 @@ export function DeviceManagement() {
 
   // Use context loading state or local loading state
   const loading = isLoading || contextLoading;
+
+  // Helper function to extract error message from API response
+  const getErrorMessage = (error: any): string => {
+    if (error?.response?.data?.error) {
+      return error.response.data.error;
+    }
+    if (error?.message) {
+      return error.message;
+    }
+    if (typeof error === 'string') {
+      return error;
+    }
+    return 'An unexpected error occurred';
+  };
 
   const openAddDialog = () => {
     setSelectedDevice(null);
@@ -73,7 +88,8 @@ export function DeviceManagement() {
       // Refresh devices in context - this will also update DeviceSelector
       await refreshDevices();
     } catch (error) {
-      toast.error("Failed to add device");
+      const errorMessage = getErrorMessage(error);
+      toast.error(`Failed to add device: ${errorMessage}`);
       console.error("Error adding device:", error);
       throw error; // Re-throw to let DeviceForm handle it
     } finally {
@@ -95,7 +111,8 @@ export function DeviceManagement() {
       // Refresh devices in context - this will also update DeviceSelector
       await refreshDevices();
     } catch (error) {
-      toast.error("Failed to update device");
+      const errorMessage = getErrorMessage(error);
+      toast.error(`Failed to update device: ${errorMessage}`);
       console.error("Error updating device:", error);
       throw error; // Re-throw to let DeviceForm handle it
     } finally {
@@ -114,7 +131,8 @@ export function DeviceManagement() {
       // Refresh devices in context - this will also update DeviceSelector
       await refreshDevices();
     } catch (error) {
-      toast.error("Failed to delete device");
+      const errorMessage = getErrorMessage(error);
+      toast.error(`Failed to delete device: ${errorMessage}`);
       console.error("Error deleting device:", error);
     } finally {
       setIsLoading(false);
@@ -129,7 +147,8 @@ export function DeviceManagement() {
       // Refresh devices in context - this will also update DeviceSelector
       await refreshDevices();
     } catch (error) {
-      toast.error("Failed to activate device");
+      const errorMessage = getErrorMessage(error);
+      toast.error(`Failed to activate device: ${errorMessage}`);
       console.error("Error activating device:", error);
     } finally {
       setIsLoading(false);
@@ -146,7 +165,8 @@ export function DeviceManagement() {
         toast.error(`Connection failed: ${result.error}`);
       }
     } catch (error) {
-      toast.error("Failed to test device connection");
+      const errorMessage = getErrorMessage(error);
+      toast.error(`Failed to test device connection: ${errorMessage}`);
       console.error("Error testing device:", error);
     } finally {
       setIsLoading(false);
@@ -159,7 +179,8 @@ export function DeviceManagement() {
       const result = await devicesAPI.syncEmployeeFromDevice(deviceId);
       toast.success(`Successfully synced ${result.employees_count} employees`);
     } catch (error) {
-      toast.error("Failed to sync employees");
+      const errorMessage = getErrorMessage(error);
+      toast.error(`Failed to sync employees: ${errorMessage}`);
       console.error("Error syncing employees:", error);
     } finally {
       setIsLoading(false);
@@ -170,10 +191,21 @@ export function DeviceManagement() {
     <div className="container mx-auto p-4 space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold">Device Management</h1>
-        <Button onClick={openAddDialog} className="flex items-center gap-2">
-          <Plus className="h-4 w-4" />
-          Add Device
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={refreshDevices}
+            disabled={loading}
+            className="flex items-center gap-2"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            Reload
+          </Button>
+          <Button onClick={openAddDialog} className="flex items-center gap-2">
+            <Plus className="h-4 w-4" />
+            Add Device
+          </Button>
+        </div>
       </div>
 
       {devices.length === 0 ? (
@@ -190,7 +222,21 @@ export function DeviceManagement() {
       ) : (
         <Card>
           <CardHeader>
-            <CardTitle>Devices</CardTitle>
+            <div className="flex justify-between items-center">
+              <CardTitle>Devices</CardTitle>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={refreshDevices}
+                disabled={loading}
+                className="flex items-center gap-2"
+              >
+                <RefreshCw
+                  className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
+                />
+                Refresh
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             <Table>

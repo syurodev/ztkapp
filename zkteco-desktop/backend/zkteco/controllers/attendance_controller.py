@@ -2,6 +2,8 @@ from zkteco.logger import app_logger
 
 from flask import Blueprint, jsonify, request
 from zkteco.services.zk_service import get_zk_service
+from zkteco.services.attendance_sync_service import attendance_sync_service
+from zkteco.services.scheduler_service import scheduler_service
 from zkteco.database.models import attendance_repo, user_repo
 from flask import current_app
 from datetime import datetime
@@ -251,6 +253,109 @@ def get_sync_stats():
 
     except Exception as e:
         app_logger.error(f"Error getting sync stats: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+# Daily Attendance Sync APIs
+
+@bp.route('/attendance/sync-daily', methods=['POST'])
+def sync_daily_attendance():
+    """Sync daily attendance data with first checkin/last checkout logic"""
+    try:
+        data = request.get_json() or {}
+        target_date = data.get('date')  # Optional: YYYY-MM-DD format
+        device_id = data.get('device_id')  # Optional: specific device
+
+        app_logger.info(f"Manual daily attendance sync triggered for date: {target_date or 'today'}, device: {device_id or 'all'}")
+
+        result = attendance_sync_service.sync_attendance_daily(target_date, device_id)
+
+        if result['success']:
+            dates_processed = result.get('dates_processed', [])
+            date_info = f"{len(dates_processed)} dates" if len(dates_processed) > 1 else (dates_processed[0] if dates_processed else 'today')
+            return jsonify({
+                'success': True,
+                'message': f"Daily attendance sync completed for {date_info}",
+                'data': result
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': result.get('error'),
+                'dates_processed': result.get('dates_processed', [])
+            }), 500
+
+    except Exception as e:
+        app_logger.error(f"Error in sync_daily_attendance: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@bp.route('/attendance/daily-preview', methods=['GET'])
+def preview_daily_attendance():
+    """Preview daily attendance data without sending to external API"""
+    try:
+        target_date = request.args.get('date')  # Optional: YYYY-MM-DD format
+        device_id = request.args.get('device_id')  # Optional: specific device
+
+        result = attendance_sync_service.get_daily_attendance_preview(target_date, device_id)
+
+        return jsonify(result)
+
+    except Exception as e:
+        app_logger.error(f"Error in preview_daily_attendance: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+# Scheduler Management APIs
+
+@bp.route('/attendance/scheduler/status', methods=['GET'])
+def get_scheduler_status():
+    """Get scheduler status and job information"""
+    try:
+        status = scheduler_service.get_all_jobs()
+        return jsonify({
+            'success': True,
+            'scheduler': status
+        })
+
+    except Exception as e:
+        app_logger.error(f"Error getting scheduler status: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@bp.route('/attendance/scheduler/trigger', methods=['POST'])
+def trigger_scheduler_job():
+    """Manually trigger the daily attendance sync job"""
+    try:
+        data = request.get_json() or {}
+        job_id = data.get('job_id', 'daily_attendance_sync')
+
+        app_logger.info(f"Manual trigger requested for job: {job_id}")
+
+        result = scheduler_service.trigger_job_manually(job_id)
+
+        if result['success']:
+            return jsonify({
+                'success': True,
+                'message': result.get('message'),
+                'data': result.get('result')
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': result.get('error')
+            }), 500
+
+    except Exception as e:
+        app_logger.error(f"Error triggering scheduler job: {e}")
         return jsonify({
             'success': False,
             'error': str(e)

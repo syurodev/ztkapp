@@ -51,6 +51,12 @@ class User:
         """Convert to dictionary for API responses"""
         return asdict(self)
 
+class SyncStatus:
+    """Sync status constants for attendance logs"""
+    PENDING = 'pending'
+    SYNCED = 'synced'
+    SKIPPED = 'skipped'
+
 @dataclass
 class AttendanceLog:
     """Attendance log model with sync tracking"""
@@ -61,7 +67,8 @@ class AttendanceLog:
     device_id: Optional[str] = None
     serial_number: Optional[str] = None
     raw_data: Optional[Dict[str, Any]] = None
-    is_synced: bool = False
+    sync_status: str = SyncStatus.PENDING
+    is_synced: bool = False  # kept for backward compatibility
     synced_at: Optional[datetime] = None
     id: Optional[int] = None
     created_at: Optional[datetime] = None
@@ -129,8 +136,33 @@ class DeviceRepository:
 
     def delete(self, device_id: str) -> bool:
         """Delete device"""
-        cursor = db_manager.execute_query("DELETE FROM devices WHERE id = ?", (device_id,))
-        return cursor.rowcount > 0
+        from zkteco.logger import app_logger
+
+        try:
+            app_logger.info(f"DeviceRepository: Starting delete for device_id: {device_id}")
+
+            # Check if device exists first
+            existing = db_manager.fetch_one("SELECT id, name FROM devices WHERE id = ?", (device_id,))
+            if existing:
+                app_logger.info(f"DeviceRepository: Found device to delete: {existing[1]} ({existing[0]})")
+            else:
+                app_logger.warning(f"DeviceRepository: Device not found for deletion: {device_id}")
+                return False
+
+            app_logger.info(f"DeviceRepository: Executing DELETE query for device_id: {device_id}")
+
+            # Execute DELETE and get rowcount within context
+            with db_manager.get_cursor() as cursor:
+                cursor.execute("DELETE FROM devices WHERE id = ?", (device_id,))
+                rowcount = cursor.rowcount
+                success = rowcount > 0
+                app_logger.info(f"DeviceRepository: DELETE query affected {rowcount} rows, success: {success}")
+
+            return success
+
+        except Exception as e:
+            app_logger.error(f"DeviceRepository: Error deleting device {device_id}: {e}", exc_info=True)
+            raise
 
     def _row_to_device(self, row) -> Device:
         """Convert database row to Device object"""
@@ -277,13 +309,13 @@ class AttendanceRepository:
 
         query = '''
             INSERT INTO attendance_logs (
-                user_id, device_id, serial_number, timestamp, method, action, raw_data, is_synced, synced_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                user_id, device_id, serial_number, timestamp, method, action, raw_data, sync_status, is_synced, synced_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         '''
 
         cursor = db_manager.execute_query(query, (
-            log.user_id, log.device_id, log.serial_number, log.timestamp, log.method, log.action, 
-            raw_data_json, log.is_synced, log.synced_at
+            log.user_id, log.device_id, log.serial_number, log.timestamp, log.method, log.action,
+            raw_data_json, log.sync_status, log.is_synced, log.synced_at
         ))
 
         return self.get_by_id(cursor.lastrowid)
@@ -327,49 +359,141 @@ class AttendanceRepository:
         return [self._row_to_log(row) for row in rows]
 
     def get_unsynced_logs(self, device_id: str = None, limit: int = 1000) -> List[AttendanceLog]:
-        """Get attendance logs that haven't been synced"""
+        """Get attendance logs that haven't been synced (pending status)"""
         if device_id:
             rows = db_manager.fetch_all(
-                "SELECT * FROM attendance_logs WHERE is_synced = FALSE AND device_id = ? ORDER BY timestamp DESC LIMIT ?",
-                (device_id, limit)
+                "SELECT * FROM attendance_logs WHERE sync_status = ? AND device_id = ? ORDER BY timestamp DESC LIMIT ?",
+                (SyncStatus.PENDING, device_id, limit)
             )
         else:
             rows = db_manager.fetch_all(
-                "SELECT * FROM attendance_logs WHERE is_synced = FALSE ORDER BY timestamp DESC LIMIT ?",
-                (limit,)
+                "SELECT * FROM attendance_logs WHERE sync_status = ? ORDER BY timestamp DESC LIMIT ?",
+                (SyncStatus.PENDING, limit)
+            )
+        return [self._row_to_log(row) for row in rows]
+
+    def get_logs_by_sync_status(self, sync_status: str, device_id: str = None, limit: int = 1000) -> List[AttendanceLog]:
+        """Get attendance logs by sync status"""
+        if device_id:
+            rows = db_manager.fetch_all(
+                "SELECT * FROM attendance_logs WHERE sync_status = ? AND device_id = ? ORDER BY timestamp DESC LIMIT ?",
+                (sync_status, device_id, limit)
+            )
+        else:
+            rows = db_manager.fetch_all(
+                "SELECT * FROM attendance_logs WHERE sync_status = ? ORDER BY timestamp DESC LIMIT ?",
+                (sync_status, limit)
             )
         return [self._row_to_log(row) for row in rows]
     
     def mark_as_synced(self, log_id: int) -> bool:
         """Mark attendance log as synced"""
-        query = "UPDATE attendance_logs SET is_synced = TRUE, synced_at = ? WHERE id = ?"
-        cursor = db_manager.execute_query(query, (datetime.now(), log_id))
+        query = "UPDATE attendance_logs SET sync_status = ?, is_synced = TRUE, synced_at = ? WHERE id = ?"
+        cursor = db_manager.execute_query(query, (SyncStatus.SYNCED, datetime.now(), log_id))
         return cursor.rowcount > 0
-    
+
     def mark_as_unsynced(self, log_id: int) -> bool:
         """Mark attendance log as not synced (for re-sync scenarios)"""
-        query = "UPDATE attendance_logs SET is_synced = FALSE, synced_at = NULL WHERE id = ?"
-        cursor = db_manager.execute_query(query, (log_id,))
+        query = "UPDATE attendance_logs SET sync_status = ?, is_synced = FALSE, synced_at = NULL WHERE id = ?"
+        cursor = db_manager.execute_query(query, (SyncStatus.PENDING, log_id))
         return cursor.rowcount > 0
+
+    def update_sync_status(self, log_id: int, sync_status: str) -> bool:
+        """Update sync status of attendance log"""
+        synced_at = datetime.now() if sync_status == SyncStatus.SYNCED else None
+        is_synced = sync_status == SyncStatus.SYNCED
+
+        query = "UPDATE attendance_logs SET sync_status = ?, is_synced = ?, synced_at = ? WHERE id = ?"
+        cursor = db_manager.execute_query(query, (sync_status, is_synced, synced_at, log_id))
+        return cursor.rowcount > 0
+
+    def mark_records_as_skipped(self, log_ids: List[int]) -> int:
+        """Mark multiple attendance logs as skipped"""
+        if not log_ids:
+            return 0
+
+        placeholders = ','.join(['?' for _ in log_ids])
+        query = f"UPDATE attendance_logs SET sync_status = ? WHERE id IN ({placeholders})"
+        cursor = db_manager.execute_query(query, (SyncStatus.SKIPPED, *log_ids))
+        return cursor.rowcount
     
     def get_sync_stats(self, device_id: str = None) -> Dict[str, int]:
         """Get sync statistics"""
-        base_query = "SELECT is_synced, COUNT(*) as count FROM attendance_logs"
+        base_query = "SELECT sync_status, COUNT(*) as count FROM attendance_logs"
         if device_id:
-            query = f"{base_query} WHERE device_id = ? GROUP BY is_synced"
+            query = f"{base_query} WHERE device_id = ? GROUP BY sync_status"
             rows = db_manager.fetch_all(query, (device_id,))
         else:
-            query = f"{base_query} GROUP BY is_synced"
+            query = f"{base_query} GROUP BY sync_status"
             rows = db_manager.fetch_all(query)
-        
-        stats = {"synced": 0, "unsynced": 0, "total": 0}
+
+        stats = {"pending": 0, "synced": 0, "skipped": 0, "total": 0}
         for row in rows:
-            if row['is_synced']:
-                stats["synced"] = row['count']
-            else:
-                stats["unsynced"] = row['count']
-        stats["total"] = stats["synced"] + stats["unsynced"]
+            sync_status = row['sync_status'] or 'pending'  # Handle null values
+            if sync_status in stats:
+                stats[sync_status] = row['count']
+
+        stats["total"] = sum(stats[key] for key in ['pending', 'synced', 'skipped'])
         return stats
+
+    def get_pending_sync_dates(self, device_id: str = None) -> List[str]:
+        """Get all dates that have pending attendance records"""
+        if device_id:
+            query = """
+                SELECT DISTINCT DATE(timestamp) as sync_date
+                FROM attendance_logs
+                WHERE sync_status = ? AND device_id = ?
+                ORDER BY sync_date
+            """
+            rows = db_manager.fetch_all(query, (SyncStatus.PENDING, device_id))
+        else:
+            query = """
+                SELECT DISTINCT DATE(timestamp) as sync_date
+                FROM attendance_logs
+                WHERE sync_status = ?
+                ORDER BY sync_date
+            """
+            rows = db_manager.fetch_all(query, (SyncStatus.PENDING,))
+
+        return [row['sync_date'] for row in rows]
+
+    def has_synced_record_for_date_action(self, user_id: str, target_date: str, action: int, device_id: str = None) -> bool:
+        """Check if user has any synced record for specific date and action type"""
+        if device_id:
+            query = """
+                SELECT COUNT(*) as count
+                FROM attendance_logs
+                WHERE user_id = ? AND DATE(timestamp) = ? AND action = ? AND sync_status = ? AND device_id = ?
+            """
+            result = db_manager.fetch_one(query, (user_id, target_date, action, SyncStatus.SYNCED, device_id))
+        else:
+            query = """
+                SELECT COUNT(*) as count
+                FROM attendance_logs
+                WHERE user_id = ? AND DATE(timestamp) = ? AND action = ? AND sync_status = ?
+            """
+            result = db_manager.fetch_one(query, (user_id, target_date, action, SyncStatus.SYNCED))
+
+        return result['count'] > 0 if result else False
+
+    def get_other_records_for_date_action(self, user_id: str, target_date: str, action: int, exclude_log_id: int, device_id: str = None) -> List[int]:
+        """Get IDs of other records for same user, date, and action (excluding specific log)"""
+        if device_id:
+            query = """
+                SELECT id
+                FROM attendance_logs
+                WHERE user_id = ? AND DATE(timestamp) = ? AND action = ? AND id != ? AND device_id = ? AND sync_status = ?
+            """
+            rows = db_manager.fetch_all(query, (user_id, target_date, action, exclude_log_id, device_id, SyncStatus.PENDING))
+        else:
+            query = """
+                SELECT id
+                FROM attendance_logs
+                WHERE user_id = ? AND DATE(timestamp) = ? AND action = ? AND id != ? AND sync_status = ?
+            """
+            rows = db_manager.fetch_all(query, (user_id, target_date, action, exclude_log_id, SyncStatus.PENDING))
+
+        return [row['id'] for row in rows]
 
     def find_duplicate(self, user_id: str, device_id: str, timestamp: datetime, method: int, action: int) -> Optional[AttendanceLog]:
         """Find existing attendance record with same unique key"""
@@ -413,25 +537,31 @@ class AttendanceRepository:
     def _row_to_log(self, row) -> AttendanceLog:
         """Convert database row to AttendanceLog object"""
         raw_data = json.loads(row['raw_data']) if row['raw_data'] else None
-        
+
         # Handle serial_number safely for SQLite Row object
         try:
             serial_number = row['serial_number'] if 'serial_number' in row.keys() else None
         except (KeyError, IndexError):
             serial_number = None
-        
+
+        # Handle sync_status safely for SQLite Row object
+        try:
+            sync_status = row['sync_status'] if 'sync_status' in row.keys() and row['sync_status'] else SyncStatus.PENDING
+        except (KeyError, IndexError):
+            sync_status = SyncStatus.PENDING
+
         # Handle is_synced safely for SQLite Row object
         try:
             is_synced = bool(row['is_synced']) if 'is_synced' in row.keys() else False
         except (KeyError, IndexError):
             is_synced = False
-        
+
         # Handle synced_at safely for SQLite Row object
         try:
             synced_at = row['synced_at'] if 'synced_at' in row.keys() else None
         except (KeyError, IndexError):
             synced_at = None
-            
+
         return AttendanceLog(
             id=row['id'],
             user_id=row['user_id'],
@@ -441,6 +571,7 @@ class AttendanceRepository:
             method=row['method'],
             action=row['action'],
             raw_data=raw_data,
+            sync_status=sync_status,
             is_synced=is_synced,
             synced_at=synced_at,
             created_at=row['created_at']

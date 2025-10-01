@@ -45,6 +45,7 @@ temp/
 
 # Build directories
 dist/
+*/dist/
 build/
 *.egg-info/
 

@@ -56,6 +56,7 @@ class SyncStatus:
     PENDING = 'pending'
     SYNCED = 'synced'
     SKIPPED = 'skipped'
+    ERROR = 'error'
 
 @dataclass
 class AttendanceLog:
@@ -70,6 +71,8 @@ class AttendanceLog:
     sync_status: str = SyncStatus.PENDING
     is_synced: bool = False  # kept for backward compatibility
     synced_at: Optional[datetime] = None
+    error_code: Optional[str] = None
+    error_message: Optional[str] = None
     id: Optional[int] = None
     created_at: Optional[datetime] = None
 
@@ -407,6 +410,26 @@ class AttendanceRepository:
         cursor = db_manager.execute_query(query, (sync_status, is_synced, synced_at, log_id))
         return cursor.rowcount > 0
 
+    def update_sync_error(self, log_id: int, error_code: str, error_message: str) -> bool:
+        """Update attendance log with error information"""
+        query = "UPDATE attendance_logs SET sync_status = ?, error_code = ?, error_message = ?, synced_at = ? WHERE id = ?"
+        cursor = db_manager.execute_query(query, (SyncStatus.ERROR, error_code, error_message, datetime.now(), log_id))
+        return cursor.rowcount > 0
+
+    def get_error_records(self, device_id: str = None, limit: int = 1000) -> List[AttendanceLog]:
+        """Get attendance logs with error status"""
+        if device_id:
+            rows = db_manager.fetch_all(
+                "SELECT * FROM attendance_logs WHERE sync_status = ? AND device_id = ? ORDER BY timestamp DESC LIMIT ?",
+                (SyncStatus.ERROR, device_id, limit)
+            )
+        else:
+            rows = db_manager.fetch_all(
+                "SELECT * FROM attendance_logs WHERE sync_status = ? ORDER BY timestamp DESC LIMIT ?",
+                (SyncStatus.ERROR, limit)
+            )
+        return [self._row_to_log(row) for row in rows]
+
     def mark_records_as_skipped(self, log_ids: List[int]) -> int:
         """Mark multiple attendance logs as skipped"""
         if not log_ids:
@@ -427,13 +450,13 @@ class AttendanceRepository:
             query = f"{base_query} GROUP BY sync_status"
             rows = db_manager.fetch_all(query)
 
-        stats = {"pending": 0, "synced": 0, "skipped": 0, "total": 0}
+        stats = {"pending": 0, "synced": 0, "skipped": 0, "error": 0, "total": 0}
         for row in rows:
             sync_status = row['sync_status'] or 'pending'  # Handle null values
             if sync_status in stats:
                 stats[sync_status] = row['count']
 
-        stats["total"] = sum(stats[key] for key in ['pending', 'synced', 'skipped'])
+        stats["total"] = sum(stats[key] for key in ['pending', 'synced', 'skipped', 'error'])
         return stats
 
     def get_pending_sync_dates(self, device_id: str = None) -> List[str]:
@@ -562,6 +585,18 @@ class AttendanceRepository:
         except (KeyError, IndexError):
             synced_at = None
 
+        # Handle error_code safely for SQLite Row object
+        try:
+            error_code = row['error_code'] if 'error_code' in row.keys() else None
+        except (KeyError, IndexError):
+            error_code = None
+
+        # Handle error_message safely for SQLite Row object
+        try:
+            error_message = row['error_message'] if 'error_message' in row.keys() else None
+        except (KeyError, IndexError):
+            error_message = None
+
         return AttendanceLog(
             id=row['id'],
             user_id=row['user_id'],
@@ -574,6 +609,8 @@ class AttendanceRepository:
             sync_status=sync_status,
             is_synced=is_synced,
             synced_at=synced_at,
+            error_code=error_code,
+            error_message=error_message,
             created_at=row['created_at']
         )
 

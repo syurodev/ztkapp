@@ -207,6 +207,15 @@ class DatabaseManager:
         if 'synced_at' not in columns:
             print("Adding synced_at column to attendance_logs table...")
             cursor.execute('ALTER TABLE attendance_logs ADD COLUMN synced_at DATETIME NULL')
+
+        # Add error tracking columns for sync error handling
+        if 'error_code' not in columns:
+            print("Adding error_code column to attendance_logs table...")
+            cursor.execute('ALTER TABLE attendance_logs ADD COLUMN error_code TEXT NULL')
+
+        if 'error_message' not in columns:
+            print("Adding error_message column to attendance_logs table...")
+            cursor.execute('ALTER TABLE attendance_logs ADD COLUMN error_message TEXT NULL')
         
         # Check if unique constraint already exists
         cursor.execute("PRAGMA index_list(attendance_logs)")

@@ -11,7 +11,6 @@ import {
     Circle,
     Clock,
     FileText,
-    Fingerprint,
     Loader2,
     Menu,
     Monitor,
@@ -41,9 +40,8 @@ const navItems: NavItem[] = [
     { title: "User Management", icon: Users, href: "/users" },
     { title: "Attendance", icon: Clock, href: "/attendance" },
     { title: "Live Attendance", icon: Activity, href: "/live-attendance" },
-    { title: "Fingerprint", icon: Fingerprint, href: "/fingerprints" },
-    { title: "Settings", icon: Settings, href: "/settings" },
     { title: "Logs", icon: FileText, href: "/logs" },
+    { title: "Settings", icon: Settings, href: "/settings" },
 ];
 
 export function AppLayout({ children }: AppLayoutProps) {

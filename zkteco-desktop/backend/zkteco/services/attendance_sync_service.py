@@ -91,20 +91,17 @@ class AttendanceSyncService:
             app_logger.info(f"Saved {len(all_attendance_summaries)} attendance summaries to {debug_file}")
 
             # Send all collected data to external API in one request
-            # if all_attendance_summaries:
-            #     # Get external API configuration
-            #     external_api_domain = config_manager.get_external_api_url()
-            #     if not external_api_domain:
-            #         raise ValueError("EXTERNAL_API_DOMAIN not configured in config.json")
+            if all_attendance_summaries:
+                # Get external API configuration
+                external_api_domain = config_manager.get_external_api_url()
+                if not external_api_domain:
+                    raise ValueError("EXTERNAL_API_DOMAIN not configured in config.json")
 
-            #     # Send all data to external API
-            #     sync_result = self._send_consolidated_to_external_api(all_attendance_summaries, external_api_domain)
+                # Send all data to external API
+                sync_result = self._send_consolidated_to_external_api(all_attendance_summaries, external_api_domain)
 
-            #     # Extract synced IDs from API response (if provided)
-            #     synced_ids = sync_result.get('synced_ids', [])
-
-            #     # Mark processed records as synced based on returned IDs
-            #     self._finalize_sync_status_by_ids(all_attendance_summaries, synced_ids)
+                # Process API response and update record statuses
+                self._process_api_response(sync_result.get('response_data', {}), all_attendance_summaries)
 
             self.logger.info(f"Attendance sync completed for {len(processed_dates)} dates: {total_synced} total records")
 
@@ -427,9 +424,76 @@ class AttendanceSyncService:
             self.logger.error(f"Error finalizing sync status: {e}")
             raise
 
+    def _process_api_response(self, response_data: Dict[str, Any], attendance_summaries: List[Dict[str, Any]]):
+        """
+        Process API response and update record statuses based on success/error operations
+
+        Args:
+            response_data: Response from external API containing success and error operations
+            attendance_summaries: List of all attendance summaries that were sent
+        """
+        try:
+            if not response_data or 'data' not in response_data:
+                self.logger.error("Invalid API response format")
+                return
+
+            data = response_data['data']
+            success_operations = data.get('successOperations', [])
+            errors = data.get('errors', [])
+
+            self.logger.info(f"Processing API response: {len(success_operations)} success, {len(errors)} errors")
+
+            # Process successful operations
+            for success_op in success_operations:
+                operation_id = success_op.get('operationId')
+                if operation_id:
+                    attendance_repo.update_sync_status(operation_id, SyncStatus.SYNCED)
+                    self.logger.info(f"Record {operation_id} marked as synced successfully")
+
+            # Process error operations
+            for error in errors:
+                user_id = error.get('userId')
+                operation = error.get('operation')
+                error_code = error.get('errorCode')
+                error_message = error.get('errorMessage')
+
+                # Get record IDs from error response
+                if operation == 'CHECKIN':
+                    record_id = error.get('firstCheckinId')
+                elif operation == 'CHECKOUT':
+                    record_id = error.get('lastCheckoutId')
+                else:
+                    continue
+
+                # Update record with error status
+                if record_id and record_id != 0:  # 0 means no record ID provided
+                    attendance_repo.update_sync_error(record_id, error_code, error_message)
+                    self.logger.warning(f"Record {record_id} marked as error: {error_code} - {error_message}")
+
+            # Mark other records as skipped for each user summary
+            for user_summary in attendance_summaries:
+                user_id = user_summary['user_id']
+                date = user_summary['date']
+                device_id = user_summary.get('device_id')
+
+                # Mark other checkin records as skipped if we processed the first checkin
+                if user_summary.get('first_checkin_id'):
+                    self._mark_other_records_as_skipped(user_id, date, 0, user_summary['first_checkin_id'], device_id)
+
+                # Mark other checkout records as skipped if we processed the last checkout
+                if user_summary.get('last_checkout_id'):
+                    self._mark_other_records_as_skipped(user_id, date, 1, user_summary['last_checkout_id'], device_id)
+
+            self.logger.info(f"Processed API response for {len(attendance_summaries)} attendance summaries")
+
+        except Exception as e:
+            self.logger.error(f"Error processing API response: {e}")
+            raise
+
     def _finalize_sync_status_by_ids(self, attendance_summaries: List[Dict[str, Any]], synced_ids: List[int]):
         """
-        Mark records as synced based on returned IDs from consolidated API response
+        DEPRECATED: Mark records as synced based on returned IDs from consolidated API response
+        Use _process_api_response() instead for new response format handling
 
         Args:
             attendance_summaries: List of all attendance summaries that were sent
@@ -727,6 +791,119 @@ class AttendanceSyncService:
                 'success': False,
                 'error': str(e),
                 'date': str(target_date or date.today())
+            }
+
+    def retry_error_records(self, device_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Retry sync for records that previously failed with error status
+
+        Args:
+            device_id: Specific device ID (optional)
+
+        Returns:
+            Dict with retry results
+        """
+        try:
+            # Get error records
+            error_records = attendance_repo.get_error_records(device_id)
+
+            if not error_records:
+                return {
+                    'success': True,
+                    'message': 'No error records found to retry',
+                    'count': 0
+                }
+
+            self.logger.info(f"Found {len(error_records)} error records to retry")
+
+            # Reset error records to pending status for retry
+            retry_count = 0
+            for record in error_records:
+                if attendance_repo.update_sync_status(record.id, SyncStatus.PENDING):
+                    retry_count += 1
+
+            self.logger.info(f"Reset {retry_count} error records to pending status")
+
+            # Now sync these records using the normal sync process
+            # Get unique dates from error records
+            retry_dates = list(set([record.timestamp.date() for record in error_records]))
+
+            total_synced = 0
+            processed_dates = []
+
+            for retry_date in retry_dates:
+                # Use the normal sync process for this date
+                sync_result = self.sync_attendance_daily(str(retry_date), device_id)
+                if sync_result.get('success'):
+                    total_synced += sync_result.get('count', 0)
+                    processed_dates.extend(sync_result.get('dates_processed', []))
+
+            return {
+                'success': True,
+                'message': f'Retry completed for {retry_count} error records',
+                'retry_records_count': retry_count,
+                'dates_processed': processed_dates,
+                'total_synced': total_synced
+            }
+
+        except Exception as e:
+            self.logger.error(f"Error in retry_error_records: {type(e).__name__}: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'retry_records_count': 0
+            }
+
+    def get_error_summary(self, device_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Get summary of error records for admin review
+
+        Args:
+            device_id: Specific device ID (optional)
+
+        Returns:
+            Dict with error summary data
+        """
+        try:
+            # Get error records
+            error_records = attendance_repo.get_error_records(device_id)
+
+            # Group errors by error code
+            error_groups = {}
+            for record in error_records:
+                error_code = record.error_code or 'UNKNOWN'
+                if error_code not in error_groups:
+                    error_groups[error_code] = {
+                        'count': 0,
+                        'sample_message': record.error_message,
+                        'records': []
+                    }
+
+                error_groups[error_code]['count'] += 1
+                error_groups[error_code]['records'].append({
+                    'id': record.id,
+                    'user_id': record.user_id,
+                    'timestamp': record.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+                    'action': 'CHECKIN' if record.action == 0 else 'CHECKOUT',
+                    'error_message': record.error_message
+                })
+
+            # Get sync statistics
+            sync_stats = attendance_repo.get_sync_stats(device_id)
+
+            return {
+                'success': True,
+                'total_error_records': len(error_records),
+                'error_groups': error_groups,
+                'sync_statistics': sync_stats
+            }
+
+        except Exception as e:
+            self.logger.error(f"Error in get_error_summary: {type(e).__name__}: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'total_error_records': 0
             }
 
 

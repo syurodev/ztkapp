@@ -10,6 +10,7 @@ import { AppInitializer } from "./components/features/AppInitializer";
 import { Attendance } from "./components/features/Attendance";
 import { DeviceManagement } from "./components/features/DeviceManagement";
 import { LiveAttendance } from "./components/features/LiveAttendance";
+import { Logs } from "./components/features/Logs";
 import { ServiceStatus } from "./components/features/ServiceStatus";
 import { Settings } from "./components/features/Settings";
 import { UserManagement } from "./components/features/UserManagement";
@@ -32,23 +33,8 @@ function App() {
                   <Route path="/users" element={<UserManagement />} />
                   <Route path="/attendance" element={<Attendance />} />
                   <Route path="/live-attendance" element={<LiveAttendance />} />
-                  <Route
-                    path="/fingerprints"
-                    element={
-                      <div className="p-8 text-center text-muted-foreground">
-                        Fingerprint Management - Coming Soon
-                      </div>
-                    }
-                  />
+                  <Route path="/logs" element={<Logs />} />
                   <Route path="/settings" element={<Settings />} />
-                  <Route
-                    path="/logs"
-                    element={
-                      <div className="p-8 text-center text-muted-foreground">
-                        Logs Viewer - Coming Soon
-                      </div>
-                    }
-                  />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
               </AppLayout>

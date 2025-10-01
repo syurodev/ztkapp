@@ -423,7 +423,7 @@ class ZkConnectionManager:
         connection_params = {
             'ip': config.get('ip'),
             'port': config.get('port', 4370),
-            'timeout': config.get('timeout', 10),
+            'timeout': config.get('timeout', 30),
             'password': config.get('password', 0),
             'force_udp': config.get('force_udp', False),
             'verbose': config.get('verbose', False)
@@ -464,7 +464,7 @@ class ZkConnectionManager:
         connection_params = {
             'ip': self._config.get('ip'),
             'port': self._config.get('port', 4370),
-            'timeout': self._config.get('timeout', 10),
+            'timeout': self._config.get('timeout', 30),
             'password': self._config.get('password', 0),
             'force_udp': self._config.get('force_udp', False),
             'verbose': self._config.get('verbose', False)

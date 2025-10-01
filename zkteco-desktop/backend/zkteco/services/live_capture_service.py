@@ -19,55 +19,66 @@ from .multi_device_live_capture import (
 
 class MultiDeviceLiveCaptureManager:
     """Manages live capture threads for multiple devices"""
-    
+
     def __init__(self):
         self.device_threads = {}  # device_id -> thread
         self.device_locks = {}    # device_id -> lock
+        self.stop_flags = {}      # device_id -> stop flag (NEW)
         self.main_lock = threading.Lock()
         self.max_concurrent_devices = multi_device_config.get('max_concurrent_devices', 10)
         
     def start_device_capture(self, device_id: str):
         """Start live capture for a specific device with safety checks"""
         with self.main_lock:
-            # Check if already running
-            if device_id in self.device_threads and self.device_threads[device_id].is_alive():
-                app_logger.info(f"Live capture already running for device {device_id}")
-                return
-            
+            # Check if already running (ENHANCED logging)
+            if device_id in self.device_threads:
+                thread = self.device_threads[device_id]
+                if thread.is_alive():
+                    app_logger.warning(f"Live capture already running for device {device_id} (thread: {thread.name}, alive: {thread.is_alive()})")
+                    return
+                else:
+                    app_logger.info(f"Cleaning up dead thread for device {device_id}")
+                    del self.device_threads[device_id]
+
             # Safety validation
             active_count = len([t for t in self.device_threads.values() if t.is_alive()])
             can_start, reason = device_safety_manager.validate_device_start(device_id, active_count)
-            
+
             if not can_start:
                 app_logger.error(f"Cannot start device {device_id}: {reason}")
                 return
-                
+
             # Create device-specific lock if needed
             if device_id not in self.device_locks:
                 self.device_locks[device_id] = threading.Lock()
-            
+
+            # Initialize stop flag to False (NEW)
+            self.stop_flags[device_id] = False
+
             app_logger.info(f"Starting live capture thread for device {device_id}")
-            
+
             try:
                 thread = threading.Thread(
-                    target=self._device_capture_wrapper, 
-                    args=(device_id,), 
+                    target=self._device_capture_wrapper,
+                    args=(device_id,),
                     daemon=True,
                     name=f"LiveCapture-{device_id}"
                 )
                 self.device_threads[device_id] = thread
                 thread.start()
-                
+
                 # Record successful start
                 device_health_monitor.record_connection(device_id)
                 app_logger.info(f"Live capture thread started successfully for device {device_id}")
-                
+
             except Exception as e:
                 app_logger.error(f"Failed to start live capture thread for device {device_id}: {e}")
                 device_health_monitor.record_error(device_id, str(e))
                 # Clean up on failure
                 if device_id in self.device_threads:
                     del self.device_threads[device_id]
+                if device_id in self.stop_flags:
+                    del self.stop_flags[device_id]
     
     def _device_capture_wrapper(self, device_id: str):
         """Wrapper for device capture with error isolation and monitoring"""
@@ -80,23 +91,45 @@ class MultiDeviceLiveCaptureManager:
             device_health_monitor.record_disconnection(device_id)
             app_logger.info(f"Live capture worker finished for device {device_id}")
     
-    def stop_device_capture(self, device_id: str):
-        """Stop live capture for a specific device"""
+    def stop_device_capture(self, device_id: str, wait_timeout: float = 3.0):
+        """Stop live capture for a specific device
+
+        Args:
+            device_id: Device ID to stop
+            wait_timeout: Max seconds to wait for thread to stop (default: 3.0)
+                         Should be > socket timeout (1s) to allow graceful stop
+        """
+        thread_to_wait = None
+
         with self.main_lock:
             if device_id in self.device_threads:
                 thread = self.device_threads[device_id]
                 if thread.is_alive():
                     app_logger.info(f"Stopping live capture thread for device {device_id}")
-                    # Thread will stop on next connection check
+                    # Set stop flag to signal thread to stop (NEW)
+                    self.stop_flags[device_id] = True
+                    thread_to_wait = thread
                 device_health_monitor.record_disconnection(device_id)
                 del self.device_threads[device_id]
+
+        # Wait for thread to stop outside of lock (NEW)
+        if thread_to_wait and thread_to_wait.is_alive():
+            app_logger.info(f"Waiting up to {wait_timeout}s for device {device_id} thread to stop...")
+            thread_to_wait.join(timeout=wait_timeout)
+            if thread_to_wait.is_alive():
+                app_logger.warning(f"Device {device_id} thread did not stop within {wait_timeout}s, continuing anyway")
+            else:
+                app_logger.info(f"Device {device_id} thread stopped successfully")
                 
     def stop_all_captures(self):
         """Stop all live capture threads"""
+        # Get device IDs WITHOUT holding lock (FIXED - avoid deadlock)
         with self.main_lock:
             device_ids = list(self.device_threads.keys())
-            for device_id in device_ids:
-                self.stop_device_capture(device_id)
+
+        # Stop devices one by one (each will acquire lock independently)
+        for device_id in device_ids:
+            self.stop_device_capture(device_id)
     
     def get_active_devices(self):
         """Get list of devices with active capture threads"""
@@ -113,8 +146,12 @@ class MultiDeviceLiveCaptureManager:
     def is_device_active(self, device_id: str):
         """Check if device has active capture thread"""
         with self.main_lock:
-            return (device_id in self.device_threads and 
+            return (device_id in self.device_threads and
                    self.device_threads[device_id].is_alive())
+
+    def should_stop(self, device_id: str) -> bool:
+        """Check if device should stop (NEW - for thread to check)"""
+        return self.stop_flags.get(device_id, False)
 
 # Global multi-device manager instance
 multi_device_manager = MultiDeviceLiveCaptureManager()
@@ -132,9 +169,9 @@ def strtobool(val):
 # ====================
 def live_capture_worker(device_id=None):
     """The background worker function that captures attendance with enhanced parsing.
-    
+
     Args:
-        device_id (str, optional): Specific device ID to capture from. 
+        device_id (str, optional): Specific device ID to capture from.
                                  If None, uses active device (legacy mode).
     """
 
@@ -149,11 +186,15 @@ def live_capture_worker(device_id=None):
     # Import here to avoid circular imports
     from zkteco.config.config_manager_sqlite import config_manager
     from zkteco.services.connection_manager import connection_manager
-    
+
     zk = None
     target_device = None
 
     while True:
+        # Check stop flag first (NEW)
+        if device_id and multi_device_manager.should_stop(device_id):
+            app_logger.info(f"Stop flag detected for device {device_id}, exiting worker")
+            break
         try:
             # Get target device info
             if device_id:
@@ -208,6 +249,10 @@ def live_capture_worker(device_id=None):
             _enhanced_live_capture(zk, device_id)
 
         except (OSError, BrokenPipeError, ConnectionError) as e:
+            # Check if stopped intentionally
+            if device_id and multi_device_manager.should_stop(device_id):
+                app_logger.info(f"Device {device_id} stopped intentionally, not reconnecting")
+                break
             app_logger.error(f"Live capture socket error for device {device_id}: {e}")
             if zk:
                 try:
@@ -217,6 +262,10 @@ def live_capture_worker(device_id=None):
             app_logger.info(f"Live capture thread for device {device_id}: Reconnecting in 10 seconds...")
             time.sleep(10)
         except Exception as e:
+            # Check if stopped intentionally
+            if device_id and multi_device_manager.should_stop(device_id):
+                app_logger.info(f"Device {device_id} stopped intentionally, not reconnecting")
+                break
             app_logger.error(f"Live capture thread error for device {device_id}: {e}")
             if zk:
                 try:
@@ -226,6 +275,10 @@ def live_capture_worker(device_id=None):
             app_logger.info(f"Live capture thread for device {device_id}: Reconnecting in 10 seconds...")
             time.sleep(10)
         else:
+            # Check if stopped intentionally
+            if device_id and multi_device_manager.should_stop(device_id):
+                app_logger.info(f"Device {device_id} stopped intentionally, exiting worker")
+                break
             app_logger.warning(f"Live capture loop exited for device {device_id}. Reconnecting in 10 seconds.")
             if zk:
                 try:
@@ -233,6 +286,11 @@ def live_capture_worker(device_id=None):
                 except:
                     pass
             time.sleep(10)
+
+    # Final cleanup when worker exits (NEW)
+    if device_id and device_id in multi_device_manager.stop_flags:
+        del multi_device_manager.stop_flags[device_id]
+        app_logger.info(f"Cleaned up stop flag for device {device_id}")
 
 def _mock_live_capture_worker(device_id=None):
     """Mock implementation for testing
@@ -298,7 +356,7 @@ def _mock_live_capture_worker(device_id=None):
 
 def _enhanced_live_capture(zk, device_id=None):
     """Enhanced live capture with custom socket parsing and proper error handling
-    
+
     Args:
         zk: ZK device connection instance
         device_id (str, optional): Device ID for logging and event processing
@@ -306,14 +364,37 @@ def _enhanced_live_capture(zk, device_id=None):
     app_logger.info(f"Starting enhanced live capture with custom socket parsing (device_id: {device_id})")
 
     try:
-        zk.cancel_capture()
-        zk.verify_user()
-        zk.enable_device()
-        zk.reg_event(1)
-        zk._ZK__sock.settimeout(10)  # 10 second timeout
+        # Wrap all device commands in try-except to handle broken pipe (FIXED)
+        try:
+            zk.cancel_capture()
+        except Exception as e:
+            app_logger.debug(f"cancel_capture error (safe to ignore): {e}")
+
+        try:
+            zk.verify_user()
+        except Exception as e:
+            app_logger.debug(f"verify_user error (safe to ignore): {e}")
+
+        try:
+            zk.enable_device()
+        except Exception as e:
+            app_logger.warning(f"enable_device error: {e}")
+            raise  # This is critical, re-raise
+
+        try:
+            zk.reg_event(1)
+        except Exception as e:
+            app_logger.warning(f"reg_event error: {e}")
+            raise  # This is critical, re-raise
+
+        zk._ZK__sock.settimeout(1)  # 1 second timeout for responsive stop (FIXED from 10s)
         zk.end_live_capture = False
 
         while not zk.end_live_capture:
+            # Check stop flag (NEW)
+            if device_id and multi_device_manager.should_stop(device_id):
+                app_logger.info(f"Stop flag detected in live capture for device {device_id}, exiting")
+                break
             try:
                 # Check socket state before attempting to read
                 if not zk.is_connect:
@@ -374,9 +455,26 @@ def _enhanced_live_capture(zk, device_id=None):
         raise
     finally:
         try:
-            if hasattr(zk, '_ZK__sock') and zk._ZK__sock:
-                zk._ZK__sock.settimeout(None)
-            zk.reg_event(0)
+            # Reset socket timeout (FIXED - wrapped)
+            try:
+                if hasattr(zk, '_ZK__sock') and zk._ZK__sock:
+                    zk._ZK__sock.settimeout(None)
+            except Exception as e:
+                app_logger.debug(f"Error resetting socket timeout: {e}")
+
+            # Unregister event (FIXED - wrapped)
+            try:
+                zk.reg_event(0)
+            except Exception as e:
+                app_logger.debug(f"Error unregistering event: {e}")
+
+            # Gracefully disconnect device (FIXED - already wrapped)
+            try:
+                zk.disconnect()
+                app_logger.info(f"Device {device_id} disconnected gracefully")
+            except Exception as disc_error:
+                app_logger.debug(f"Error disconnecting device {device_id}: {disc_error}")
+
             app_logger.info("Live capture cleanup completed")
         except Exception as e:
             app_logger.error(f"Error cleaning up live capture: {e}")
@@ -569,7 +667,7 @@ def _queue_attendance_event(member_id, method, action, device_id=None, device_ti
             "id": saved_log.id,  # Include database ID
             "user_id": str(member_id),
             "name": user_name,
-            "timestamp": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": actual_timestamp.strftime("%Y-%m-%d %H:%M:%S"),  # Use device timestamp (FIXED)
             "method": method,  # Chấm bằng vân tay hoặc thẻ
             "action": action,    # checkin checkout
             "device_id": device_id,

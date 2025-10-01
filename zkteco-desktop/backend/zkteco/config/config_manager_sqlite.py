@@ -65,7 +65,7 @@ class SQLiteConfigManager:
             ip=device_data.get('ip'),
             port=device_data.get('port', 4370),
             password=device_data.get('password', 0),
-            timeout=device_data.get('timeout', 10),
+            timeout=device_data.get('timeout', 30),
             retry_count=device_data.get('retry_count', 3),
             retry_delay=device_data.get('retry_delay', 2),
             ping_interval=device_data.get('ping_interval', 30),

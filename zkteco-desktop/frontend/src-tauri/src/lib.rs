@@ -10,6 +10,8 @@ use tauri_plugin_shell::process::CommandChild;
 use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use std::time::Duration;
+use std::fs;
+use std::path::PathBuf;
 
 // Global state for backend process management
 type BackendProcess = Arc<Mutex<Option<CommandChild>>>;
@@ -400,6 +402,168 @@ fn get_backend_error_logs(backend_logs: State<BackendLogs>) -> Result<Vec<LogEnt
     }
 }
 
+// Helper function to get log file path
+fn get_log_file_path() -> Result<PathBuf, String> {
+    let home_dir = dirs::home_dir().ok_or("Failed to get home directory")?;
+
+    // Try multiple possible locations in order
+    let possible_paths = vec![
+        // macOS/Linux: ~/.local/share/ZKTeco/app.log
+        home_dir.join(".local").join("share").join("ZKTeco").join("app.log"),
+        // Windows: %LOCALAPPDATA%\ZKTeco\app.log
+        dirs::data_local_dir()
+            .unwrap_or_else(|| home_dir.clone())
+            .join("ZKTeco")
+            .join("app.log"),
+        // Fallback: ~/zkteco_logs/app.log
+        home_dir.join("zkteco_logs").join("app.log"),
+        // Last resort: current directory
+        std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join("app.log"),
+    ];
+
+    // Return first existing path
+    for path in &possible_paths {
+        if path.exists() {
+            return Ok(path.clone());
+        }
+    }
+
+    // If no file exists, return the first path (default location)
+    Ok(possible_paths[0].clone())
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+struct FileLogEntry {
+    line_number: usize,
+    timestamp: String,
+    level: String,
+    module: String,
+    message: String,
+}
+
+#[tauri::command]
+fn get_log_file_path_command() -> Result<String, String> {
+    match get_log_file_path() {
+        Ok(path) => Ok(path.to_string_lossy().to_string()),
+        Err(e) => Err(e),
+    }
+}
+
+#[tauri::command]
+fn read_log_file(lines: Option<usize>) -> Result<Vec<FileLogEntry>, String> {
+    let log_path = get_log_file_path()?;
+
+    if !log_path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let content = fs::read_to_string(&log_path)
+        .map_err(|e| format!("Failed to read log file: {}", e))?;
+
+    let all_lines: Vec<&str> = content.lines().collect();
+    let lines_to_read = lines.unwrap_or(500); // Default to last 500 lines
+
+    // Take last N lines
+    let start_idx = if all_lines.len() > lines_to_read {
+        all_lines.len() - lines_to_read
+    } else {
+        0
+    };
+
+    let mut entries = Vec::new();
+
+    for (idx, line) in all_lines[start_idx..].iter().enumerate() {
+        // Parse log line format: [timestamp] LEVEL in module: message
+        // Example: [2025-10-01 15:46:31,029] INFO in zkteco.logger: Message here
+
+        if let Some(log_entry) = parse_log_line(line, start_idx + idx + 1) {
+            entries.push(log_entry);
+        }
+    }
+
+    Ok(entries)
+}
+
+fn parse_log_line(line: &str, line_number: usize) -> Option<FileLogEntry> {
+    // Try to parse: [timestamp] LEVEL in module: message
+    if !line.starts_with('[') {
+        return None;
+    }
+
+    let parts: Vec<&str> = line.splitn(2, "] ").collect();
+    if parts.len() != 2 {
+        return None;
+    }
+
+    let timestamp = parts[0].trim_start_matches('[').to_string();
+    let rest = parts[1];
+
+    // Parse "LEVEL in module: message"
+    let level_parts: Vec<&str> = rest.splitn(2, " in ").collect();
+    if level_parts.len() != 2 {
+        return Some(FileLogEntry {
+            line_number,
+            timestamp,
+            level: "INFO".to_string(),
+            module: "unknown".to_string(),
+            message: rest.to_string(),
+        });
+    }
+
+    let level = level_parts[0].to_string();
+
+    let module_message: Vec<&str> = level_parts[1].splitn(2, ": ").collect();
+    if module_message.len() != 2 {
+        return Some(FileLogEntry {
+            line_number,
+            timestamp,
+            level,
+            module: "unknown".to_string(),
+            message: level_parts[1].to_string(),
+        });
+    }
+
+    Some(FileLogEntry {
+        line_number,
+        timestamp,
+        level,
+        module: module_message[0].to_string(),
+        message: module_message[1].to_string(),
+    })
+}
+
+#[tauri::command]
+fn clear_log_file() -> Result<String, String> {
+    let log_path = get_log_file_path()?;
+
+    if !log_path.exists() {
+        return Ok("Log file does not exist".to_string());
+    }
+
+    fs::write(&log_path, "")
+        .map_err(|e| format!("Failed to clear log file: {}", e))?;
+
+    Ok("Log file cleared successfully".to_string())
+}
+
+#[tauri::command]
+fn export_log_file(destination: String) -> Result<String, String> {
+    let log_path = get_log_file_path()?;
+
+    if !log_path.exists() {
+        return Err("Log file does not exist".to_string());
+    }
+
+    let dest_path = PathBuf::from(destination);
+
+    fs::copy(&log_path, &dest_path)
+        .map_err(|e| format!("Failed to export log file: {}", e))?;
+
+    Ok(format!("Log file exported to: {}", dest_path.display()))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let backend_process: BackendProcess = Arc::new(Mutex::new(None));
@@ -409,6 +573,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(backend_process.clone())
         .manage(process_status.clone())
         .manage(backend_logs.clone())
@@ -495,9 +660,25 @@ pub fn run() {
                 startup_backend_sidecar(app_for_startup, backend_process_for_setup).await;
             });
 
+            // Set up window close behavior - minimize to tray instead of closing
+            let main_window = app.get_webview_window("main");
+            if let Some(window) = main_window {
+                let window_clone = window.clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        // Prevent default close behavior
+                        api.prevent_close();
+
+                        // Hide window to tray instead
+                        let _ = window_clone.hide();
+                        println!("Window minimized to tray instead of closing");
+                    }
+                });
+            }
+
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![greet, show_main_window, hide_to_tray, cleanup_backend, start_backend, stop_backend, restart_backend, is_backend_running, check_backend_http_health, get_backend_logs, clear_backend_logs, get_backend_error_logs])
+        .invoke_handler(tauri::generate_handler![greet, show_main_window, hide_to_tray, cleanup_backend, start_backend, stop_backend, restart_backend, is_backend_running, check_backend_http_health, get_backend_logs, clear_backend_logs, get_backend_error_logs, get_log_file_path_command, read_log_file, clear_log_file, export_log_file])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

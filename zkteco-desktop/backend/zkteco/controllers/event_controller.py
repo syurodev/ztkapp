@@ -1,6 +1,5 @@
 from flask import Blueprint, Response
 from zkteco.events import events_queue
-from zkteco.services.live_capture_service import start_live_capture_thread
 import json
 from queue import Empty
 
@@ -8,8 +7,8 @@ bp = Blueprint('live_events', __name__, url_prefix='/')
 
 @bp.route('/live-events')
 def live_events():
-
-    start_live_capture_thread()
+    # REMOVED: start_live_capture_thread() - use multi-device API instead
+    # Frontend should use /devices/capture/start-all or /devices/<id>/capture/start
 
     def event_stream():
         try:

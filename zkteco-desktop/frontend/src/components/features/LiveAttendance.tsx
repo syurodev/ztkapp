@@ -1,5 +1,13 @@
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Table,
   TableBody,
@@ -8,27 +16,25 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { useDevice } from "@/contexts/DeviceContext";
 import { liveAPI, LiveAttendanceRecord } from "@/lib/api";
 import { ATTENDANCE_METHOD_MAP, PUNCH_ACTION_MAP } from "@/types/constant";
-import { Activity, Monitor, Wifi, WifiOff, Play, Square, Users, Settings } from "lucide-react";
+import {
+  Activity,
+  Monitor,
+  Play,
+  Settings,
+  Square,
+  Wifi,
+  WifiOff,
+} from "lucide-react";
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
 
 const MAX_RECORDS = 50;
 
 export function LiveAttendance() {
   const {
     devices,
-    activeDevice,
     captureStatus,
     isCaptureLoading,
     startAllCapture,
@@ -36,12 +42,15 @@ export function LiveAttendance() {
     startDeviceCapture,
     stopDeviceCapture,
     isDeviceCapturing,
-    getDeviceCaptureStatus
+    getDeviceCaptureStatus,
   } = useDevice();
 
-  const [liveAttendance, setLiveAttendance] = useState<LiveAttendanceRecord[]>([]);
+  const [liveAttendance, setLiveAttendance] = useState<LiveAttendanceRecord[]>(
+    []
+  );
   const [isConnected, setIsConnected] = useState(false);
-  const [selectedDeviceFilter, setSelectedDeviceFilter] = useState<string>("all");
+  const [selectedDeviceFilter, setSelectedDeviceFilter] =
+    useState<string>("all");
 
   useEffect(() => {
     if (devices.length === 0) {
@@ -63,7 +72,12 @@ export function LiveAttendance() {
     };
 
     // Connect with device filter
-    const cleanup = liveAPI.connect(handleMessage, handleError, handleOpen, selectedDeviceFilter);
+    const cleanup = liveAPI.connect(
+      handleMessage,
+      handleError,
+      handleOpen,
+      selectedDeviceFilter
+    );
 
     return () => {
       cleanup();
@@ -101,13 +115,16 @@ export function LiveAttendance() {
   };
 
   // Get filtered attendance records
-  const filteredAttendance = selectedDeviceFilter === "all"
-    ? liveAttendance
-    : liveAttendance.filter(record => record.device_id === selectedDeviceFilter);
+  const filteredAttendance =
+    selectedDeviceFilter === "all"
+      ? liveAttendance
+      : liveAttendance.filter(
+          (record) => record.device_id === selectedDeviceFilter
+        );
 
   // Get device name helper
   const getDeviceName = (deviceId: string) => {
-    const device = devices.find(d => d.id === deviceId);
+    const device = devices.find((d) => d.id === deviceId);
     return device?.name || deviceId;
   };
 
@@ -121,7 +138,8 @@ export function LiveAttendance() {
         <Alert>
           <Monitor className="h-4 w-4" />
           <AlertDescription>
-            No devices configured. Go to Device Management to add devices for live attendance monitoring.
+            No devices configured. Go to Device Management to add devices for
+            live attendance monitoring.
           </AlertDescription>
         </Alert>
       )}
@@ -134,7 +152,8 @@ export function LiveAttendance() {
               <Settings className="h-5 w-5" />
               Live Capture Control
               <Badge variant="secondary" className="ml-auto">
-                {captureStatus?.overall_status.active_captures || 0} / {devices.length} Active
+                {captureStatus?.overall_status.active_captures || 0} /{" "}
+                {devices.length} Active
               </Badge>
             </CardTitle>
           </CardHeader>
@@ -171,9 +190,14 @@ export function LiveAttendance() {
                   const isHealthy = deviceStatus?.is_healthy !== false;
 
                   return (
-                    <div key={device.id} className="border rounded-lg p-3 space-y-2">
+                    <div
+                      key={device.id}
+                      className="border rounded-lg p-3 space-y-2"
+                    >
                       <div className="flex items-center justify-between">
-                        <span className="font-medium text-sm">{device.name}</span>
+                        <span className="font-medium text-sm">
+                          {device.name}
+                        </span>
                         <div className="flex items-center gap-1">
                           <Badge
                             variant={isCapturing ? "default" : "secondary"}
@@ -236,15 +260,21 @@ export function LiveAttendance() {
           </CardTitle>
           {devices.length > 1 && (
             <div className="flex items-center gap-2 pt-2">
-              <span className="text-sm text-muted-foreground">Filter by device:</span>
+              <span className="text-sm text-muted-foreground">
+                Filter by device:
+              </span>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm">
-                    {selectedDeviceFilter === "all" ? "All Devices" : getDeviceName(selectedDeviceFilter)}
+                    {selectedDeviceFilter === "all"
+                      ? "All Devices"
+                      : getDeviceName(selectedDeviceFilter)}
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent>
-                  <DropdownMenuItem onClick={() => setSelectedDeviceFilter("all")}>
+                  <DropdownMenuItem
+                    onClick={() => setSelectedDeviceFilter("all")}
+                  >
                     All Devices
                   </DropdownMenuItem>
                   {devices.map((device) => (

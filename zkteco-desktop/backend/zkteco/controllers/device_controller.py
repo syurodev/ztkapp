@@ -15,12 +15,12 @@ try:
         multi_device_manager
     )
     LIVE_CAPTURE_AVAILABLE = True
-    print("✓ Live capture service imported successfully")
+    print("[OK] Live capture service imported successfully")
 except ImportError as e:
-    print(f"✗ Failed to import live capture service: {e}")
+    print(f"[ERROR] Failed to import live capture service: {e}")
     LIVE_CAPTURE_AVAILABLE = False
 except Exception as e:
-    print(f"✗ Error importing live capture service: {e}")
+    print(f"[ERROR] Error importing live capture service: {e}")
     LIVE_CAPTURE_AVAILABLE = False
 
 bp = Blueprint('device', __name__, url_prefix='/')

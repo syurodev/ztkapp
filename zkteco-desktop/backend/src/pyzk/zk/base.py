@@ -340,7 +340,15 @@ class ZK(object):
 
         year = t + 2000
 
-        d = datetime(year, month, day, hour, minute, second)
+        try:
+            d = datetime(year, month, day, hour, minute, second)
+        except ValueError as e:
+            # Handle invalid dates (e.g., Feb 30) by adjusting to last valid day of month
+            import calendar
+            max_day = calendar.monthrange(year, month)[1]
+            if day > max_day:
+                day = max_day
+            d = datetime(year, month, day, hour, minute, second)
 
         return d
 
@@ -350,7 +358,15 @@ class ZK(object):
         """
         year, month, day, hour, minute, second = unpack("6B", timehex)
         year += 2000
-        d = datetime(year, month, day, hour, minute, second)
+        try:
+            d = datetime(year, month, day, hour, minute, second)
+        except ValueError as e:
+            # Handle invalid dates (e.g., Feb 30) by adjusting to last valid day of month
+            import calendar
+            max_day = calendar.monthrange(year, month)[1]
+            if day > max_day:
+                day = max_day
+            d = datetime(year, month, day, hour, minute, second)
         return d
 
     def __encode_time(self, t):

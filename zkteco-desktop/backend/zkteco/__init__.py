@@ -43,18 +43,22 @@ def create_app():
     app.register_blueprint(event_blueprint)
 
     # Initialize and start the scheduler
-    try:
-        scheduler_service.start()
-        app.logger.info("Scheduler service started successfully")
+    # Only start scheduler in main process (not in reloader child process)
+    if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
+        app.logger.info("Skipping scheduler start in reloader process")
+    else:
+        try:
+            scheduler_service.start()
+            app.logger.info("Scheduler service started successfully")
 
-        # Register cleanup function to stop scheduler when app shuts down
-        def cleanup_scheduler():
-            scheduler_service.stop()
+            # Register cleanup function to stop scheduler when app shuts down
+            def cleanup_scheduler():
+                scheduler_service.stop()
 
-        atexit.register(cleanup_scheduler)
+            atexit.register(cleanup_scheduler)
 
-    except Exception as e:
-        app.logger.error(f"Failed to start scheduler service: {e}")
+        except Exception as e:
+            app.logger.error(f"Failed to start scheduler service: {e}")
 
     return app
 

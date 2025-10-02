@@ -110,7 +110,7 @@ class ZK(object):
     """
     ZK main class
     """
-    def __init__(self, ip, port=4370, timeout=60, password=0, force_udp=False, ommit_ping=False, verbose=False, encoding='UTF-8'):
+    def __init__(self, ip, port=4370, timeout=180, password=0, force_udp=False, ommit_ping=False, verbose=False, encoding='UTF-8'):
         """
         Construct a new 'ZK' object.
 
@@ -126,6 +126,8 @@ class ZK(object):
         User.encoding = encoding
         self.__address = (ip, port)
         self.__sock = socket(AF_INET, SOCK_DGRAM)
+        # Fix WinError 10040: Increase receive buffer size for Windows
+        self.__sock.setsockopt(1, 8, 5 * 1024 * 1024)  # SO_RCVBUF = 5MB
         self.__sock.settimeout(timeout)
         self.__timeout = timeout
         self.__password = password # passint
@@ -173,6 +175,8 @@ class ZK(object):
             self.__sock.connect_ex(self.__address)
         else:
             self.__sock = socket(AF_INET, SOCK_DGRAM)
+            # Fix WinError 10040: Increase receive buffer size for Windows
+            self.__sock.setsockopt(1, 8, 5 * 1024 * 1024)  # SO_RCVBUF = 5MB
             self.__sock.settimeout(self.__timeout)
 
     def __create_tcp_top(self, packet):

@@ -209,7 +209,9 @@ def get_all_users():
                 "device_id": user.device_id,
                 "is_synced": user.is_synced,
                 "synced_at": synced_at,
-                "created_at": created_at
+                "created_at": created_at,
+                "external_user_id": user.external_user_id,
+                "avatar_url": user.avatar_url
             })
         
         serialize_end = time.time()

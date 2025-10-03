@@ -95,6 +95,8 @@ class DatabaseManager:
                     password TEXT DEFAULT '',
                     is_synced BOOLEAN DEFAULT FALSE,
                     synced_at DATETIME NULL,
+                    external_user_id INTEGER NULL,
+                    avatar_url TEXT NULL,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
@@ -164,11 +166,11 @@ class DatabaseManager:
                 print("This may be normal if the column already exists in some form")
     
     def _migrate_users_table(self, cursor):
-        """Migrate existing users table to add serial_number column"""
-        # Check if column already exists
+        """Migrate existing users table to add new columns"""
+        # Check if columns already exist
         cursor.execute("PRAGMA table_info(users)")
         columns = [column[1] for column in cursor.fetchall()]
-        
+
         if 'serial_number' not in columns:
             try:
                 print("Adding serial_number column to users table...")
@@ -177,6 +179,22 @@ class DatabaseManager:
             except Exception as e:
                 print(f"Warning: Could not add serial_number column to users table: {e}")
                 print("This may be normal if the column already exists in some form")
+
+        if 'external_user_id' not in columns:
+            try:
+                print("Adding external_user_id column to users table...")
+                cursor.execute('ALTER TABLE users ADD COLUMN external_user_id INTEGER NULL')
+                print("external_user_id column added to users table successfully")
+            except Exception as e:
+                print(f"Warning: Could not add external_user_id column to users table: {e}")
+
+        if 'avatar_url' not in columns:
+            try:
+                print("Adding avatar_url column to users table...")
+                cursor.execute('ALTER TABLE users ADD COLUMN avatar_url TEXT NULL')
+                print("avatar_url column added to users table successfully")
+            except Exception as e:
+                print(f"Warning: Could not add avatar_url column to users table: {e}")
     
     def _migrate_attendance_logs_table(self, cursor):
         """Migrate existing attendance_logs table to add sync tracking columns and unique constraint"""

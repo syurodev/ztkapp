@@ -367,6 +367,68 @@ class ZkService:
             app_logger.error(f"Error in save_device_info_to_config for device {target_device_id}: {type(e).__name__}: {e}")
             raise
 
+    def _fetch_employee_details(self, user_ids: list, external_api_domain: str) -> dict:
+        """
+        Fetch employee details from external API after sync
+
+        Args:
+            user_ids: List of user_ids from time clock
+            external_api_domain: External API base URL
+
+        Returns:
+            Dict mapping user_id -> {employee_id, employee_avatar}
+        """
+        try:
+            api_url = external_api_domain + '/time-clock-employees/get-by-user-ids'
+            api_key = config_manager.get_external_api_key()
+
+            if not api_key:
+                app_logger.warning("EXTERNAL_API_KEY not configured, skipping employee details fetch")
+                return {}
+
+            request_body = {"user_ids": user_ids}
+            headers = {
+                'Content-Type': 'application/json',
+                'x-api-key': api_key,
+                'ProjectId': '1055'
+            }
+
+            app_logger.info(f"Fetching employee details for {len(user_ids)} users from external API")
+
+            response = requests.post(api_url, json=request_body, headers=headers, timeout=30)
+            response.raise_for_status()
+
+            data = response.json()
+
+            # Parse response: BaseResponse<List<TimeClockEmployeeInfoResponse>>
+            if data.get('status') != 200:
+                app_logger.warning(f"Failed to fetch employee details: {data.get('message')}")
+                return {}
+
+            employee_details = data.get('data', [])
+            app_logger.info(f"Received {len(employee_details)} employee details from external API")
+
+            # Map user_id -> details
+            result = {}
+            for employee in employee_details:
+                time_clock_user_id = employee.get('time_clock_user_id')
+                if time_clock_user_id:
+                    result[time_clock_user_id] = {
+                        'employee_id': employee.get('employee_id'),
+                        'employee_name': employee.get('employee_name'),
+                        'employee_avatar': employee.get('employee_avatar')
+                    }
+
+            app_logger.info(f"Successfully mapped details for {len(result)} employees")
+            return result
+
+        except requests.exceptions.RequestException as e:
+            app_logger.error(f"HTTP error fetching employee details: {e}")
+            return {}
+        except Exception as e:
+            app_logger.error(f"Error fetching employee details: {type(e).__name__}: {e}")
+            return {}
+
     def sync_employee(self, device_id: str = None):
         target_device_id = device_id or self.device_id
         app_logger.info(f"sync_employee() called for device {target_device_id}")
@@ -447,27 +509,63 @@ class ZkService:
                 }
             
             response.raise_for_status()
-            
-            # If sync successful, update users as synced in database
+
+            # Sync successful - now try to fetch employee details (best effort)
+            # IMPORTANT: Users will be marked as synced regardless of detail fetch success
             from datetime import datetime
+
+            app_logger.info("Sync successful, attempting to fetch employee details from external API...")
+            user_ids_list = [user.user_id for user in db_users]
+            employee_details = self._fetch_employee_details(user_ids_list, external_api_domain)
+
+            # Log detail fetch result
+            if employee_details:
+                app_logger.info(f"Successfully fetched details for {len(employee_details)} employees")
+            else:
+                app_logger.warning("Failed to fetch employee details, but sync will continue (users will still be marked as synced)")
+
+            # Update users with sync status (and details if available)
             synced_count = 0
-            
-            for user_id in user_ids_to_sync:
+            updated_with_details_count = 0
+
+            for user in db_users:
                 try:
-                    user_repo.update(user_id, {
+                    # Always mark as synced since main sync was successful
+                    updates = {
                         'is_synced': True,
                         'synced_at': datetime.now()
-                    })
+                    }
+
+                    # Add employee details if available (optional enhancement)
+                    if employee_details and user.user_id in employee_details:
+                        details = employee_details[user.user_id]
+                        updates['external_user_id'] = details.get('employee_id')
+                        updates['avatar_url'] = details.get('employee_avatar')
+
+                        app_logger.info(
+                            f"User {user.user_id} ({user.name}): marked as synced + mapped to employee_id={details.get('employee_id')}, "
+                            f"avatar={'present' if details.get('employee_avatar') else 'none'}"
+                        )
+                        updated_with_details_count += 1
+                    else:
+                        app_logger.debug(f"User {user.user_id} ({user.name}): marked as synced (no employee details)")
+
+                    user_repo.update(user.id, updates)
                     synced_count += 1
+
                 except Exception as update_error:
-                    app_logger.warning(f"Failed to update sync status for user {user_id}: {update_error}")
-            
-            app_logger.info(f"Successfully synced {len(employees)} employees to external API and updated {synced_count} users in database")
+                    app_logger.warning(f"Failed to update user {user.id}: {update_error}")
+
+            app_logger.info(
+                f"Successfully synced {len(employees)} employees to external API, "
+                f"updated {synced_count} users in database ({updated_with_details_count} with employee details)"
+            )
             
             return {
                 'success': True,
                 'employees_count': len(employees),
                 'synced_users_count': synced_count,
+                'updated_with_details_count': updated_with_details_count,
                 'timestamp': sync_data['timestamp'],
                 'response_status': response.status_code,
                 'external_api_response': data

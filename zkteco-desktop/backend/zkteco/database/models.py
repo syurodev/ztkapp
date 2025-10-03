@@ -43,6 +43,8 @@ class User:
     password: str = ''
     is_synced: bool = False
     synced_at: Optional[datetime] = None
+    external_user_id: Optional[int] = None  # bigint from external API
+    avatar_url: Optional[str] = None
     id: Optional[int] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -286,7 +288,19 @@ class UserRepository:
             serial_number = row['serial_number'] if 'serial_number' in row.keys() else None
         except (KeyError, IndexError):
             serial_number = None
-            
+
+        # Handle external_user_id safely for SQLite Row object
+        try:
+            external_user_id = row['external_user_id'] if 'external_user_id' in row.keys() else None
+        except (KeyError, IndexError):
+            external_user_id = None
+
+        # Handle avatar_url safely for SQLite Row object
+        try:
+            avatar_url = row['avatar_url'] if 'avatar_url' in row.keys() else None
+        except (KeyError, IndexError):
+            avatar_url = None
+
         return User(
             id=row['id'],
             user_id=row['user_id'],
@@ -299,6 +313,8 @@ class UserRepository:
             password=row['password'],
             is_synced=bool(row['is_synced']),
             synced_at=row['synced_at'],
+            external_user_id=external_user_id,
+            avatar_url=avatar_url,
             created_at=row['created_at'],
             updated_at=row['updated_at']
         )

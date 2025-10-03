@@ -164,6 +164,10 @@ class SQLiteConfigManager:
         """Get external API URL"""
         domain = setting_repo.get('EXTERNAL_API_DOMAIN') or ''
         return domain.rstrip('/') if domain else ''
+
+    def get_external_api_key(self) -> str:
+        """Get external API key for authentication"""
+        return setting_repo.get('EXTERNAL_API_KEY') or ''
     
     # Additional methods for enhanced functionality
     def get_devices_by_status(self, is_active: bool = True) -> List[Dict[str, Any]]:

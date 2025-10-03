@@ -615,6 +615,8 @@ export interface User {
   is_synced: boolean;
   synced_at: string | null;
   created_at: string | null;
+  external_user_id: number | null;
+  avatar_url: string | null;
 }
 
 export interface UsersResponse {

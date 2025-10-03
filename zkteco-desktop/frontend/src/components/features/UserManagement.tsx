@@ -1,4 +1,5 @@
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -507,11 +508,33 @@ export function UserManagement() {
               </TableHeader>
               <TableBody>
                 {filteredUsers.map((user, index) => {
+                  const initials = user.name
+                    .split(" ")
+                    .map((n) => n[0])
+                    .join("")
+                    .toUpperCase()
+                    .slice(0, 2);
+
                   return (
                     <TableRow key={user.id}>
                       <TableCell className="font-medium">{index + 1}</TableCell>
                       <TableCell className="font-medium">{user.id}</TableCell>
-                      <TableCell>{user.name}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-3">
+                          <Avatar className="h-8 w-8">
+                            {user.avatar_url && (
+                              <AvatarImage
+                                src={user.avatar_url}
+                                alt={user.name}
+                              />
+                            )}
+                            <AvatarFallback className="text-xs">
+                              {initials}
+                            </AvatarFallback>
+                          </Avatar>
+                          <span>{user.name}</span>
+                        </div>
+                      </TableCell>
                       <TableCell>{user.groupId}</TableCell>
                       <TableCell>{getSyncStatusBadge(user)}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">

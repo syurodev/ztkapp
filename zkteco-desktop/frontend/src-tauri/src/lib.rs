@@ -1,13 +1,16 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local, Utc};
+use dirs::data_local_dir;
 use std::collections::HashMap;
-use std::fs;
+use std::env;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, State,
+    Manager, RunEvent, State,
 };
 use tauri_plugin_shell::process::CommandChild;
 use tauri_plugin_shell::ShellExt;
@@ -15,11 +18,12 @@ use tauri_plugin_shell::ShellExt;
 #[cfg(target_os = "windows")]
 use std::os::windows::fs::OpenOptionsExt;
 #[cfg(target_os = "windows")]
-use std::{fs::OpenOptions, io::Read};
+use std::io::Read;
 
 // Global state for backend process management
 type BackendProcess = Arc<Mutex<Option<CommandChild>>>;
 type ProcessStatus = Arc<Mutex<HashMap<String, String>>>;
+type MinimizeToTraySetting = Arc<Mutex<bool>>;
 
 #[derive(Debug, Clone, serde::Serialize)]
 struct LogEntry {
@@ -30,6 +34,115 @@ struct LogEntry {
 }
 
 type BackendLogs = Arc<Mutex<Vec<LogEntry>>>;
+
+const BACKEND_STARTING_KEY: &str = "backend_starting";
+
+fn resolve_app_data_dir() -> PathBuf {
+    let mut base_dir = data_local_dir().unwrap_or_else(|| env::temp_dir());
+    base_dir.push("ZKTeco");
+
+    if let Err(err) = fs::create_dir_all(&base_dir) {
+        eprintln!(
+            "Failed to create local data directory at {:?}: {}. Falling back to temporary directory.",
+            base_dir, err
+        );
+        let mut fallback_dir = env::temp_dir();
+        fallback_dir.push("ZKTeco");
+        let _ = fs::create_dir_all(&fallback_dir);
+        fallback_dir
+    } else {
+        base_dir
+    }
+}
+
+fn resolve_backend_db_path() -> PathBuf {
+    let mut db_path = resolve_app_data_dir();
+    db_path.push("zkteco_app.db");
+    db_path
+}
+
+fn append_app_log(message: &str) {
+    let mut log_path = resolve_app_data_dir();
+    log_path.push("zkteco_app.log");
+
+    match OpenOptions::new().create(true).append(true).open(&log_path) {
+        Ok(mut file) => {
+            let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S");
+            if let Err(err) = writeln!(file, "[{}] {}", timestamp, message) {
+                eprintln!(
+                    "Failed to write to app log at {:?}: {}",
+                    log_path, err
+                );
+            }
+        }
+        Err(err) => {
+            eprintln!("Failed to open app log at {:?}: {}", log_path, err);
+        }
+    }
+}
+
+#[tauri::command]
+fn set_minimize_to_tray(
+    enable: bool,
+    minimize_setting: State<MinimizeToTraySetting>,
+) -> Result<(), String> {
+    match minimize_setting.lock() {
+        Ok(mut guard) => {
+            *guard = enable;
+            append_app_log(&format!(
+                "Minimize-to-tray preference updated: {}",
+                enable
+            ));
+            Ok(())
+        }
+        Err(err) => Err(format!("Failed to update minimize_to_tray setting: {}", err)),
+    }
+}
+
+struct BackendStartupGuard {
+    status: ProcessStatus,
+    acquired: bool,
+}
+
+impl BackendStartupGuard {
+    fn try_acquire(status: &ProcessStatus) -> Result<(Self, bool), String> {
+        let status_clone = status.clone();
+        let mut status_map = status_clone
+            .lock()
+            .map_err(|err| format!("Failed to lock process status: {}", err))?;
+
+        if status_map
+            .get(BACKEND_STARTING_KEY)
+            .map(|value| value == "true")
+            .unwrap_or(false)
+        {
+            drop(status_map);
+            return Ok((BackendStartupGuard {
+                status: status_clone,
+                acquired: false,
+            }, false));
+        }
+
+        status_map.insert(BACKEND_STARTING_KEY.to_string(), "true".to_string());
+        drop(status_map);
+
+        Ok((BackendStartupGuard {
+            status: status_clone,
+            acquired: true,
+        }, true))
+    }
+}
+
+impl Drop for BackendStartupGuard {
+    fn drop(&mut self) {
+        if self.acquired {
+            if let Ok(mut status_map) = self.status.lock() {
+                status_map.remove(BACKEND_STARTING_KEY);
+            }
+            self.acquired = false;
+        }
+    }
+}
 
 // Helper function to check if backend is responding via HTTP
 async fn check_backend_health() -> bool {
@@ -74,18 +187,25 @@ async fn detect_existing_backend(backend_process: &BackendProcess) -> bool {
         }
     };
 
+    if has_tracked_process {
+        println!(
+            "Backend detection - tracked process exists, assuming backend is starting or running",
+        );
+        return true;
+    }
+
     // Then check HTTP health
     let is_http_healthy = check_backend_health().await;
 
     println!(
-        "Backend detection - Tracked process: {}, HTTP healthy: {}",
-        has_tracked_process, is_http_healthy
+        "Backend detection - no tracked process, HTTP healthy: {}",
+        is_http_healthy
     );
 
     // Backend is considered existing if either:
     // 1. We have a tracked process AND it's HTTP healthy
     // 2. We don't have a tracked process BUT HTTP is healthy (orphaned process)
-    (has_tracked_process && is_http_healthy) || (!has_tracked_process && is_http_healthy)
+    is_http_healthy
 }
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -112,25 +232,36 @@ fn hide_to_tray(app: tauri::AppHandle) {
 
 #[tauri::command]
 fn cleanup_backend(backend_process: State<BackendProcess>) -> Result<String, String> {
+    append_app_log("cleanup_backend command invoked");
     match backend_process.lock() {
         Ok(mut process_guard) => {
             if let Some(child) = process_guard.take() {
                 match child.kill() {
                     Ok(()) => {
                         println!("Backend process terminated successfully");
+                        append_app_log("cleanup_backend terminated backend process successfully");
                         Ok("Backend process terminated successfully".to_string())
                     }
                     Err(e) => {
                         eprintln!("Failed to kill backend process: {}", e);
+                        append_app_log(&format!(
+                            "cleanup_backend failed to kill backend process: {}",
+                            e
+                        ));
                         Err(format!("Failed to kill backend process: {}", e))
                     }
                 }
             } else {
+                append_app_log("cleanup_backend found no backend process to terminate");
                 Ok("No backend process to terminate".to_string())
             }
         }
         Err(e) => {
             eprintln!("Failed to acquire backend process lock: {}", e);
+            append_app_log(&format!(
+                "cleanup_backend failed to acquire backend process lock: {}",
+                e
+            ));
             Err(format!("Failed to acquire backend process lock: {}", e))
         }
     }
@@ -144,14 +275,51 @@ async fn start_backend(
     backend_logs: State<'_, BackendLogs>,
 ) -> Result<String, String> {
     println!("Start backend command called");
+    append_app_log("start_backend command invoked");
+
+    let (startup_guard, acquired) = match BackendStartupGuard::try_acquire(&process_status) {
+        Ok(result) => result,
+        Err(err) => {
+            append_app_log(&format!(
+                "start_backend failed to acquire startup guard: {}",
+                err
+            ));
+            return Err(err);
+        }
+    };
+
+    if !acquired {
+        append_app_log("start_backend ignored - backend startup already in progress");
+        return Ok("Backend startup already in progress".to_string());
+    }
+
+    let _startup_guard = startup_guard;
 
     // Check for existing backend (comprehensive detection)
     if detect_existing_backend(&backend_process).await {
         println!("Backend already exists - skipping startup");
+        append_app_log("start_backend skipped - backend already running");
         return Ok("Backend is already running".to_string());
     }
 
     println!("No existing backend detected - proceeding with startup");
+
+    let db_path = resolve_backend_db_path();
+    let db_path_str = db_path.to_string_lossy().to_string();
+    if let Some(parent) = db_path.parent() {
+        if let Err(err) = fs::create_dir_all(parent) {
+            eprintln!(
+                "Failed to ensure database directory at {:?}: {}",
+                parent, err
+            );
+            append_app_log(&format!(
+                "Failed to ensure database directory at {:?}: {}",
+                parent, err
+            ));
+        }
+    }
+    println!("Using backend database at: {}", db_path_str);
+    append_app_log(&format!("start_backend proceeding - DB path {}", db_path_str));
 
     // Clear any previous status
     if let Ok(mut status_guard) = process_status.lock() {
@@ -162,11 +330,15 @@ async fn start_backend(
     match app.shell().sidecar("zkteco-backend") {
         Ok(sidecar_command) => {
             let sidecar_with_env = sidecar_command
-                .env("SECRET_KEY", "your-secret-key-here")
-                .env("LOG_LEVEL", "INFO");
+                .env("SECRET_KEY", "b7ad3ec8a8262756372175c8d4f83cdce82d9bc85878ff0b4258ca91a3a1e641")
+                .env("LOG_LEVEL", "INFO")
+                .env("FLASK_DEBUG", "0")
+                .env("FLASK_ENV", "production")
+                .env("ZKTECO_DB_PATH", &db_path_str);
             match sidecar_with_env.spawn() {
                 Ok((mut rx, child)) => {
                     println!("Backend sidecar started successfully");
+                    append_app_log("start_backend succeeded in spawning backend sidecar");
 
                     // Store the child process
                     match backend_process.lock() {
@@ -327,6 +499,10 @@ async fn start_backend(
                     // Check if there was an early failure
                     if let Ok(status_guard) = process_status.lock() {
                         if let Some(error_msg) = status_guard.get("backend_status") {
+                            append_app_log(&format!(
+                                "start_backend detected early failure: {}",
+                                error_msg
+                            ));
                             return Err(error_msg.clone());
                         }
                     }
@@ -334,16 +510,21 @@ async fn start_backend(
                     // Check if process is still alive
                     if let Ok(process_guard) = backend_process.lock() {
                         if process_guard.is_none() {
+                            append_app_log(
+                                "start_backend aborted - backend process terminated during startup",
+                            );
                             return Err("Backend process terminated unexpectedly during startup"
                                 .to_string());
                         }
                     }
 
+                    append_app_log("start_backend completed verification successfully");
                     Ok("Backend started successfully".to_string())
                 }
                 Err(e) => {
                     let error_msg = format!("Failed to spawn backend sidecar: {}. This may be due to permission issues or missing dependencies.", e);
                     eprintln!("{}", error_msg);
+                    append_app_log(&format!("start_backend failed to spawn backend sidecar: {}", e));
                     Err(error_msg)
                 }
             }
@@ -351,6 +532,10 @@ async fn start_backend(
         Err(e) => {
             let error_msg = format!("Failed to create backend sidecar command: {}. Make sure the backend executable exists in the bundle.", e);
             eprintln!("{}", error_msg);
+            append_app_log(&format!(
+                "start_backend failed to create sidecar command: {}",
+                e
+            ));
             Err(error_msg)
         }
     }
@@ -358,25 +543,36 @@ async fn start_backend(
 
 #[tauri::command]
 fn stop_backend(backend_process: State<BackendProcess>) -> Result<String, String> {
+    append_app_log("stop_backend command invoked");
     match backend_process.lock() {
         Ok(mut process_guard) => {
             if let Some(child) = process_guard.take() {
                 match child.kill() {
                     Ok(()) => {
                         println!("Backend process stopped successfully");
+                        append_app_log("stop_backend terminated backend process successfully");
                         Ok("Backend process stopped successfully".to_string())
                     }
                     Err(e) => {
                         eprintln!("Failed to stop backend process: {}", e);
+                        append_app_log(&format!(
+                            "stop_backend failed to terminate backend process: {}",
+                            e
+                        ));
                         Err(format!("Failed to stop backend process: {}", e))
                     }
                 }
             } else {
+                append_app_log("stop_backend found no running backend process");
                 Err("No backend process is running".to_string())
             }
         }
         Err(e) => {
             eprintln!("Failed to acquire backend process lock: {}", e);
+            append_app_log(&format!(
+                "stop_backend failed to acquire backend process lock: {}",
+                e
+            ));
             Err(format!("Failed to acquire backend process lock: {}", e))
         }
     }
@@ -389,6 +585,7 @@ async fn restart_backend(
     process_status: State<'_, ProcessStatus>,
     backend_logs: State<'_, BackendLogs>,
 ) -> Result<String, String> {
+    append_app_log("restart_backend command invoked");
     // Stop first
     let _ = stop_backend(backend_process.clone());
 
@@ -396,7 +593,13 @@ async fn restart_backend(
     tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
     // Start again
-    start_backend(app, backend_process, process_status, backend_logs).await
+    let result = start_backend(app, backend_process, process_status, backend_logs).await;
+    if let Err(ref err) = result {
+        append_app_log(&format!("restart_backend failed to restart backend: {}", err));
+    } else {
+        append_app_log("restart_backend completed successfully");
+    }
+    result
 }
 
 #[tauri::command]
@@ -634,9 +837,14 @@ fn export_log_file(destination: String) -> Result<String, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    append_app_log("Tauri application run() invoked");
     let backend_process: BackendProcess = Arc::new(Mutex::new(None));
     let process_status: ProcessStatus = Arc::new(Mutex::new(HashMap::new()));
     let backend_logs: BackendLogs = Arc::new(Mutex::new(Vec::new()));
+    let minimize_to_tray_setting: MinimizeToTraySetting = Arc::new(Mutex::new(false));
+
+    let backend_process_for_run = backend_process.clone();
+    let minimize_setting_for_run = minimize_to_tray_setting.clone();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -645,7 +853,9 @@ pub fn run() {
         .manage(backend_process.clone())
         .manage(process_status.clone())
         .manage(backend_logs.clone())
+        .manage(minimize_to_tray_setting.clone())
         .setup(move |app| {
+            append_app_log("Tauri setup hook executing");
             // Create system tray
             let show_i = MenuItem::with_id(app, "show", "Show App", true, None::<&str>)?;
             let hide_i = MenuItem::with_id(app, "hide", "Hide to Tray", true, None::<&str>)?;
@@ -653,6 +863,8 @@ pub fn run() {
             let menu = Menu::with_items(app, &[&show_i, &hide_i, &quit_i])?;
 
             let backend_process_for_tray = backend_process.clone();
+            let minimize_setting_for_window = minimize_to_tray_setting.clone();
+            let backend_process_for_window = backend_process.clone();
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
@@ -677,11 +889,17 @@ pub fn run() {
                             if let Some(child) = process_guard.take() {
                                 if let Err(e) = child.kill() {
                                     eprintln!("Failed to kill backend process on quit: {}", e);
+                                    append_app_log(&format!(
+                                        "Failed to kill backend process on quit: {}",
+                                        e
+                                    ));
                                 } else {
                                     println!("Backend process terminated on app quit");
+                                    append_app_log("Backend process terminated on app quit");
                                 }
                             }
                         }
+                        append_app_log("Tauri application exiting via tray quit");
                         app.exit(0);
                     }
                     _ => {
@@ -716,17 +934,24 @@ pub fn run() {
                 // Check if backend already exists
                 if detect_existing_backend(&backend_process_for_setup).await {
                     println!("Backend already running - skipping startup backend launch");
+                    append_app_log("Startup check found existing backend - skipping auto launch");
                     return;
                 }
 
                 println!("No existing backend detected during startup - launching backend");
+                append_app_log("Auto-starting backend during app setup");
 
                 // Start the backend sidecar
                 // Tauri automatically handles platform-specific naming:
                 // - macOS: zkteco-backend-aarch64-apple-darwin
                 // - Windows: zkteco-backend-x86_64-pc-windows-msvc.exe
                 // - Linux: zkteco-backend-x86_64-unknown-linux-gnu
-                startup_backend_sidecar(app_for_startup, backend_process_for_setup).await;
+                startup_backend_sidecar(
+                    app_for_startup,
+                    backend_process_for_setup,
+                    process_status.clone(),
+                )
+                .await;
             });
 
             // Set up window close behavior - minimize to tray instead of closing
@@ -735,12 +960,46 @@ pub fn run() {
                 let window_clone = window.clone();
                 window.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        // Prevent default close behavior
-                        api.prevent_close();
+                        let minimize_enabled = minimize_setting_for_window
+                            .lock()
+                            .map(|guard| *guard)
+                            .unwrap_or(false);
 
-                        // Hide window to tray instead
-                        let _ = window_clone.hide();
-                        println!("Window minimized to tray instead of closing");
+                        if minimize_enabled {
+                            api.prevent_close();
+                            let _ = window_clone.hide();
+                            println!("Window minimized to tray instead of closing");
+                            append_app_log(
+                                "Window close intercepted - minimized to tray",
+                            );
+                        } else {
+                            println!("Window close requested - shutting down backend");
+                            append_app_log(
+                                "Window close requested - shutting down backend before exit",
+                            );
+
+                            if let Ok(mut process_guard) = backend_process_for_window.lock() {
+                                if let Some(child) = process_guard.take() {
+                                    if let Err(err) = child.kill() {
+                                        eprintln!(
+                                            "Failed to kill backend process on window close: {}",
+                                            err
+                                        );
+                                        append_app_log(&format!(
+                                            "Failed to kill backend process on window close: {}",
+                                            err
+                                        ));
+                                    } else {
+                                        println!(
+                                            "Backend process terminated due to window close"
+                                        );
+                                        append_app_log(
+                                            "Backend process terminated due to window close",
+                                        );
+                                    }
+                                }
+                            }
+                        }
                     }
                 });
             }
@@ -763,22 +1022,122 @@ pub fn run() {
             get_log_file_path_command,
             read_log_file,
             clear_log_file,
-            export_log_file
+            export_log_file,
+            set_minimize_to_tray
         ])
-        .run(tauri::generate_context!())
+        .run(
+            tauri::generate_context!(),
+            move |app_handle, run_event| {
+                match run_event {
+                    RunEvent::Reopen { .. } => {
+                        let minimize_enabled = minimize_setting_for_run
+                            .lock()
+                            .map(|guard| *guard)
+                            .unwrap_or(false);
+
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            if minimize_enabled {
+                                let _ = window.unminimize();
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                                append_app_log(
+                                    "Application reactivated - showing main window",
+                                );
+                            }
+                        }
+                    }
+                    RunEvent::ExitRequested { .. } => {
+                        append_app_log("Exit requested - terminating backend");
+                        if let Ok(mut process_guard) = backend_process_for_run.lock() {
+                            if let Some(child) = process_guard.take() {
+                                if let Err(err) = child.kill() {
+                                    eprintln!(
+                                        "Failed to kill backend process on exit: {}",
+                                        err
+                                    );
+                                    append_app_log(&format!(
+                                        "Failed to kill backend process on exit: {}",
+                                        err
+                                    ));
+                                } else {
+                                    println!("Backend process terminated on app exit");
+                                    append_app_log(
+                                        "Backend process terminated on app exit",
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            },
+        )
         .expect("error while running tauri application");
 }
 
 // Helper function to start backend sidecar (extracted from setup)
-async fn startup_backend_sidecar(app: tauri::AppHandle, backend_process: BackendProcess) {
+async fn startup_backend_sidecar(
+    app: tauri::AppHandle,
+    backend_process: BackendProcess,
+    process_status: ProcessStatus,
+) {
     match app.shell().sidecar("zkteco-backend") {
         Ok(sidecar_command) => {
+            append_app_log("startup_backend_sidecar invoked");
+
+            let (startup_guard, acquired) = match BackendStartupGuard::try_acquire(&process_status)
+            {
+                Ok(result) => result,
+                Err(err) => {
+                    append_app_log(&format!(
+                        "startup_backend_sidecar failed to acquire startup guard: {}",
+                        err
+                    ));
+                    return;
+                }
+            };
+
+            if !acquired {
+                append_app_log(
+                    "startup_backend_sidecar skipped - backend startup already in progress",
+                );
+                return;
+            }
+
+            let _startup_guard = startup_guard;
+
+            let db_path = resolve_backend_db_path();
+            let db_path_str = db_path.to_string_lossy().to_string();
+            if let Some(parent) = db_path.parent() {
+                if let Err(err) = fs::create_dir_all(parent) {
+                    eprintln!(
+                        "Failed to ensure database directory at {:?}: {}",
+                        parent, err
+                    );
+                    append_app_log(&format!(
+                        "startup_backend_sidecar failed to ensure database directory at {:?}: {}",
+                        parent, err
+                    ));
+                }
+            }
+            println!("Using backend database at startup: {}", db_path_str);
+            append_app_log(&format!(
+                "startup_backend_sidecar using DB path {}",
+                db_path_str
+            ));
+
             let sidecar_with_env = sidecar_command
                 .env("SECRET_KEY", "your-secret-key-here")
-                .env("LOG_LEVEL", "INFO");
+                .env("LOG_LEVEL", "INFO")
+                .env("FLASK_DEBUG", "0")
+                .env("FLASK_ENV", "production")
+                .env("ZKTECO_DB_PATH", &db_path_str);
             match sidecar_with_env.spawn() {
                 Ok((mut rx, child)) => {
                     println!("Backend sidecar started successfully during startup");
+                    append_app_log(
+                        "startup_backend_sidecar spawned backend sidecar successfully",
+                    );
 
                     // Store the child process for later cleanup
                     if let Ok(mut process_guard) = backend_process.lock() {
@@ -820,11 +1179,19 @@ async fn startup_backend_sidecar(app: tauri::AppHandle, backend_process: Backend
                 }
                 Err(e) => {
                     eprintln!("Failed to spawn backend sidecar during startup: {}. This may indicate permission issues or missing dependencies.", e);
+                    append_app_log(&format!(
+                        "startup_backend_sidecar failed to spawn backend sidecar: {}",
+                        e
+                    ));
                 }
             }
         }
         Err(e) => {
             eprintln!("Failed to create backend sidecar command during startup: {}. The backend executable might be missing from the bundle.", e);
+            append_app_log(&format!(
+                "startup_backend_sidecar failed to create sidecar command: {}",
+                e
+            ));
         }
     }
 }

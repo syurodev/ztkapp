@@ -28,6 +28,12 @@ export const useTrayBehavior = () => {
         return () => {
             unsubscribe.then((cleanup) => cleanup());
         };
+    }, [minimizeToTray, handleCloseRequested]);
+
+    useEffect(() => {
+        invoke("set_minimize_to_tray", { enable: minimizeToTray }).catch((error) => {
+            console.error("Failed to update minimize-to-tray preference in backend:", error);
+        });
     }, [minimizeToTray]);
 
     const toggleMinimizeToTray = (enabled: boolean) => {

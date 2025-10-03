@@ -39,7 +39,7 @@ export function ServiceStatus() {
     clearLogs
   } = useBackendHealth();
   
-  const [autoStart, setAutoStart] = useState(true);
+  const [autoStart, setAutoStart] = useState(false);
 
   const formatUptime = (seconds: number) => {
     const hours = Math.floor(seconds / 3600);

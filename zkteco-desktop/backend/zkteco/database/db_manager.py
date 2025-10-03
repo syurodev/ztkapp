@@ -9,7 +9,23 @@ class DatabaseManager:
     """SQLite database manager for ZKTeco application"""
     
     def __init__(self, db_path: str = "zkteco_app.db"):
-        self.db_path = db_path
+        env_db_path = os.environ.get("ZKTECO_DB_PATH")
+        resolved_path = env_db_path if env_db_path else db_path
+
+        if not os.path.isabs(resolved_path):
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            resolved_path = os.path.join(base_dir, resolved_path)
+
+        db_directory = os.path.dirname(resolved_path)
+        if db_directory:
+            try:
+                os.makedirs(db_directory, exist_ok=True)
+            except OSError as exc:
+                raise RuntimeError(
+                    f"Unable to create database directory '{db_directory}': {exc}"
+                ) from exc
+
+        self.db_path = resolved_path
         self._local = threading.local()
         self.init_database()
     

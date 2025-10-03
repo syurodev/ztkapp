@@ -43,10 +43,10 @@ def create_app():
     app.register_blueprint(event_blueprint)
 
     # Initialize and start the scheduler
-    # Only start scheduler in main process (not in reloader child process)
-    if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
-        app.logger.info("Skipping scheduler start in reloader process")
-    else:
+    # When Flask reloader is disabled, WERKZEUG_RUN_MAIN is not set.
+    # When reloader is enabled, only the reloader child (== "true") should start the scheduler.
+    run_main_flag = os.environ.get('WERKZEUG_RUN_MAIN')
+    if run_main_flag == 'true' or run_main_flag is None:
         try:
             scheduler_service.start()
             app.logger.info("Scheduler service started successfully")
@@ -59,6 +59,8 @@ def create_app():
 
         except Exception as e:
             app.logger.error(f"Failed to start scheduler service: {e}")
+    else:
+        app.logger.info("Skipping scheduler start in reloader process")
 
     return app
 

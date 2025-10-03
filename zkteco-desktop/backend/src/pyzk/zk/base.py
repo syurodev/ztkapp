@@ -1628,42 +1628,57 @@ class ZK(object):
             max_chunk = 0xFFc0
             min_chunk = 4 * 1024
         else:
-            max_chunk = 8 * 1024
+            max_chunk = 16 * 1024
             min_chunk = 1024
 
-        adaptive_chunk = max_chunk
-        start = 0
-        data = []
-
-        while start < total_size:
-            chunk_size = min(adaptive_chunk, total_size - start)
-            if self.verbose: print ("Reading chunk from {} size {}".format(start, chunk_size))
+        def read_chunk_with_fallback(offset, length):
             try:
-                chunk = self.__read_chunk(start, chunk_size)
+                return self.__read_chunk(offset, length)
             except ZKErrorResponse:
-                # Reduce chunk size and retry when the device cannot serve large chunks
-                new_chunk = max(adaptive_chunk // 2, min_chunk)
-                if new_chunk == adaptive_chunk:
+                if length <= min_chunk:
                     raise
-                adaptive_chunk = new_chunk
-                if self.verbose: print ("Reducing chunk size to {}".format(adaptive_chunk))
-                continue
 
+                split = max(length // 2, min_chunk)
+                if self.verbose:
+                    print("Chunk read failed at offset {}, size {}, retrying with halves".format(offset, length))
+
+                first = read_chunk_with_fallback(offset, split)
+                bytes_first = len(first)
+                if bytes_first == 0:
+                    raise
+
+                remaining_length = length - bytes_first
+                if remaining_length <= 0:
+                    return first
+
+                second = read_chunk_with_fallback(offset + bytes_first, remaining_length)
+                return first + second
+
+        data = []
+        bytes_read = 0
+
+        while bytes_read < total_size:
+            remaining = total_size - bytes_read
+            chunk_size = max_chunk if remaining > max_chunk else remaining
+            if self.verbose:
+                print("Reading chunk from {} size {}".format(bytes_read, chunk_size))
+
+            chunk = read_chunk_with_fallback(bytes_read, chunk_size)
             if chunk is None:
-                break
+                raise ZKErrorResponse("failed to read chunk at offset {}".format(bytes_read))
 
             chunk_len = len(chunk)
             if chunk_len == 0:
-                break
+                raise ZKErrorResponse("empty chunk at offset {}".format(bytes_read))
 
             data.append(chunk)
-            start += chunk_len
+            bytes_read += chunk_len
 
         self.free_data()
-        if start < total_size:
-            raise ZKErrorResponse("incomplete buffer read %i/%i" % (start, total_size))
-        if self.verbose: print ("_read w/chunk %i bytes" % start)
-        return b''.join(data), start
+        if bytes_read != total_size:
+            raise ZKErrorResponse("incomplete buffer read %i/%i" % (bytes_read, total_size))
+        if self.verbose: print ("_read w/chunk %i bytes" % bytes_read)
+        return b''.join(data), bytes_read
 
     def get_attendance(self):
         """

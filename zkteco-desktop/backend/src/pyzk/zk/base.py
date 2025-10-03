@@ -1599,15 +1599,9 @@ class ZK(object):
         """
         Test read info with buffered command (ZK6: 1503)
         """
-        if self.tcp:
-            MAX_CHUNK = 0xFFc0
-        else:
-            MAX_CHUNK = 16 * 1024
         command_string = pack('<bhii', 1, command, fct, ext)
         if self.verbose: print ("rwb cs", command_string)
         response_size = 1024
-        data = []
-        start = 0
         cmd_response = self.__send_command(const._CMD_PREPARE_BUFFER, command_string, response_size)
         if not cmd_response.get('status'):
             raise ZKErrorResponse("RWB Not supported")
@@ -1626,18 +1620,48 @@ class ZK(object):
             else:
                 size = len(self.__data)
                 return self.__data, size
-        size = unpack('I', self.__data[1:5])[0]
-        if self.verbose: print ("size fill be %i" % size)
-        remain = size % MAX_CHUNK
-        packets = (size-remain) // MAX_CHUNK # should be size /16k
-        if self.verbose: print ("rwb: #{} packets of max {} bytes, and extra {} bytes remain".format(packets, MAX_CHUNK, remain))
-        for _wlk in range(packets):
-            data.append(self.__read_chunk(start,MAX_CHUNK))
-            start += MAX_CHUNK
-        if remain:
-            data.append(self.__read_chunk(start, remain))
-            start += remain
+
+        total_size = unpack('I', self.__data[1:5])[0]
+        if self.verbose: print ("size fill be %i" % total_size)
+
+        if self.tcp:
+            max_chunk = 0xFFc0
+            min_chunk = 4 * 1024
+        else:
+            max_chunk = 8 * 1024
+            min_chunk = 1024
+
+        adaptive_chunk = max_chunk
+        start = 0
+        data = []
+
+        while start < total_size:
+            chunk_size = min(adaptive_chunk, total_size - start)
+            if self.verbose: print ("Reading chunk from {} size {}".format(start, chunk_size))
+            try:
+                chunk = self.__read_chunk(start, chunk_size)
+            except ZKErrorResponse:
+                # Reduce chunk size and retry when the device cannot serve large chunks
+                new_chunk = max(adaptive_chunk // 2, min_chunk)
+                if new_chunk == adaptive_chunk:
+                    raise
+                adaptive_chunk = new_chunk
+                if self.verbose: print ("Reducing chunk size to {}".format(adaptive_chunk))
+                continue
+
+            if chunk is None:
+                break
+
+            chunk_len = len(chunk)
+            if chunk_len == 0:
+                break
+
+            data.append(chunk)
+            start += chunk_len
+
         self.free_data()
+        if start < total_size:
+            raise ZKErrorResponse("incomplete buffer read %i/%i" % (start, total_size))
         if self.verbose: print ("_read w/chunk %i bytes" % start)
         return b''.join(data), start
 

@@ -1,17 +1,21 @@
-use tauri_plugin_shell::ShellExt;
+use chrono::{DateTime, Utc};
+use std::collections::HashMap;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tauri::{
-    Manager,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    State,
+    Manager, State,
 };
-use std::sync::{Arc, Mutex};
 use tauri_plugin_shell::process::CommandChild;
-use std::collections::HashMap;
-use chrono::{DateTime, Utc};
-use std::time::Duration;
-use std::fs;
-use std::path::PathBuf;
+use tauri_plugin_shell::ShellExt;
+
+#[cfg(target_os = "windows")]
+use std::os::windows::fs::OpenOptionsExt;
+#[cfg(target_os = "windows")]
+use std::{fs::OpenOptions, io::Read};
 
 // Global state for backend process management
 type BackendProcess = Arc<Mutex<Option<CommandChild>>>;
@@ -34,18 +38,25 @@ async fn check_backend_health() -> bool {
         .build()
     {
         Ok(client) => {
-            match client.get("http://127.0.0.1:5001/service/status").send().await {
+            match client
+                .get("http://127.0.0.1:57575/service/status")
+                .send()
+                .await
+            {
                 Ok(response) => {
                     let is_healthy = response.status().is_success();
-                    println!("Backend HTTP health check: {}", if is_healthy { "healthy" } else { "unhealthy" });
+                    println!(
+                        "Backend HTTP health check: {}",
+                        if is_healthy { "healthy" } else { "unhealthy" }
+                    );
                     is_healthy
-                },
+                }
                 Err(e) => {
                     println!("Backend HTTP health check failed: {}", e);
                     false
                 }
             }
-        },
+        }
         Err(e) => {
             println!("Failed to create HTTP client: {}", e);
             false
@@ -66,7 +77,10 @@ async fn detect_existing_backend(backend_process: &BackendProcess) -> bool {
     // Then check HTTP health
     let is_http_healthy = check_backend_health().await;
 
-    println!("Backend detection - Tracked process: {}, HTTP healthy: {}", has_tracked_process, is_http_healthy);
+    println!(
+        "Backend detection - Tracked process: {}, HTTP healthy: {}",
+        has_tracked_process, is_http_healthy
+    );
 
     // Backend is considered existing if either:
     // 1. We have a tracked process AND it's HTTP healthy
@@ -105,7 +119,7 @@ fn cleanup_backend(backend_process: State<BackendProcess>) -> Result<String, Str
                     Ok(()) => {
                         println!("Backend process terminated successfully");
                         Ok("Backend process terminated successfully".to_string())
-                    },
+                    }
                     Err(e) => {
                         eprintln!("Failed to kill backend process: {}", e);
                         Err(format!("Failed to kill backend process: {}", e))
@@ -114,7 +128,7 @@ fn cleanup_backend(backend_process: State<BackendProcess>) -> Result<String, Str
             } else {
                 Ok("No backend process to terminate".to_string())
             }
-        },
+        }
         Err(e) => {
             eprintln!("Failed to acquire backend process lock: {}", e);
             Err(format!("Failed to acquire backend process lock: {}", e))
@@ -123,7 +137,12 @@ fn cleanup_backend(backend_process: State<BackendProcess>) -> Result<String, Str
 }
 
 #[tauri::command]
-async fn start_backend(app: tauri::AppHandle, backend_process: State<'_, BackendProcess>, process_status: State<'_, ProcessStatus>, backend_logs: State<'_, BackendLogs>) -> Result<String, String> {
+async fn start_backend(
+    app: tauri::AppHandle,
+    backend_process: State<'_, BackendProcess>,
+    process_status: State<'_, ProcessStatus>,
+    backend_logs: State<'_, BackendLogs>,
+) -> Result<String, String> {
     println!("Start backend command called");
 
     // Check for existing backend (comprehensive detection)
@@ -154,10 +173,13 @@ async fn start_backend(app: tauri::AppHandle, backend_process: State<'_, Backend
                         Ok(mut process_guard) => {
                             *process_guard = Some(child);
                             println!("Backend process stored for cleanup management");
-                        },
+                        }
                         Err(e) => {
                             eprintln!("Failed to store backend process reference: {}", e);
-                            return Err(format!("Failed to store backend process reference: {}", e));
+                            return Err(format!(
+                                "Failed to store backend process reference: {}",
+                                e
+                            ));
                         }
                     }
 
@@ -198,17 +220,22 @@ async fn start_backend(app: tauri::AppHandle, backend_process: State<'_, Backend
                                             logs.drain(0..len - 100);
                                         }
                                     }
-                                },
+                                }
                                 tauri_plugin_shell::process::CommandEvent::Stderr(output) => {
                                     let stderr_str = String::from_utf8_lossy(&output).to_string();
                                     eprintln!("Backend stderr: {}", stderr_str);
 
                                     // Log to backend logs
                                     if let Ok(mut logs) = logs_for_monitor.lock() {
-                                        let level = if stderr_str.contains("ERROR") || stderr_str.contains("Error") ||
-                                                       stderr_str.contains("ModuleNotFoundError") || stderr_str.contains("Failed to execute") {
+                                        let level = if stderr_str.contains("ERROR")
+                                            || stderr_str.contains("Error")
+                                            || stderr_str.contains("ModuleNotFoundError")
+                                            || stderr_str.contains("Failed to execute")
+                                        {
                                             "error"
-                                        } else if stderr_str.contains("WARNING") || stderr_str.contains("Warning") {
+                                        } else if stderr_str.contains("WARNING")
+                                            || stderr_str.contains("Warning")
+                                        {
                                             "warning"
                                         } else {
                                             "info"
@@ -229,12 +256,17 @@ async fn start_backend(app: tauri::AppHandle, backend_process: State<'_, Backend
                                     }
 
                                     // Check for critical errors
-                                    if stderr_str.contains("ModuleNotFoundError") || stderr_str.contains("Failed to execute script") {
+                                    if stderr_str.contains("ModuleNotFoundError")
+                                        || stderr_str.contains("Failed to execute script")
+                                    {
                                         if let Ok(mut status_guard) = status_for_monitor.lock() {
-                                            status_guard.insert("backend_status".to_string(), format!("Failed to start backend: {}", stderr_str));
+                                            status_guard.insert(
+                                                "backend_status".to_string(),
+                                                format!("Failed to start backend: {}", stderr_str),
+                                            );
                                         }
                                     }
-                                },
+                                }
                                 tauri_plugin_shell::process::CommandEvent::Error(error) => {
                                     let error_str = format!("{}", error);
                                     eprintln!("Backend error: {}", error_str);
@@ -250,11 +282,15 @@ async fn start_backend(app: tauri::AppHandle, backend_process: State<'_, Backend
                                     }
 
                                     if let Ok(mut status_guard) = status_for_monitor.lock() {
-                                        status_guard.insert("backend_status".to_string(), format!("Backend error: {}", error_str));
+                                        status_guard.insert(
+                                            "backend_status".to_string(),
+                                            format!("Backend error: {}", error_str),
+                                        );
                                     }
-                                },
+                                }
                                 tauri_plugin_shell::process::CommandEvent::Terminated(payload) => {
-                                    let term_msg = format!("Backend terminated with code: {:?}", payload.code);
+                                    let term_msg =
+                                        format!("Backend terminated with code: {:?}", payload.code);
                                     eprintln!("{}", term_msg);
 
                                     // Log termination
@@ -277,7 +313,7 @@ async fn start_backend(app: tauri::AppHandle, backend_process: State<'_, Backend
                                         *process_guard = None;
                                     }
                                     break;
-                                },
+                                }
                                 _ => {
                                     println!("Backend event: {:?}", event);
                                 }
@@ -298,19 +334,20 @@ async fn start_backend(app: tauri::AppHandle, backend_process: State<'_, Backend
                     // Check if process is still alive
                     if let Ok(process_guard) = backend_process.lock() {
                         if process_guard.is_none() {
-                            return Err("Backend process terminated unexpectedly during startup".to_string());
+                            return Err("Backend process terminated unexpectedly during startup"
+                                .to_string());
                         }
                     }
 
                     Ok("Backend started successfully".to_string())
-                },
+                }
                 Err(e) => {
                     let error_msg = format!("Failed to spawn backend sidecar: {}. This may be due to permission issues or missing dependencies.", e);
                     eprintln!("{}", error_msg);
                     Err(error_msg)
                 }
             }
-        },
+        }
         Err(e) => {
             let error_msg = format!("Failed to create backend sidecar command: {}. Make sure the backend executable exists in the bundle.", e);
             eprintln!("{}", error_msg);
@@ -328,7 +365,7 @@ fn stop_backend(backend_process: State<BackendProcess>) -> Result<String, String
                     Ok(()) => {
                         println!("Backend process stopped successfully");
                         Ok("Backend process stopped successfully".to_string())
-                    },
+                    }
                     Err(e) => {
                         eprintln!("Failed to stop backend process: {}", e);
                         Err(format!("Failed to stop backend process: {}", e))
@@ -337,7 +374,7 @@ fn stop_backend(backend_process: State<BackendProcess>) -> Result<String, String
             } else {
                 Err("No backend process is running".to_string())
             }
-        },
+        }
         Err(e) => {
             eprintln!("Failed to acquire backend process lock: {}", e);
             Err(format!("Failed to acquire backend process lock: {}", e))
@@ -346,7 +383,12 @@ fn stop_backend(backend_process: State<BackendProcess>) -> Result<String, String
 }
 
 #[tauri::command]
-async fn restart_backend(app: tauri::AppHandle, backend_process: State<'_, BackendProcess>, process_status: State<'_, ProcessStatus>, backend_logs: State<'_, BackendLogs>) -> Result<String, String> {
+async fn restart_backend(
+    app: tauri::AppHandle,
+    backend_process: State<'_, BackendProcess>,
+    process_status: State<'_, ProcessStatus>,
+    backend_logs: State<'_, BackendLogs>,
+) -> Result<String, String> {
     // Stop first
     let _ = stop_backend(backend_process.clone());
 
@@ -383,7 +425,7 @@ fn clear_backend_logs(backend_logs: State<BackendLogs>) -> Result<String, String
         Ok(mut logs) => {
             logs.clear();
             Ok("Backend logs cleared".to_string())
-        },
+        }
         Err(e) => Err(format!("Failed to clear backend logs: {}", e)),
     }
 }
@@ -392,12 +434,13 @@ fn clear_backend_logs(backend_logs: State<BackendLogs>) -> Result<String, String
 fn get_backend_error_logs(backend_logs: State<BackendLogs>) -> Result<Vec<LogEntry>, String> {
     match backend_logs.lock() {
         Ok(logs) => {
-            let error_logs: Vec<LogEntry> = logs.iter()
+            let error_logs: Vec<LogEntry> = logs
+                .iter()
                 .filter(|log| log.level == "error")
                 .cloned()
                 .collect();
             Ok(error_logs)
-        },
+        }
         Err(e) => Err(format!("Failed to get backend error logs: {}", e)),
     }
 }
@@ -409,7 +452,11 @@ fn get_log_file_path() -> Result<PathBuf, String> {
     // Try multiple possible locations in order
     let possible_paths = vec![
         // macOS/Linux: ~/.local/share/ZKTeco/app.log
-        home_dir.join(".local").join("share").join("ZKTeco").join("app.log"),
+        home_dir
+            .join(".local")
+            .join("share")
+            .join("ZKTeco")
+            .join("app.log"),
         // Windows: %LOCALAPPDATA%\ZKTeco\app.log
         dirs::data_local_dir()
             .unwrap_or_else(|| home_dir.clone())
@@ -459,8 +506,7 @@ fn read_log_file(lines: Option<usize>) -> Result<Vec<FileLogEntry>, String> {
         return Ok(Vec::new());
     }
 
-    let content = fs::read_to_string(&log_path)
-        .map_err(|e| format!("Failed to read log file: {}", e))?;
+    let content = read_log_file_content(&log_path)?;
 
     let all_lines: Vec<&str> = content.lines().collect();
     let lines_to_read = lines.unwrap_or(500); // Default to last 500 lines
@@ -484,6 +530,30 @@ fn read_log_file(lines: Option<usize>) -> Result<Vec<FileLogEntry>, String> {
     }
 
     Ok(entries)
+}
+
+#[cfg(target_os = "windows")]
+fn read_log_file_content(path: &Path) -> Result<String, String> {
+    const FILE_SHARE_READ: u32 = 0x00000001;
+    const FILE_SHARE_WRITE: u32 = 0x00000002;
+    const FILE_SHARE_DELETE: u32 = 0x00000004;
+
+    let mut file = OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+        .open(path)
+        .map_err(|e| format!("Failed to open log file: {}", e))?;
+
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer)
+        .map_err(|e| format!("Failed to read log file: {}", e))?;
+
+    Ok(String::from_utf8_lossy(&buffer).to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn read_log_file_content(path: &Path) -> Result<String, String> {
+    fs::read_to_string(path).map_err(|e| format!("Failed to read log file: {}", e))
 }
 
 fn parse_log_line(line: &str, line_number: usize) -> Option<FileLogEntry> {
@@ -542,8 +612,7 @@ fn clear_log_file() -> Result<String, String> {
         return Ok("Log file does not exist".to_string());
     }
 
-    fs::write(&log_path, "")
-        .map_err(|e| format!("Failed to clear log file: {}", e))?;
+    fs::write(&log_path, "").map_err(|e| format!("Failed to clear log file: {}", e))?;
 
     Ok("Log file cleared successfully".to_string())
 }
@@ -558,8 +627,7 @@ fn export_log_file(destination: String) -> Result<String, String> {
 
     let dest_path = PathBuf::from(destination);
 
-    fs::copy(&log_path, &dest_path)
-        .map_err(|e| format!("Failed to export log file: {}", e))?;
+    fs::copy(&log_path, &dest_path).map_err(|e| format!("Failed to export log file: {}", e))?;
 
     Ok(format!("Log file exported to: {}", dest_path.display()))
 }
@@ -625,7 +693,8 @@ pub fn run() {
                         button: MouseButton::Left,
                         button_state: MouseButtonState::Up,
                         ..
-                    } = event {
+                    } = event
+                    {
                         let app = tray.app_handle();
                         if let Some(window) = app.get_webview_window("main") {
                             let _ = window.unminimize();
@@ -678,7 +747,24 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![greet, show_main_window, hide_to_tray, cleanup_backend, start_backend, stop_backend, restart_backend, is_backend_running, check_backend_http_health, get_backend_logs, clear_backend_logs, get_backend_error_logs, get_log_file_path_command, read_log_file, clear_log_file, export_log_file])
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            show_main_window,
+            hide_to_tray,
+            cleanup_backend,
+            start_backend,
+            stop_backend,
+            restart_backend,
+            is_backend_running,
+            check_backend_http_health,
+            get_backend_logs,
+            clear_backend_logs,
+            get_backend_error_logs,
+            get_log_file_path_command,
+            read_log_file,
+            clear_log_file,
+            export_log_file
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -707,30 +793,36 @@ async fn startup_backend_sidecar(app: tauri::AppHandle, backend_process: Backend
                         while let Some(event) = rx.recv().await {
                             match event {
                                 tauri_plugin_shell::process::CommandEvent::Stdout(output) => {
-                                    println!("Backend stdout: {}", String::from_utf8_lossy(&output));
-                                },
+                                    println!(
+                                        "Backend stdout: {}",
+                                        String::from_utf8_lossy(&output)
+                                    );
+                                }
                                 tauri_plugin_shell::process::CommandEvent::Stderr(output) => {
-                                    eprintln!("Backend stderr: {}", String::from_utf8_lossy(&output));
-                                },
+                                    eprintln!(
+                                        "Backend stderr: {}",
+                                        String::from_utf8_lossy(&output)
+                                    );
+                                }
                                 tauri_plugin_shell::process::CommandEvent::Error(error) => {
                                     eprintln!("Backend error: {}", error);
-                                },
+                                }
                                 tauri_plugin_shell::process::CommandEvent::Terminated(payload) => {
                                     eprintln!("Backend terminated with code: {:?}", payload.code);
                                     break;
-                                },
+                                }
                                 _ => {
                                     println!("Backend event: {:?}", event);
                                 }
                             }
                         }
                     });
-                },
+                }
                 Err(e) => {
                     eprintln!("Failed to spawn backend sidecar during startup: {}. This may indicate permission issues or missing dependencies.", e);
                 }
             }
-        },
+        }
         Err(e) => {
             eprintln!("Failed to create backend sidecar command during startup: {}. The backend executable might be missing from the bundle.", e);
         }

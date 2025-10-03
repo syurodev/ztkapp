@@ -112,7 +112,7 @@ class ZKTecoService:
 
         try:
             host = os.getenv('HOST', '0.0.0.0')
-            port = int(os.getenv('PORT', 5001))
+            port = int(os.getenv('PORT', 57575))
 
             self.logger.info(f"Service starting on {host}:{port}")
             self.app.run(host=host, port=port, debug=False, use_reloader=False)

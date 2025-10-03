@@ -52,6 +52,15 @@ class ZkConnectionManager:
 
         app_logger.info("ZkConnectionManager initialized")
 
+    @staticmethod
+    def _normalize_timeout(timeout_value):
+        """Ensure device timeout is at least 180 seconds"""
+        try:
+            timeout = int(timeout_value)
+        except (TypeError, ValueError):
+            timeout = 180
+        return timeout if timeout >= 180 else 180
+
     def configure_device(self, device_id: str, config: dict):
         """Configure connection parameters for a specific device"""
         with self._main_lock:
@@ -62,16 +71,19 @@ class ZkConnectionManager:
             with self._connection_locks[device_id]:
                 # Check if config has actually changed to avoid unnecessary resets
                 old_config = self._device_configs.get(device_id, {})
-                if old_config == config:
+                normalized_config = config.copy()
+                normalized_config['timeout'] = self._normalize_timeout(normalized_config.get('timeout'))
+
+                if old_config == normalized_config:
                     app_logger.debug(f"Configuration unchanged for device {device_id}, skipping reset")
                     return
-                    
-                self._device_configs[device_id] = config.copy()
-                app_logger.info(f"Device {device_id} configured with: {config}")
-                
+
+                self._device_configs[device_id] = normalized_config
+                app_logger.info(f"Device {device_id} configured with: {normalized_config}")
+
                 # Only reset connection if critical connection parameters changed
                 connection_params = ['ip', 'port', 'password', 'timeout', 'force_udp']
-                config_changed = any(old_config.get(param) != config.get(param) for param in connection_params)
+                config_changed = any(old_config.get(param) != normalized_config.get(param) for param in connection_params)
                 
                 if device_id in self._connections and config_changed:
                     app_logger.info(f"Critical connection parameters changed for device {device_id}, resetting connection")
@@ -90,7 +102,7 @@ class ZkConnectionManager:
                 'ip': config.get('ip') or active_device.get('ip'),
                 'port': config.get('port') or active_device.get('port'),
                 'password': config.get('password') or active_device.get('password'),
-                'timeout': config.get('timeout') or active_device.get('timeout'),
+                'timeout': self._normalize_timeout(config.get('timeout') or active_device.get('timeout')),
                 'force_udp': config.get('force_udp') or active_device.get('force_udp'),
                 'verbose': config.get('verbose', False),
                 'retry_count': config.get('retry_count') or active_device.get('retry_count'),
@@ -103,10 +115,11 @@ class ZkConnectionManager:
             with self._connection_lock:
                 old_config = self._config.copy() if self._config else {}
                 self._config = config.copy()
+                self._config['timeout'] = self._normalize_timeout(self._config.get('timeout'))
                 self._ping_interval = config.get('ping_interval', 30)
                 self._max_retries = config.get('retry_count', 3)
                 self._retry_delay = config.get('retry_delay', 2)
-                
+
                 app_logger.info(f"Legacy ZkConnectionManager configured with: {config}")
                 
                 connection_params = ['ip', 'port', 'password', 'timeout', 'force_udp']
@@ -153,7 +166,7 @@ class ZkConnectionManager:
                     'ip': active_device.get('ip'),
                     'port': active_device.get('port'),
                     'password': active_device.get('password'),
-                    'timeout': active_device.get('timeout'),
+                    'timeout': self._normalize_timeout(active_device.get('timeout')),
                     'force_udp': active_device.get('force_udp'),
                     'verbose': bool(strtobool(os.getenv("FLASK_DEBUG", "false"))),
                     'retry_count': active_device.get('retry_count'),
@@ -403,6 +416,8 @@ class ZkConnectionManager:
             raise ValueError(f"Device {device_id} not configured. Call configure_device() first.")
 
         config = self._device_configs[device_id]
+        timeout_seconds = self._normalize_timeout(config.get('timeout'))
+        config['timeout'] = timeout_seconds
         app_logger.info(f"Using config for device {device_id}: {config}")
 
         # Close existing connection if any
@@ -423,7 +438,7 @@ class ZkConnectionManager:
         connection_params = {
             'ip': config.get('ip'),
             'port': config.get('port', 4370),
-            'timeout': config.get('timeout', 30),
+            'timeout': timeout_seconds,
             'password': config.get('password', 0),
             'force_udp': config.get('force_udp', False),
             'verbose': config.get('verbose', False)
@@ -461,10 +476,13 @@ class ZkConnectionManager:
         app_logger.info(f"Using ZK class for legacy: {zk_class.__name__}, mock: {use_mock}")
 
         # Create new ZK instance
+        timeout_seconds = self._normalize_timeout(self._config.get('timeout'))
+        self._config['timeout'] = timeout_seconds
+
         connection_params = {
             'ip': self._config.get('ip'),
             'port': self._config.get('port', 4370),
-            'timeout': self._config.get('timeout', 30),
+            'timeout': timeout_seconds,
             'password': self._config.get('password', 0),
             'force_udp': self._config.get('force_udp', False),
             'verbose': self._config.get('verbose', False)

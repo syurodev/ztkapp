@@ -260,7 +260,7 @@ export function ServiceStatus() {
             <Server className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">:{metrics?.port || 5001}</div>
+            <div className="text-2xl font-bold">:{metrics?.port || 57575}</div>
             <p className="text-xs text-muted-foreground">Listening port</p>
           </CardContent>
         </Card>

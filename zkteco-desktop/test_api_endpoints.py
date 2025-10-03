@@ -8,7 +8,7 @@ import json
 import time
 
 # API Configuration
-API_BASE_URL = "http://127.0.0.1:5001"
+API_BASE_URL = "http://127.0.0.1:57575"
 
 def test_api_connection():
     """Test basic API connection"""

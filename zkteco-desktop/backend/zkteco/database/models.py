@@ -12,7 +12,7 @@ class Device:
     ip: str
     port: int = 4370
     password: int = 0
-    timeout: int = 10
+    timeout: int = 180
     retry_count: int = 3
     retry_delay: int = 2
     ping_interval: int = 30

@@ -100,7 +100,14 @@ export function Logs() {
 
     try {
       // Get folder path by removing filename
-      const folderPath = logFilePath.substring(0, logFilePath.lastIndexOf("/"));
+      const separatorIndex = Math.max(
+        logFilePath.lastIndexOf("/"),
+        logFilePath.lastIndexOf("\\"),
+      );
+      const folderPath =
+        separatorIndex !== -1
+          ? logFilePath.slice(0, separatorIndex)
+          : logFilePath;
       await open(folderPath);
     } catch (error) {
       console.error("Failed to open log folder:", error);
@@ -161,7 +168,7 @@ export function Logs() {
               {logFilePath && (
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-muted-foreground font-mono">
-                    {logFilePath}
+                    {logFilePath.replace(/\\/g, "/")}
                   </span>
                   <Button
                     variant="ghost"

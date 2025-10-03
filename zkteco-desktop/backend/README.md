@@ -26,7 +26,7 @@ USE_MOCK_DEVICE=true
 python app.py
 ```
 
-Server sẽ chạy tại: http://127.0.0.1:5001
+Server sẽ chạy tại: http://127.0.0.1:57575
 
 ### Chạy với Docker
 

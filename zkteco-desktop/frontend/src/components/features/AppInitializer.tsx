@@ -147,7 +147,7 @@ export function AppInitializer({ children }: AppInitializerProps) {
               <p><strong>Troubleshooting:</strong></p>
               <ul className="list-disc list-inside space-y-1 ml-2">
                 <li>Check if backend executable exists</li>
-                <li>Verify port 5001 is available</li>
+                <li>Verify port 57575 is available</li>
                 <li>Check system permissions</li>
                 <li>Review application logs</li>
               </ul>

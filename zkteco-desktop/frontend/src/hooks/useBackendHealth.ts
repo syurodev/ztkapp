@@ -40,7 +40,7 @@ const DEFAULT_METRICS: ServiceMetrics = {
     uptime: 0,
     memoryUsage: 0,
     cpuUsage: 0,
-    port: 5001,
+    port: 57575,
 };
 
 export const useBackendHealth = (): BackendHealthHook => {
@@ -116,7 +116,7 @@ export const useBackendHealth = (): BackendHealthHook => {
                     memoryUsage: metricsData.memory_usage || 0,
                     cpuUsage: metricsData.cpu_percent || 0,
                     pid: metricsData.pid,
-                    port: 5001,
+                    port: 57575,
                     lastRestart: new Date(),
                 });
             }

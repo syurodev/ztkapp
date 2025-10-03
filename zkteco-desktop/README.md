@@ -147,7 +147,7 @@ DEVICE_PORT=4370
 PASSWORD=0
 USE_MOCK_DEVICE=false
 HOST=127.0.0.1
-PORT=5001
+PORT=57575
 LOG_LEVEL=INFO
 ```
 
@@ -214,7 +214,7 @@ Built applications can be found in `frontend/src-tauri/target/release/bundle/`
 ### Common Issues
 
 1. **Backend service not starting**
-   - Check if port 5001 is available
+   - Check if port 57575 is available
    - Verify Python virtual environment is activated
    - Check `.env` configuration
 

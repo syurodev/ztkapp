@@ -38,7 +38,7 @@ export function DeviceForm({
     ip: "",
     port: 0,
     password: "",
-    timeout: 10,
+    timeout: 180,
     retry_count: 3,
     retry_delay: 2,
     ping_interval: 30,
@@ -53,7 +53,10 @@ export function DeviceForm({
         ip: initialData.ip || "",
         port: initialData.port || 0,
         password: initialData.password || "",
-        timeout: initialData.timeout || 10,
+        timeout:
+          typeof initialData.timeout === "number"
+            ? Math.max(initialData.timeout, 180)
+            : 180,
         retry_count: initialData.retry_count || 3,
         retry_delay: initialData.retry_delay || 2,
         ping_interval: initialData.ping_interval || 30,
@@ -66,7 +69,7 @@ export function DeviceForm({
         ip: "",
         port: 0,
         password: "",
-        timeout: 10,
+        timeout: 180,
         retry_count: 3,
         retry_delay: 2,
         ping_interval: 30,
@@ -163,7 +166,7 @@ export function DeviceForm({
             onChange={(e) =>
               setFormData({
                 ...formData,
-                timeout: parseInt(e.target.value, 10) || 10,
+                timeout: parseInt(e.target.value, 10) || 180,
               })
             }
             disabled={isLoading}

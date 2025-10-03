@@ -3,9 +3,9 @@ import axios from "axios";
 
 // API base configuration with fallbacks
 const API_HOSTS = [
-  "http://127.0.0.1:5001",
-  "http://localhost:5001",
-  "http://0.0.0.0:5001",
+  "http://127.0.0.1:57575",
+  "http://localhost:57575",
+  "http://0.0.0.0:57575",
 ];
 
 // Try to detect working API host

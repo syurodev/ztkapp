@@ -171,6 +171,9 @@ class ZK(object):
     def __create_socket(self):
         if self.tcp:
             self.__sock = socket(AF_INET, SOCK_STREAM)
+            # Fix WinError 10040: Increase receive buffer size for Windows (TCP)
+            self.__sock.setsockopt(1, 8, 5 * 1024 * 1024)  # SO_RCVBUF = 5MB
+            self.__sock.setsockopt(1, 7, 5 * 1024 * 1024)  # SO_SNDBUF = 5MB
             self.__sock.settimeout(self.__timeout)
             self.__sock.connect_ex(self.__address)
         else:
@@ -251,7 +254,9 @@ class ZK(object):
             if self.tcp:
                 top = self.__create_tcp_top(buf)
                 self.__sock.send(top)
-                self.__tcp_data_recv = self.__sock.recv(response_size + 8)
+                # Increase receive buffer for large responses (e.g., attendance data)
+                max_recv_size = max(response_size + 8, 65536)  # At least 64KB
+                self.__tcp_data_recv = self.__sock.recv(max_recv_size)
                 self.__tcp_length = self.__test_tcp_top(self.__tcp_data_recv)
                 if self.__tcp_length == 0:
                     raise ZKNetworkError("TCP packet invalid")
@@ -259,7 +264,9 @@ class ZK(object):
                 self.__data_recv = self.__tcp_data_recv[8:]
             else:
                 self.__sock.sendto(buf, self.__address)
-                self.__data_recv = self.__sock.recv(response_size)
+                # Fix WinError 10040: Use maximum UDP datagram size for recv buffer
+                max_udp_size = 65507  # Maximum UDP datagram size
+                self.__data_recv = self.__sock.recv(max_udp_size)
                 self.__header = unpack('<4H', self.__data_recv[:8])
         except Exception as e:
             if self.verbose: print(f"send command error {e}")
@@ -1275,7 +1282,7 @@ class ZK(object):
         attempts = 3
         while attempts:
             if self.verbose: print("A:%i esperando primer regevent" % attempts)
-            data_recv = self.__sock.recv(1032)
+            data_recv = self.__sock.recv(65507)  # Fix WinError 10040: Use max UDP size
             self.__ack_ok()
             if self.verbose: print(codecs.encode(data_recv,'hex'))
             if self.tcp:
@@ -1293,7 +1300,7 @@ class ZK(object):
                         if self.verbose: print ("posible timeout")
                         break
             if self.verbose: print ("A:%i esperando 2do regevent" % attempts)
-            data_recv = self.__sock.recv(1032)
+            data_recv = self.__sock.recv(65507)  # Fix WinError 10040: Use max UDP size
             self.__ack_ok()
             if self.verbose: print (codecs.encode(data_recv, 'hex'))
             if self.tcp:
@@ -1317,7 +1324,7 @@ class ZK(object):
                         if self.verbose: print ("ok, continue?")
                         attempts -= 1
         if attempts == 0:
-            data_recv = self.__sock.recv(1032)
+            data_recv = self.__sock.recv(65507)  # Fix WinError 10040: Use max UDP size
             self.__ack_ok()
             if self.verbose: print (codecs.encode(data_recv, 'hex'))
             if self.tcp:
@@ -1357,7 +1364,7 @@ class ZK(object):
         while not self.end_live_capture:
             try:
                 if self.verbose: print ("esperando event")
-                data_recv = self.__sock.recv(1032)
+                data_recv = self.__sock.recv(65507)  # Fix WinError 10040: Use max UDP size
                 self.__ack_ok()
                 if self.tcp:
                     size = unpack('<HHI', data_recv[:8])[2]
@@ -1544,7 +1551,7 @@ class ZK(object):
 
                 return resp
             while True:
-                data_recv = self.__sock.recv(1024+8)
+                data_recv = self.__sock.recv(65507)  # Fix WinError 10040: Use max UDP size
                 response = unpack('<4H', data_recv[:8])[0]
                 if self.verbose: print ("# packet response is: {}".format(response))
                 if response == const.CMD_DATA:

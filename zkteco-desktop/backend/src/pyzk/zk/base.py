@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import sys
 from datetime import datetime
-from socket import AF_INET, SOCK_DGRAM, SOCK_STREAM, socket, timeout
+from socket import AF_INET, SOCK_DGRAM, SOCK_STREAM, socket, timeout, SOL_SOCKET, SO_RCVBUF, SO_SNDBUF
 from struct import pack, unpack
 import codecs
 
@@ -127,7 +127,10 @@ class ZK(object):
         self.__address = (ip, port)
         self.__sock = socket(AF_INET, SOCK_DGRAM)
         # Fix WinError 10040: Increase receive buffer size for Windows
-        self.__sock.setsockopt(1, 8, 5 * 1024 * 1024)  # SO_RCVBUF = 5MB
+        try:
+            self.__sock.setsockopt(SOL_SOCKET, SO_RCVBUF, 5 * 1024 * 1024)  # 5MB
+        except (OSError, ValueError) as e:
+            if self.verbose: print(f"Warning: Could not set SO_RCVBUF: {e}")
         self.__sock.settimeout(timeout)
         self.__timeout = timeout
         self.__password = password # passint
@@ -172,14 +175,20 @@ class ZK(object):
         if self.tcp:
             self.__sock = socket(AF_INET, SOCK_STREAM)
             # Fix WinError 10040: Increase receive buffer size for Windows (TCP)
-            self.__sock.setsockopt(1, 8, 5 * 1024 * 1024)  # SO_RCVBUF = 5MB
-            self.__sock.setsockopt(1, 7, 5 * 1024 * 1024)  # SO_SNDBUF = 5MB
+            try:
+                self.__sock.setsockopt(SOL_SOCKET, SO_RCVBUF, 5 * 1024 * 1024)  # 5MB
+                self.__sock.setsockopt(SOL_SOCKET, SO_SNDBUF, 5 * 1024 * 1024)  # 5MB
+            except (OSError, ValueError) as e:
+                if self.verbose: print(f"Warning: Could not set socket buffers: {e}")
             self.__sock.settimeout(self.__timeout)
             self.__sock.connect_ex(self.__address)
         else:
             self.__sock = socket(AF_INET, SOCK_DGRAM)
             # Fix WinError 10040: Increase receive buffer size for Windows
-            self.__sock.setsockopt(1, 8, 5 * 1024 * 1024)  # SO_RCVBUF = 5MB
+            try:
+                self.__sock.setsockopt(SOL_SOCKET, SO_RCVBUF, 5 * 1024 * 1024)  # 5MB
+            except (OSError, ValueError) as e:
+                if self.verbose: print(f"Warning: Could not set SO_RCVBUF: {e}")
             self.__sock.settimeout(self.__timeout)
 
     def __create_tcp_top(self, packet):

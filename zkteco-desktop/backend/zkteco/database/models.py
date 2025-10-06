@@ -344,29 +344,89 @@ class AttendanceRepository:
         row = db_manager.fetch_one("SELECT * FROM attendance_logs WHERE id = ?", (log_id,))
         return self._row_to_log(row) if row else None
 
-    def get_all(self, device_id: str = None, limit: int = 1000, offset: int = 0) -> List[AttendanceLog]:
-        """Get attendance logs with pagination"""
+    def get_all(self, device_id: str = None, limit: int = 1000, offset: int = 0, start_date=None, end_date=None) -> List[AttendanceLog]:
+        """Get attendance logs with pagination and optional date filtering"""
+        conditions = []
+        params = []
+
         if device_id:
-            rows = db_manager.fetch_all(
-                "SELECT * FROM attendance_logs WHERE device_id = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?",
-                (device_id, limit, offset)
-            )
-        else:
-            rows = db_manager.fetch_all(
-                "SELECT * FROM attendance_logs ORDER BY timestamp DESC LIMIT ? OFFSET ?",
-                (limit, offset)
-            )
+            conditions.append("device_id = ?")
+            params.append(device_id)
+
+        if start_date and end_date:
+            conditions.append("timestamp >= ? AND timestamp <= ?")
+            params.extend([start_date, end_date])
+
+        where_clause = " AND ".join(conditions) if conditions else "1=1"
+        query = f"SELECT * FROM attendance_logs WHERE {where_clause} ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+
+        rows = db_manager.fetch_all(query, tuple(params))
         return [self._row_to_log(row) for row in rows]
 
-    def get_total_count(self, device_id: str = None) -> int:
-        """Get total count of attendance logs"""
+    def get_total_count(self, device_id: str = None, start_date=None, end_date=None) -> int:
+        """Get total count of attendance logs with optional date filtering"""
+        conditions = []
+        params = []
+
         if device_id:
-            result = db_manager.fetch_one(
-                "SELECT COUNT(*) as count FROM attendance_logs WHERE device_id = ?",
-                (device_id,)
-            )
+            conditions.append("device_id = ?")
+            params.append(device_id)
+
+        if start_date and end_date:
+            conditions.append("timestamp >= ? AND timestamp <= ?")
+            params.extend([start_date, end_date])
+
+        where_clause = " AND ".join(conditions) if conditions else "1=1"
+        query = f"SELECT COUNT(*) as count FROM attendance_logs WHERE {where_clause}"
+
+        result = db_manager.fetch_one(query, tuple(params) if params else None)
+        return result['count'] if result else 0
+
+    def get_by_date(self, target_date, device_id: str = None, limit: int = 100, offset: int = 0) -> List[AttendanceLog]:
+        """Get attendance logs filtered by date with pagination"""
+        from datetime import datetime
+
+        start_datetime = datetime.combine(target_date, datetime.min.time())
+        end_datetime = datetime.combine(target_date, datetime.max.time())
+
+        if device_id:
+            query = """
+                SELECT * FROM attendance_logs
+                WHERE device_id = ? AND timestamp >= ? AND timestamp <= ?
+                ORDER BY timestamp DESC LIMIT ? OFFSET ?
+            """
+            rows = db_manager.fetch_all(query, (device_id, start_datetime, end_datetime, limit, offset))
         else:
-            result = db_manager.fetch_one("SELECT COUNT(*) as count FROM attendance_logs")
+            query = """
+                SELECT * FROM attendance_logs
+                WHERE timestamp >= ? AND timestamp <= ?
+                ORDER BY timestamp DESC LIMIT ? OFFSET ?
+            """
+            rows = db_manager.fetch_all(query, (start_datetime, end_datetime, limit, offset))
+
+        return [self._row_to_log(row) for row in rows]
+
+    def get_count_by_date(self, target_date, device_id: str = None) -> int:
+        """Get total count of attendance logs for a specific date"""
+        from datetime import datetime
+
+        start_datetime = datetime.combine(target_date, datetime.min.time())
+        end_datetime = datetime.combine(target_date, datetime.max.time())
+
+        if device_id:
+            query = """
+                SELECT COUNT(*) as count FROM attendance_logs
+                WHERE device_id = ? AND timestamp >= ? AND timestamp <= ?
+            """
+            result = db_manager.fetch_one(query, (device_id, start_datetime, end_datetime))
+        else:
+            query = """
+                SELECT COUNT(*) as count FROM attendance_logs
+                WHERE timestamp >= ? AND timestamp <= ?
+            """
+            result = db_manager.fetch_one(query, (start_datetime, end_datetime))
+
         return result['count'] if result else 0
 
     def get_by_user(self, user_id: str, limit: int = 100) -> List[AttendanceLog]:
@@ -629,6 +689,82 @@ class AttendanceRepository:
             error_message=error_message,
             created_at=row['created_at']
         )
+
+    def get_smart_filtered_by_date(self, target_date, device_id: str = None) -> List[AttendanceLog]:
+        """Get attendance logs for a date with smart filtering
+
+        Logic:
+        - Group by user_id
+        - For checkin: prefer synced record, else use first
+        - For checkout: prefer synced record, else use last
+
+        Args:
+            target_date: date object for the target date
+            device_id: optional device filter
+
+        Returns:
+            List of filtered AttendanceLog objects
+        """
+        # Get all logs for the target date
+        start_datetime = datetime.combine(target_date, datetime.min.time())
+        end_datetime = datetime.combine(target_date, datetime.max.time())
+
+        # Query database
+        if device_id:
+            query = """
+                SELECT * FROM attendance_logs
+                WHERE device_id = ? AND timestamp >= ? AND timestamp <= ?
+                ORDER BY timestamp ASC
+            """
+            rows = db_manager.fetch_all(query, (device_id, start_datetime, end_datetime))
+        else:
+            query = """
+                SELECT * FROM attendance_logs
+                WHERE timestamp >= ? AND timestamp <= ?
+                ORDER BY timestamp ASC
+            """
+            rows = db_manager.fetch_all(query, (start_datetime, end_datetime))
+
+        # Convert rows to AttendanceLog objects
+        logs = [self._row_to_log(row) for row in rows]
+
+        # Group by user_id
+        from collections import defaultdict
+        user_groups = defaultdict(list)
+        for log in logs:
+            user_groups[log.user_id].append(log)
+
+        # Apply smart filtering
+        filtered_logs = []
+        for user_id, user_logs in user_groups.items():
+            # Separate by action type
+            checkins = [log for log in user_logs if log.action == 0]  # action=0 is checkin
+            checkouts = [log for log in user_logs if log.action == 1]  # action=1 is checkout
+
+            # For checkin: prefer synced, else use first
+            if checkins:
+                synced_checkins = [log for log in checkins if log.is_synced]
+                if synced_checkins:
+                    # Use first synced checkin
+                    filtered_logs.append(synced_checkins[0])
+                else:
+                    # Use first checkin
+                    filtered_logs.append(checkins[0])
+
+            # For checkout: prefer synced, else use last
+            if checkouts:
+                synced_checkouts = [log for log in checkouts if log.is_synced]
+                if synced_checkouts:
+                    # Use last synced checkout
+                    filtered_logs.append(synced_checkouts[-1])
+                else:
+                    # Use last checkout
+                    filtered_logs.append(checkouts[-1])
+
+        # Sort by timestamp descending
+        filtered_logs.sort(key=lambda x: x.timestamp, reverse=True)
+
+        return filtered_logs
 
 class SettingRepository:
     """App settings database operations"""

@@ -658,15 +658,17 @@ def _queue_attendance_event(member_id, method, action, device_id=None, device_ti
         else:
             app_logger.info(f"Live capture: Found existing attendance log with ID {saved_log.id}, skipped duplicate")
 
-        # Get user name
+        # Get user name and avatar
         user = user_repo.get_by_user_id(str(member_id), device_id)
         user_name = user.name if user else "Unknown User"
+        avatar_url = user.avatar_url if user else None
 
         # Queue for realtime streaming (existing functionality)
         event_data = {
             "id": saved_log.id,  # Include database ID
             "user_id": str(member_id),
             "name": user_name,
+            "avatar_url": avatar_url,
             "timestamp": actual_timestamp.strftime("%Y-%m-%d %H:%M:%S"),  # Use device timestamp (FIXED)
             "method": method,  # Chấm bằng vân tay hoặc thẻ
             "action": action,    # checkin checkout

@@ -13,6 +13,10 @@ from zkteco.controllers.attendance_controller import bp as attendance_blueprint
 from zkteco.controllers.event_controller import bp as event_blueprint
 from zkteco.logger import create_log_handler
 from zkteco.services.scheduler_service import scheduler_service
+from zkteco.services.live_capture_service import (
+    start_multi_device_capture,
+    stop_multi_device_capture,
+)
 
 load_dotenv()
 
@@ -51,11 +55,20 @@ def create_app():
             scheduler_service.start()
             app.logger.info("Scheduler service started successfully")
 
-            # Register cleanup function to stop scheduler when app shuts down
-            def cleanup_scheduler():
-                scheduler_service.stop()
+            try:
+                start_multi_device_capture()
+                app.logger.info("Live capture auto-started for active devices")
+            except Exception as live_capture_error:
+                app.logger.error(
+                    f"Failed to auto-start live capture: {live_capture_error}"
+                )
 
-            atexit.register(cleanup_scheduler)
+            # Register cleanup function to stop services when app shuts down
+            def cleanup_services():
+                scheduler_service.stop()
+                stop_multi_device_capture()
+
+            atexit.register(cleanup_services)
 
         except Exception as e:
             app.logger.error(f"Failed to start scheduler service: {e}")

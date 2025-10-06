@@ -11,20 +11,26 @@ class SQLiteConfigManager:
     
     def get_config(self) -> Dict[str, Any]:
         """Get configuration (for API compatibility)"""
+        base_domain = self.get_api_gateway_domain()
         return {
+            'API_GATEWAY_DOMAIN': base_domain,
             'EXTERNAL_API_DOMAIN': self.get_external_api_url(),
+            'EXTERNAL_API_KEY': self.get_external_api_key(),
+            'RESOURCE_DOMAIN': self.get_resource_domain(),
             'active_device_id': self.get_active_device_id(),
             'devices': self.get_all_devices()
         }
     
     def save_config(self, config_data: Dict[str, Any]) -> None:
         """Save configuration (for API compatibility)"""
-        if 'EXTERNAL_API_DOMAIN' in config_data:
-            domain = config_data['EXTERNAL_API_DOMAIN']
-            if domain:
-                domain = domain.rstrip('/')
-            setting_repo.set('EXTERNAL_API_DOMAIN', domain, 'External API domain URL')
-        
+        if 'API_GATEWAY_DOMAIN' in config_data and config_data['API_GATEWAY_DOMAIN'] is not None:
+            api_gateway_domain = self._normalize_gateway_domain(config_data.get('API_GATEWAY_DOMAIN'))
+            setting_repo.set('API_GATEWAY_DOMAIN', api_gateway_domain, 'Base domain for external API and resources')
+
+        if 'EXTERNAL_API_KEY' in config_data:
+            api_key = config_data['EXTERNAL_API_KEY']
+            setting_repo.set('EXTERNAL_API_KEY', api_key or '', 'External API authentication key')
+
         if 'active_device_id' in config_data:
             active_id = config_data['active_device_id']
             if active_id:
@@ -160,21 +166,50 @@ class SQLiteConfigManager:
         active_device = self.get_active_device()
         return active_device.get('device_info', {}) if active_device else {}
     
+    def get_api_gateway_domain(self) -> str:
+        """Get base API gateway domain shared by services"""
+        domain = setting_repo.get('API_GATEWAY_DOMAIN') or ''
+        return domain.rstrip('/') if domain else ''
+
     def get_external_api_url(self) -> str:
         """Get external API URL"""
-        domain = setting_repo.get('EXTERNAL_API_DOMAIN') or ''
-        return domain.rstrip('/') if domain else ''
+        return self._build_external_api_domain(self.get_api_gateway_domain())
 
     def get_external_api_key(self) -> str:
         """Get external API key for authentication"""
         return setting_repo.get('EXTERNAL_API_KEY') or ''
-    
+
+    def get_resource_domain(self) -> str:
+        """Get resource domain for avatar URLs"""
+        return self._build_resource_domain(self.get_api_gateway_domain())
+
+    def get_external_api_domain(self) -> str:
+        """Alias for get_external_api_url for consistency"""
+        return self.get_external_api_url()
+
     # Additional methods for enhanced functionality
     def get_devices_by_status(self, is_active: bool = True) -> List[Dict[str, Any]]:
         """Get devices filtered by active status"""
         devices = device_repo.get_all()
         filtered = [device for device in devices if device.is_active == is_active]
         return [device.to_dict() for device in filtered]
+
+    # Internal helpers
+    @staticmethod
+    def _normalize_gateway_domain(domain: Optional[str]) -> str:
+        if not domain:
+            return ''
+        return domain.strip().rstrip('/')
+
+    def _build_external_api_domain(self, base_domain: str) -> str:
+        if not base_domain:
+            return ''
+        return f"{base_domain.rstrip('/')}/api/v1"
+
+    def _build_resource_domain(self, base_domain: str) -> str:
+        if not base_domain:
+            return ''
+        return f"{base_domain.rstrip('/')}/short"
     
     def get_device_count(self) -> int:
         """Get total device count"""

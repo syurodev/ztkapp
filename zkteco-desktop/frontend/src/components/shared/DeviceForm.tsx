@@ -1,7 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { Device } from "@/lib/api";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -186,17 +185,6 @@ export function DeviceForm({
             }
             disabled={isLoading}
           />
-        </div>
-        <div className="col-span-2 flex items-center space-x-2">
-          <Switch
-            id="force_udp"
-            checked={formData.force_udp}
-            onCheckedChange={(checked) =>
-              setFormData({ ...formData, force_udp: checked })
-            }
-            disabled={isLoading}
-          />
-          <Label htmlFor="force_udp">Force UDP</Label>
         </div>
       </div>
 

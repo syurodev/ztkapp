@@ -35,14 +35,29 @@ def get_attendance():
         limit = int(request.args.get('limit', 100))
         offset = int(request.args.get('offset', 0))
         user_id = request.args.get('user_id')
+        date_str = request.args.get('date')  # Format: YYYY-MM-DD
 
         # Validate limit
         limit = min(limit, 1000)  # Max 1000 records per request
 
+        # Parse date if provided
+        start_date = None
+        end_date = None
+        if date_str:
+            try:
+                target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+                start_date = datetime.combine(target_date, datetime.min.time())
+                end_date = datetime.combine(target_date, datetime.max.time())
+            except ValueError:
+                return jsonify({
+                    'success': False,
+                    'error': 'Invalid date format. Use YYYY-MM-DD'
+                }), 400
+
         if user_id:
             logs = attendance_repo.get_by_user(user_id, limit)
         else:
-            logs = attendance_repo.get_all(device_id, limit, offset)
+            logs = attendance_repo.get_all(device_id, limit, offset, start_date, end_date)
 
         data = _map_user_names_to_logs(logs)
 
@@ -102,24 +117,44 @@ def sync_attendance():
 def get_attendance_logs():
     """Get stored attendance logs with pagination and filtering"""
     try:
+        from datetime import datetime
+
         # Query parameters
         device_id = request.args.get('device_id')
         limit = int(request.args.get('limit', 100))
         offset = int(request.args.get('offset', 0))
         user_id = request.args.get('user_id')
+        date_str = request.args.get('date')  # Format: YYYY-MM-DD
 
         # Validate limit
         limit = min(limit, 1000)  # Max 1000 records per request
 
+        # Parse date filter if provided
+        target_date = None
+        if date_str:
+            try:
+                target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({
+                    'success': False,
+                    'error': 'Invalid date format. Use YYYY-MM-DD'
+                }), 400
+
         if user_id:
             logs = attendance_repo.get_by_user(user_id, limit)
+        elif target_date:
+            # Get logs filtered by date
+            logs = attendance_repo.get_by_date(target_date, device_id, limit, offset)
         else:
             logs = attendance_repo.get_all(device_id, limit, offset)
 
         data = _map_user_names_to_logs(logs)
 
         # Get total count for proper pagination
-        total_count = attendance_repo.get_total_count(device_id)
+        if target_date:
+            total_count = attendance_repo.get_count_by_date(target_date, device_id)
+        else:
+            total_count = attendance_repo.get_total_count(device_id)
 
         return jsonify({
             'success': True,
@@ -129,7 +164,8 @@ def get_attendance_logs():
                 'offset': offset,
                 'count': len(logs),
                 'total_count': total_count
-            }
+            },
+            'date': date_str
         })
 
     except Exception as e:
@@ -356,6 +392,56 @@ def trigger_scheduler_job():
 
     except Exception as e:
         app_logger.error(f"Error triggering scheduler job: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@bp.route('/attendance/history', methods=['GET'])
+def get_attendance_history():
+    """Get attendance history with smart filtering (first checkin/last checkout or synced records)
+
+    Logic:
+    - Group by user + date
+    - For each group:
+      - If checkin has synced record, use it; else use first checkin
+      - If checkout has synced record, use it; else use last checkout
+    """
+    try:
+        from datetime import datetime
+
+        # Query parameters
+        device_id = request.args.get('device_id')
+        date_str = request.args.get('date')  # Format: YYYY-MM-DD
+
+        # Parse date or default to today
+        if date_str:
+            try:
+                target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({
+                    'success': False,
+                    'error': 'Invalid date format. Use YYYY-MM-DD'
+                }), 400
+        else:
+            target_date = datetime.now().date()
+
+        # Get filtered logs from repository
+        filtered_logs = attendance_repo.get_smart_filtered_by_date(target_date, device_id)
+
+        # Map user names
+        data = _map_user_names_to_logs(filtered_logs)
+
+        return jsonify({
+            'success': True,
+            'data': data,
+            'date': target_date.strftime('%Y-%m-%d'),
+            'count': len(data),
+            'device_id': device_id
+        })
+
+    except Exception as e:
+        app_logger.error(f"Error getting attendance history: {e}")
         return jsonify({
             'success': False,
             'error': str(e)

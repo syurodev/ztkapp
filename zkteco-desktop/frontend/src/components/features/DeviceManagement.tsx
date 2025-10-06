@@ -58,10 +58,10 @@ export function DeviceManagement() {
     if (error?.message) {
       return error.message;
     }
-    if (typeof error === 'string') {
+    if (typeof error === "string") {
       return error;
     }
-    return 'An unexpected error occurred';
+    return "An unexpected error occurred";
   };
 
   const openAddDialog = () => {
@@ -168,20 +168,6 @@ export function DeviceManagement() {
       const errorMessage = getErrorMessage(error);
       toast.error(`Failed to test device connection: ${errorMessage}`);
       console.error("Error testing device:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleSyncEmployees = async (deviceId: string) => {
-    setIsLoading(true);
-    try {
-      const result = await devicesAPI.syncEmployeeFromDevice(deviceId);
-      toast.success(`Successfully synced ${result.employees_count} employees`);
-    } catch (error) {
-      const errorMessage = getErrorMessage(error);
-      toast.error(`Failed to sync employees: ${errorMessage}`);
-      console.error("Error syncing employees:", error);
     } finally {
       setIsLoading(false);
     }
@@ -305,14 +291,6 @@ export function DeviceManagement() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => handleSyncEmployees(device.id)}
-                          disabled={loading}
-                        >
-                          Sync
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
                           onClick={() => openEditDialog(device)}
                           disabled={loading}
                         >
@@ -320,8 +298,7 @@ export function DeviceManagement() {
                         </Button>
                         <Button
                           size="sm"
-                          variant="outline"
-                          className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200 hover:border-red-300"
+                          variant="destructive"
                           onClick={() => openDeleteDialog(device)}
                           disabled={loading}
                         >

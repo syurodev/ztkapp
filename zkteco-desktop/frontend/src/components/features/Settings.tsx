@@ -4,14 +4,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { configAPI } from "@/lib/api";
+import { clearResourceDomainCache } from "@/lib/utils";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useTray } from "../../contexts/TrayContext";
 
 export function Settings() {
-  const [externalApiDomain, setExternalApiDomain] = useState("");
+  const [apiGatewayDomain, setApiGatewayDomain] = useState("");
+  const [externalApiKey, setExternalApiKey] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const { minimizeToTray, toggleMinimizeToTray } = useTray();
+  const normalizedDisplayDomain = (apiGatewayDomain || "<domain>").replace(/\/$/, "");
 
   useEffect(() => {
     loadConfig();
@@ -21,13 +24,14 @@ export function Settings() {
     setIsLoading(true);
     try {
       const config = await configAPI.getConfig();
-      setExternalApiDomain(config.EXTERNAL_API_DOMAIN || "");
+      setApiGatewayDomain(config.API_GATEWAY_DOMAIN || "");
+      setExternalApiKey(config.EXTERNAL_API_KEY || "");
     } catch (err: any) {
       console.error("Error loading settings:", err);
-      
+
       // Only show error toast for actual server errors (5xx) or network issues
       const status = err.status || err.response?.status;
-      
+
       if (err.code === 'ECONNREFUSED' || err.message?.includes('Network Error')) {
         toast.error("Cannot connect to server. Please check if the backend is running.");
       } else if (status >= 500) {
@@ -43,8 +47,11 @@ export function Settings() {
     setIsLoading(true);
     try {
       await configAPI.updateConfig({
-        EXTERNAL_API_DOMAIN: externalApiDomain,
+        API_GATEWAY_DOMAIN: apiGatewayDomain,
+        EXTERNAL_API_KEY: externalApiKey,
       });
+      // Clear resource domain cache to pick up new value
+      clearResourceDomainCache();
       toast.success("Settings saved successfully");
     } catch (err) {
       toast.error("Failed to save settings");
@@ -67,21 +74,40 @@ export function Settings() {
         <CardHeader>
           <CardTitle>External API Configuration</CardTitle>
           <p className="text-sm text-muted-foreground">
-            Configure the external API for employee synchronization
+            Configure the external API for employee synchronization and resources
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="domain">API Domain</Label>
+            <Label htmlFor="domain">API Gateway Domain</Label>
             <Input
               id="domain"
-              placeholder="https://api.example.com"
-              value={externalApiDomain}
-              onChange={(e) => setExternalApiDomain(e.target.value)}
+              placeholder="https://beta.api.gateway.daihy.ohqsoft.com"
+              value={apiGatewayDomain}
+              onChange={(e) => setApiGatewayDomain(e.target.value)}
             />
             <p className="text-sm text-muted-foreground mt-1">
-              The base URL for your external API (e.g.,
-              https://api.yourcompany.com)
+              Single base domain used for both API (`/api/v1`) and resources (`/short`).
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Example API endpoint: {normalizedDisplayDomain}/api/v1
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Example resource endpoint: {normalizedDisplayDomain}/short
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="apiKey">API Key</Label>
+            <Input
+              id="apiKey"
+              type="password"
+              placeholder="Enter your API key"
+              value={externalApiKey}
+              onChange={(e) => setExternalApiKey(e.target.value)}
+            />
+            <p className="text-sm text-muted-foreground mt-1">
+              The authentication key for accessing the external API
             </p>
           </div>
 

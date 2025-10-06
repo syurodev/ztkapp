@@ -13,6 +13,8 @@ from zkteco.config.config_manager_sqlite import config_manager
 class AttendanceSyncService:
     """Service for syncing daily attendance data with first checkin/last checkout logic"""
 
+    MAX_RECORDS_PER_REQUEST = 100
+
     def __init__(self):
         self.logger = app_logger
 
@@ -51,6 +53,8 @@ class AttendanceSyncService:
             processed_dates = []
             all_attendance_summaries = []
 
+            external_api_domain = None
+
             # Process each date and collect all data
             for sync_date in sync_dates:
                 self.logger.info(f"Processing attendance for date: {sync_date}")
@@ -80,6 +84,32 @@ class AttendanceSyncService:
                     total_synced += len(attendance_summary)
                     all_attendance_summaries.extend(attendance_summary)
 
+                    # Lazy-load external API configuration
+                    if external_api_domain is None:
+                        external_api_domain = config_manager.get_external_api_url()
+                        if not external_api_domain:
+                            raise ValueError("API_GATEWAY_DOMAIN not configured")
+
+                    total_batches = (len(attendance_summary) + self.MAX_RECORDS_PER_REQUEST - 1) // self.MAX_RECORDS_PER_REQUEST
+
+                    for batch_index, batch in enumerate(
+                        self._iter_record_batches(attendance_summary, self.MAX_RECORDS_PER_REQUEST),
+                        start=1
+                    ):
+                        self.logger.info(
+                            f"Sending attendance batch {batch_index}/{total_batches} for {sync_date} with {len(batch)} records"
+                        )
+
+                        sync_result = self._send_to_external_api(batch, sync_date, external_api_domain, device_id)
+
+                        if sync_result.get('error'):
+                            self.logger.warning(
+                                f"Skipping remaining batches due to error: {sync_result['error']}"
+                            )
+                            break
+
+                        self._process_api_response(sync_result.get('response_data', {}), batch)
+
                 processed_dates.append(str(sync_date))
 
             # Save attendance summaries to JSON file for debugging
@@ -89,19 +119,6 @@ class AttendanceSyncService:
             with open(debug_file, 'w', encoding='utf-8') as f:
                 json.dump(all_attendance_summaries, f, indent=2, ensure_ascii=False, default=str)
             app_logger.info(f"Saved {len(all_attendance_summaries)} attendance summaries to {debug_file}")
-
-            # Send all collected data to external API in one request
-            if all_attendance_summaries:
-                # Get external API configuration
-                external_api_domain = config_manager.get_external_api_url()
-                if not external_api_domain:
-                    raise ValueError("EXTERNAL_API_DOMAIN not configured in config.json")
-
-                # Send all data to external API
-                sync_result = self._send_consolidated_to_external_api(all_attendance_summaries, external_api_domain)
-
-                # Process API response and update record statuses
-                self._process_api_response(sync_result.get('response_data', {}), all_attendance_summaries)
 
             self.logger.info(f"Attendance sync completed for {len(processed_dates)} dates: {total_synced} total records")
 
@@ -119,6 +136,106 @@ class AttendanceSyncService:
                 'success': False,
                 'error': str(e),
                 'dates_processed': []
+            }
+
+    def sync_first_checkins(self, target_date: Optional[str] = None, device_id: Optional[str] = None) -> Dict[str, Any]:
+        """Sync only first check-ins for the target date (defaults to today)."""
+        try:
+            # Determine target date
+            if target_date:
+                sync_date = datetime.strptime(target_date, '%Y-%m-%d').date()
+            else:
+                sync_date = date.today()
+
+            self.logger.info(
+                f"Starting first-checkin sync for date: {sync_date}, device: {device_id or 'all'}"
+            )
+
+            attendance_summary = self._calculate_daily_attendance_with_dedup(sync_date, device_id)
+
+            if not attendance_summary:
+                return {
+                    'success': True,
+                    'message': 'No pending first checkins found',
+                    'date': str(sync_date),
+                    'count': 0
+                }
+
+            # Get device serial once per batch
+            if device_id:
+                device = config_manager.get_device(device_id)
+            else:
+                device = config_manager.get_active_device()
+
+            serial_number = 'unknown'
+            if device:
+                device_info = device.get('device_info', {})
+                serial_number = device_info.get('serial_number', device.get('serial_number', device_id or 'unknown'))
+
+            # Prepare summaries for API (only checkins)
+            for user_summary in attendance_summary:
+                user_summary['date'] = str(sync_date)
+                user_summary['device_id'] = device_id
+                user_summary['device_serial'] = serial_number
+                user_summary['last_checkout'] = None
+                user_summary['last_checkout_id'] = None
+
+            # Filter out summaries without a valid first checkin
+            valid_summaries = [
+                summary for summary in attendance_summary if summary.get('first_checkin')
+            ]
+
+            if not valid_summaries:
+                self.logger.info(
+                    "No first checkin records available after filtering, skipping sync"
+                )
+                return {
+                    'success': True,
+                    'date': str(sync_date),
+                    'count': 0,
+                    'synced_records': 0,
+                    'message': 'No valid first checkins to sync'
+                }
+
+            external_api_domain = config_manager.get_external_api_url()
+            if not external_api_domain:
+                raise ValueError("API_GATEWAY_DOMAIN not configured")
+
+            total_batches = (len(valid_summaries) + self.MAX_RECORDS_PER_REQUEST - 1) // self.MAX_RECORDS_PER_REQUEST
+            synced_records = 0
+
+            for batch_index, batch in enumerate(
+                self._iter_record_batches(valid_summaries, self.MAX_RECORDS_PER_REQUEST),
+                start=1
+            ):
+                self.logger.info(
+                    f"[First Checkin Sync] Sending batch {batch_index}/{total_batches} with {len(batch)} records"
+                )
+
+                sync_result = self._send_to_external_api(batch, sync_date, external_api_domain, device_id)
+
+                if sync_result.get('error'):
+                    self.logger.warning(
+                        f"[First Checkin Sync] Stopping due to error: {sync_result['error']}"
+                    )
+                    break
+
+                synced_records += sync_result.get('sent_count', len(batch))
+                self._process_api_response(sync_result.get('response_data', {}), batch)
+
+            return {
+                'success': True,
+                'date': str(sync_date),
+                'count': len(valid_summaries),
+                'synced_records': synced_records
+            }
+
+        except Exception as e:
+            self.logger.error(f"Error in sync_first_checkins: {type(e).__name__}: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'date': str(target_date or date.today())
             }
 
     def _calculate_daily_attendance(self, target_date: date, device_id: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -433,11 +550,19 @@ class AttendanceSyncService:
             attendance_summaries: List of all attendance summaries that were sent
         """
         try:
-            if not response_data or 'data' not in response_data:
-                self.logger.error("Invalid API response format")
+            if not response_data:
+                self.logger.warning("No response data provided from API")
                 return
 
-            data = response_data['data']
+            if 'data' not in response_data:
+                self.logger.error(f"Invalid API response format - missing 'data' field: {response_data}")
+                return
+
+            data = response_data.get('data')
+            if not data:
+                self.logger.warning("Response data is None or empty")
+                return
+
             success_operations = data.get('successOperations', [])
             errors = data.get('errors', [])
 
@@ -627,61 +752,10 @@ class AttendanceSyncService:
             self.logger.error(f"Error marking last record as synced: {e}")
             raise
 
-    def _send_consolidated_to_external_api(self, attendance_summaries: List[Dict[str, Any]], external_api_domain: str) -> Dict[str, Any]:
-        """
-        Send consolidated attendance summaries to external API
-
-        Args:
-            attendance_summaries: List of all attendance summaries (with date and device info embedded)
-            external_api_domain: External API domain URL
-
-        Returns:
-            API response data
-        """
-        try:
-            # Construct API URL
-            external_api_url = external_api_domain + '/attendance/daily-sync'
-
-            # Prepare sync data with simplified structure
-            sync_data = {
-                'timestamp': int(time.time()),
-                'attendance_summary': attendance_summaries
-            }
-
-            # Prepare headers
-            headers = {
-                'Content-Type': 'application/json',
-                'ProjectId': '1055'
-            }
-
-            self.logger.info(f"Sending consolidated attendance data to {external_api_url} for {len(attendance_summaries)} records")
-
-            # Make API request
-            response = requests.post(
-                external_api_url,
-                json=sync_data,
-                headers=headers,
-                timeout=30
-            )
-
-            response.raise_for_status()
-            response_data = response.json()
-
-            self.logger.info(f"Successfully sent consolidated attendance data to external API: {response.status_code}")
-
-            return {
-                'status_code': response.status_code,
-                'response_data': response_data,
-                'sent_count': len(attendance_summaries),
-                'synced_ids': response_data.get('synced_ids') if response_data else None
-            }
-
-        except requests.exceptions.RequestException as e:
-            self.logger.error(f"HTTP error sending consolidated attendance data: {e}")
-            raise
-        except Exception as e:
-            self.logger.error(f"Error sending consolidated attendance data to external API: {e}")
-            raise
+    def _iter_record_batches(self, records: List[Dict[str, Any]], batch_size: int):
+        """Yield successive batches from the records list"""
+        for index in range(0, len(records), batch_size):
+            yield records[index:index + batch_size]
 
     def _send_to_external_api(self, attendance_summary: List[Dict[str, Any]], sync_date: date,
                              external_api_domain: str, device_id: Optional[str] = None) -> Dict[str, Any]:
@@ -698,8 +772,16 @@ class AttendanceSyncService:
             API response data
         """
         try:
+            if not attendance_summary:
+                return {
+                    'success': True,
+                    'status_code': 204,
+                    'response_data': None,
+                    'sent_count': 0
+                }
+
             # Construct API URL
-            external_api_url = external_api_domain + '/attendance/daily-sync'
+            external_api_url = external_api_domain + '/time-clock-employees/sync-checkin-data'
 
             # Get device info for serial number
             if device_id:
@@ -718,17 +800,24 @@ class AttendanceSyncService:
                 'date': str(sync_date),
                 'device_id': device_id,
                 'device_serial': serial_number,
-                'attendance_summary': attendance_summary
+                'checkin_data_list': attendance_summary
             }
+
+            # Get API key from config
+            api_key = config_manager.get_external_api_key()
+            if not api_key:
+                self.logger.warning("EXTERNAL_API_KEY not configured, skipping daily attendance sync")
+                return {
+                    'error': 'EXTERNAL_API_KEY not configured'
+                }
 
             # Prepare headers (similar to sync_employee)
             headers = {
                 'Content-Type': 'application/json',
+                'x-api-key': api_key,
                 'x-device-sync': serial_number,
                 'ProjectId': '1055'
             }
-
-            self.logger.info(f"Sending attendance data to {external_api_url} for {len(attendance_summary)} users")
 
             # Make API request
             response = requests.post(
@@ -740,8 +829,6 @@ class AttendanceSyncService:
 
             response.raise_for_status()
             response_data = response.json()
-
-            self.logger.info(f"Successfully sent attendance data to external API: {response.status_code}")
 
             return {
                 'status_code': response.status_code,

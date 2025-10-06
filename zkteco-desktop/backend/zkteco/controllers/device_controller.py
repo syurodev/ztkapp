@@ -51,7 +51,8 @@ def update_config():
 
     # Save general config (non-device specific settings)
     general_config = {
-        'EXTERNAL_API_DOMAIN': data.get('EXTERNAL_API_DOMAIN', '')
+        'API_GATEWAY_DOMAIN': data.get('API_GATEWAY_DOMAIN'),
+        'EXTERNAL_API_KEY': data.get('EXTERNAL_API_KEY', ''),
     }
     config_manager.save_config(general_config)
 

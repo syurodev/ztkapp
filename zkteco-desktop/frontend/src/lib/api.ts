@@ -478,12 +478,14 @@ export const attendanceAPI = {
     limit?: number;
     offset?: number;
     device_id?: string;
+    date?: string;
   }) => {
     try {
       const params = new URLSearchParams();
       if (options?.limit) params.set("limit", options.limit.toString());
       if (options?.offset) params.set("offset", options.offset.toString());
       if (options?.device_id) params.set("device_id", options.device_id);
+      if (options?.date) params.set("date", options.date);
 
       const url = `/attendance/logs${params.toString() ? `?${params.toString()}` : ""}`;
       const response = await api.get(url);
@@ -537,6 +539,22 @@ export const attendanceAPI = {
       return response.data;
     } catch (error) {
       throw new Error("Failed to preview daily attendance");
+    }
+  },
+  getHistory: async (options?: {
+    date?: string;
+    device_id?: string;
+  }) => {
+    try {
+      const params = new URLSearchParams();
+      if (options?.date) params.set("date", options.date);
+      if (options?.device_id) params.set("device_id", options.device_id);
+
+      const url = `/attendance/history${params.toString() ? `?${params.toString()}` : ""}`;
+      const response = await api.get(url);
+      return response.data;
+    } catch (error) {
+      throw new Error("Failed to get attendance history");
     }
   },
 };
@@ -662,6 +680,7 @@ export interface LiveAttendanceRecord {
   id?: number;
   user_id: string;
   name: string;
+  avatar_url?: string | null;
   timestamp: string;
   method: number;
   action: number;

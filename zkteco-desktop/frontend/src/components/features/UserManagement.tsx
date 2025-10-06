@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/table";
 import { useDevice } from "@/contexts/DeviceContext";
 import { deviceAPI, User, userAPI, UsersResponse } from "@/lib/api";
+import { buildAvatarUrl, getResourceDomain } from "@/lib/utils";
 import {
   AlertCircle,
   CheckCircle2,
@@ -61,6 +62,12 @@ export function UserManagement() {
   const [deviceConnected, setDeviceConnected] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [resourceDomain, setResourceDomain] = useState<string>("");
+
+  // Load resource domain on mount
+  useEffect(() => {
+    getResourceDomain().then(setResourceDomain);
+  }, []);
   // const [isDialogOpen, setIsDialogOpen] = useState(false);
   // const [formData, setFormData] = useState<UserFormData>(initialFormData);
   const [error, setError] = useState<string | null>(null);
@@ -524,7 +531,7 @@ export function UserManagement() {
                           <Avatar className="h-8 w-8">
                             {user.avatar_url && (
                               <AvatarImage
-                                src={user.avatar_url}
+                                src={buildAvatarUrl(user.avatar_url, resourceDomain)}
                                 alt={user.name}
                               />
                             )}

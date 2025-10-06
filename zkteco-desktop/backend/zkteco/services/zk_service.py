@@ -443,15 +443,23 @@ class ZkService:
             if not device:
                 raise ValueError("No device found for sync")
             
-            # Get all users from database for this device
-            db_users = user_repo.get_all(device_id=target_device_id)
-            app_logger.info(f"Retrieved {len(db_users)} users from database for sync to external API")
+            # Get only unsynced users for this device
+            db_users = user_repo.get_unsynced_users(device_id=target_device_id)
+            app_logger.info(
+                f"Retrieved {len(db_users)} unsynced users from database for sync to external API"
+            )
+            if not db_users:
+                return {
+                    'success': True,
+                    'employees_count': 0,
+                    'message': 'No unsynced users found'
+                }
             
             # Get external API URL from config (new dynamic approach)
             external_api_domain = config_manager.get_external_api_url()
             
             if not external_api_domain:
-                raise ValueError("EXTERNAL_API_DOMAIN not configured in config.json")
+                raise ValueError("API_GATEWAY_DOMAIN not configured")
             
             external_api_url = external_api_domain + '/time-clock-employees/sync'
             
@@ -472,26 +480,29 @@ class ZkService:
                 employees.append(employee)
                 user_ids_to_sync.append(user.id)  # Store the database ID for later update
             
-            if not employees:
-                return {
-                    'success': True,
-                    'employees_count': 0,
-                    'message': 'No users to sync'
-                }
-            
             # Prepare sync data
             sync_data = {
                 "timestamp": int(time.time()),
                 "employees": employees
             }
             
+            # Get API key from config
+            api_key = config_manager.get_external_api_key()
+            if not api_key:
+                app_logger.warning("EXTERNAL_API_KEY not configured, skipping employee sync")
+                return {
+                    'success': False,
+                    'message': 'EXTERNAL_API_KEY not configured'
+                }
+
             # Prepare headers
             headers = {
                 'Content-Type': 'application/json',
+                'x-api-key': api_key,
                 'x-device-sync': serial_number,
                 'ProjectId': "1055"
             }
-            
+
             # Make API request
             response = requests.post(
                 external_api_url,
@@ -578,6 +589,89 @@ class ZkService:
             app_logger.error(f"Error in sync_employee: {type(e).__name__}: {e}")
             raise
 
+    def sync_all_users_from_external_api(self):
+        """
+        Sync all users from external API to update employee details (avatar, external_user_id)
+        This is called periodically by scheduler to keep user data up-to-date
+
+        Returns:
+            Dict with sync results
+        """
+        try:
+            app_logger.info("Starting periodic user sync from external API")
+
+            # Get external API domain
+            external_api_domain = config_manager.get_external_api_domain()
+            if not external_api_domain:
+                app_logger.warning("API_GATEWAY_DOMAIN not configured, skipping periodic user sync")
+                return {
+                    'success': False,
+                    'message': 'API_GATEWAY_DOMAIN not configured'
+                }
+
+            # Get all users from database
+            all_users = user_repo.get_all()
+            if not all_users:
+                app_logger.info("No users found in database, skipping periodic user sync")
+                return {
+                    'success': True,
+                    'message': 'No users to sync',
+                    'updated_count': 0
+                }
+
+            # Extract user_ids
+            user_ids = [user.user_id for user in all_users]
+            app_logger.info(f"Fetching employee details for {len(user_ids)} users from external API")
+
+            # Fetch employee details from external API
+            employee_details = self._fetch_employee_details(user_ids, external_api_domain)
+
+            if not employee_details:
+                app_logger.warning("No employee details received from external API")
+                return {
+                    'success': True,
+                    'message': 'No employee details received',
+                    'updated_count': 0
+                }
+
+            # Update users with employee details
+            updated_count = 0
+            for user in all_users:
+                if user.user_id in employee_details:
+                    details = employee_details[user.user_id]
+                    updates = {
+                        'external_user_id': details.get('employee_id'),
+                        'avatar_url': details.get('employee_avatar')
+                    }
+
+                    try:
+                        user_repo.update(user.id, updates)
+                        updated_count += 1
+                        app_logger.debug(
+                            f"Updated user {user.user_id} ({user.name}): "
+                            f"employee_id={details.get('employee_id')}, "
+                            f"avatar={'present' if details.get('employee_avatar') else 'none'}"
+                        )
+                    except Exception as update_error:
+                        app_logger.warning(f"Failed to update user {user.id}: {update_error}")
+
+            app_logger.info(
+                f"Periodic user sync completed: updated {updated_count} users out of {len(all_users)} total users"
+            )
+
+            return {
+                'success': True,
+                'total_users': len(all_users),
+                'updated_count': updated_count,
+                'employee_details_count': len(employee_details)
+            }
+
+        except Exception as e:
+            app_logger.error(f"Error in sync_all_users_from_external_api: {type(e).__name__}: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
 
 
 def get_zk_service(device_id: str = None):

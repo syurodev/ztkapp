@@ -605,7 +605,7 @@ class AttendanceRepository:
     
     def create_safe(self, log: AttendanceLog) -> tuple[AttendanceLog, bool]:
         """Create attendance log safely, avoiding duplicates
-        
+
         Returns:
             tuple: (AttendanceLog, is_new) where is_new indicates if record was actually created
         """
@@ -613,11 +613,11 @@ class AttendanceRepository:
         existing = self.find_duplicate(
             log.user_id, log.device_id, log.timestamp, log.method, log.action
         )
-        
+
         if existing:
             # Duplicate found, return existing record
             return existing, False
-        
+
         try:
             # Create new record
             return self.create(log), True
@@ -632,6 +632,69 @@ class AttendanceRepository:
                     return existing, False
             # Re-raise other exceptions
             raise
+
+    def bulk_insert_ignore(self, logs: List[AttendanceLog]) -> tuple[int, int]:
+        """Insert a batch of attendance logs using INSERT OR IGNORE semantics.
+
+        Args:
+            logs: AttendanceLog items to persist.
+
+        Returns:
+            Tuple of (inserted_count, skipped_count).
+        """
+        if not logs:
+            return 0, 0
+
+        conn = db_manager.get_connection()
+        before_changes = conn.total_changes
+
+        rows = []
+        for log in logs:
+            timestamp = log.timestamp
+            if isinstance(timestamp, datetime):
+                timestamp_value = timestamp.strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                timestamp_value = timestamp
+
+            synced_at = log.synced_at
+            if isinstance(synced_at, datetime):
+                synced_at_value = synced_at.strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                synced_at_value = synced_at
+
+            raw_data_json = json.dumps(log.raw_data) if log.raw_data else None
+
+            rows.append((
+                log.user_id,
+                log.device_id,
+                log.serial_number,
+                timestamp_value,
+                log.method,
+                log.action,
+                raw_data_json,
+                log.sync_status,
+                int(log.is_synced),
+                synced_at_value
+            ))
+
+        try:
+            conn.executemany(
+                """
+                INSERT OR IGNORE INTO attendance_logs (
+                    user_id, device_id, serial_number, timestamp, method, action,
+                    raw_data, sync_status, is_synced, synced_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                rows
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+        inserted_count = conn.total_changes - before_changes
+        skipped_count = len(logs) - inserted_count
+        return inserted_count, skipped_count
 
     def _row_to_log(self, row) -> AttendanceLog:
         """Convert database row to AttendanceLog object"""

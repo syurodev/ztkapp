@@ -18,6 +18,18 @@ from zkteco.services.live_capture_service import (
     stop_multi_device_capture,
 )
 
+
+class EndpointFilter(logging.Filter):
+    """Suppress noisy request logs for specific endpoints."""
+
+    def __init__(self, *paths):
+        super().__init__()
+        self.paths = paths
+
+    def filter(self, record):
+        message = record.getMessage()
+        return not any(path in message for path in self.paths)
+
 load_dotenv()
 
 def create_app():
@@ -39,6 +51,10 @@ def create_app():
     # Add the handler to the app's logger
     app.logger.addHandler(handler)
     app.logger.setLevel(logging.INFO)
+
+    # Remove health check noise from werkzeug request logs
+    werkzeug_logger = logging.getLogger('werkzeug')
+    werkzeug_logger.addFilter(EndpointFilter('/service/status'))
 
     # Register the blueprints
     app.register_blueprint(user_blueprint)

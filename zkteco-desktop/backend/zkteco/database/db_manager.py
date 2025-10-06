@@ -37,9 +37,15 @@ class DatabaseManager:
                 check_same_thread=False,
                 timeout=30.0
             )
-            # Enable foreign keys and row factory
-            self._local.connection.execute("PRAGMA foreign_keys = ON")
-            self._local.connection.row_factory = sqlite3.Row
+            # Enable performance-oriented pragmas. WAL improves concurrent access, while
+            # NORMAL synchronous/cache/temp settings trade a little durability for speed.
+            conn = self._local.connection
+            conn.execute("PRAGMA foreign_keys = ON")
+            conn.execute("PRAGMA journal_mode = WAL")
+            conn.execute("PRAGMA synchronous = NORMAL")
+            conn.execute("PRAGMA cache_size = 10000")
+            conn.execute("PRAGMA temp_store = MEMORY")
+            conn.row_factory = sqlite3.Row
         return self._local.connection
     
     @contextmanager

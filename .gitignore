@@ -63,3 +63,5 @@ target/
 config.json
 zkteco_config.json
 app.log.*
+zkteco-desktop/backend/zkteco/database/zkteco_app.db-shm
+zkteco-desktop/backend/zkteco/database/zkteco_app.db-wal

@@ -11,7 +11,7 @@ def strtobool(val):
 import os
 import time
 import requests
-from typing import Type
+from typing import List, Type
 
 from dotenv import load_dotenv
 from zk import ZK, const
@@ -207,7 +207,18 @@ class ZkService:
         zk_instance = None
         synced_count = 0
         duplicate_count = 0
-        
+        buffer: List[AttendanceLog] = []
+        BATCH_SIZE = 500
+
+        def flush_buffer():
+            nonlocal synced_count, duplicate_count, buffer
+            if not buffer:
+                return
+            inserted, skipped = attendance_repo.bulk_insert_ignore(buffer)
+            synced_count += inserted
+            duplicate_count += skipped
+            buffer.clear()
+
         try:
             if target_device_id:
                 zk_instance = connection_manager.ensure_device_connection(target_device_id)
@@ -251,20 +262,21 @@ class ZkService:
                         is_synced=False  # kept for backward compatibility
                     )
                     
-                    # Use safe create to avoid duplicates
-                    saved_log, is_new = attendance_repo.create_safe(attendance_log)
-                    
-                    if is_new:
-                        synced_count += 1
-                        app_logger.debug(f"Synced new attendance record: user {record.user_id} at {record.timestamp}")
-                    else:
-                        duplicate_count += 1
-                        app_logger.debug(f"Skipped duplicate attendance record: user {record.user_id} at {record.timestamp}")
-                        
+                    buffer.append(attendance_log)
+
+                    if len(buffer) >= BATCH_SIZE:
+                        flush_buffer()
+                        app_logger.debug(
+                            f"Buffered batch flushed for device {target_device_id}: {synced_count} total new, {duplicate_count} duplicates so far"
+                        )
+
                 except Exception as record_error:
                     app_logger.error(f"Error processing attendance record {record}: {record_error}")
                     continue
-            
+
+            # Flush any remaining buffered records
+            flush_buffer()
+
             app_logger.info(f"Smart sync completed: {synced_count} new records, {duplicate_count} duplicates skipped")
             
             # Return original records for backward compatibility, but add sync stats

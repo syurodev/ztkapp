@@ -1028,43 +1028,51 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(move |app_handle, event| {
-            if let tauri::RunEvent::Reopen { .. } = event {
-                let minimize_enabled = minimize_setting_for_run
-                    .lock()
-                    .map(|guard| *guard)
-                    .unwrap_or(false);
+            match event {
+                tauri::RunEvent::WindowEvent { label, event, .. } => {
+                    if label == "main" {
+                        if let tauri::WindowEvent::Focused(true) = event {
+                            let minimize_enabled = minimize_setting_for_run
+                                .lock()
+                                .map(|guard| *guard)
+                                .unwrap_or(false);
 
-                if let Some(window) = app_handle.get_webview_window("main") {
-                    if minimize_enabled {
-                        let _ = window.unminimize();
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                        append_app_log(
-                            "Application reactivated - showing main window",
-                        );
-                    }
-                }
-            } else if let tauri::RunEvent::ExitRequested { .. } = event {
-                append_app_log("Exit requested - terminating backend");
-                if let Ok(mut process_guard) = backend_process_for_run.lock() {
-                    if let Some(child) = process_guard.take() {
-                        if let Err(err) = child.kill() {
-                            eprintln!(
-                                "Failed to kill backend process on exit: {}",
-                                err
-                            );
-                            append_app_log(&format!(
-                                "Failed to kill backend process on exit: {}",
-                                err
-                            ));
-                        } else {
-                            println!("Backend process terminated on app exit");
-                            append_app_log(
-                                "Backend process terminated on app exit",
-                            );
+                            if minimize_enabled {
+                                if let Some(window) = app_handle.get_webview_window("main") {
+                                    let _ = window.unminimize();
+                                    let _ = window.show();
+                                    let _ = window.set_focus();
+                                    append_app_log(
+                                        "Application focused - restoring main window",
+                                    );
+                                }
+                            }
                         }
                     }
                 }
+                tauri::RunEvent::ExitRequested { .. } => {
+                    append_app_log("Exit requested - terminating backend");
+                    if let Ok(mut process_guard) = backend_process_for_run.lock() {
+                        if let Some(child) = process_guard.take() {
+                            if let Err(err) = child.kill() {
+                                eprintln!(
+                                    "Failed to kill backend process on exit: {}",
+                                    err
+                                );
+                                append_app_log(&format!(
+                                    "Failed to kill backend process on exit: {}",
+                                    err
+                                ));
+                            } else {
+                                println!("Backend process terminated on app exit");
+                                append_app_log(
+                                    "Backend process terminated on app exit",
+                                );
+                            }
+                        }
+                    }
+                }
+                _ => {}
             }
         });
 }

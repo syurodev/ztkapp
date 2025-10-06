@@ -440,6 +440,9 @@ class AttendanceSyncService:
             # Get user names mapping
             users = user_repo.get_all(device_id)
             user_name_map = {user.user_id: user.name for user in users}
+            user_external_id_map = {
+                user.user_id: getattr(user, 'external_user_id', None) for user in users
+            }
 
             # Calculate first checkin and last checkout for each user with IDs
             attendance_summary = []

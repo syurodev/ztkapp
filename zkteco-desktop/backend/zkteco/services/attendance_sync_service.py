@@ -182,7 +182,9 @@ class AttendanceSyncService:
 
             # Filter out summaries without a valid first checkin
             valid_summaries = [
-                summary for summary in attendance_summary if summary.get('first_checkin')
+                summary
+                for summary in attendance_summary
+                if summary.get('first_checkin') and (summary.get('external_user_id') or 0) > 0
             ]
 
             if not valid_summaries:
@@ -281,6 +283,9 @@ class AttendanceSyncService:
             # Get user names mapping
             users = user_repo.get_all(device_id)
             user_name_map = {user.user_id: user.name for user in users}
+            user_external_id_map = {
+                user.user_id: getattr(user, 'external_user_id', None) for user in users
+            }
 
             # Calculate first checkin and last checkout for each user
             attendance_summary = []
@@ -318,6 +323,7 @@ class AttendanceSyncService:
                     user_summary = {
                         'user_id': user_id,
                         'name': user_name_map.get(user_id, 'Unknown User'),
+                        'external_user_id': user_external_id_map.get(user_id),
                         'first_checkin': first_checkin,
                         'last_checkout': last_checkout,
                         'total_checkins': len(checkins),
@@ -475,6 +481,7 @@ class AttendanceSyncService:
                     user_summary = {
                         'user_id': user_id,
                         'name': user_name_map.get(user_id, 'Unknown User'),
+                        'external_user_id': user_external_id_map.get(user_id),
                         'first_checkin': first_checkin,
                         'first_checkin_id': first_checkin_id,
                         'last_checkout': last_checkout,
@@ -780,6 +787,22 @@ class AttendanceSyncService:
                     'sent_count': 0
                 }
 
+            filtered_summary = [
+                record for record in attendance_summary
+                if (record.get('external_user_id') or 0) > 0
+            ]
+
+            if not filtered_summary:
+                self.logger.info(
+                    "No attendance records have external_user_id, skipping external API call"
+                )
+                return {
+                    'success': True,
+                    'status_code': 204,
+                    'response_data': None,
+                    'sent_count': 0
+                }
+
             # Construct API URL
             external_api_url = external_api_domain + '/time-clock-employees/sync-checkin-data'
 
@@ -800,7 +823,7 @@ class AttendanceSyncService:
                 'date': str(sync_date),
                 'device_id': device_id,
                 'device_serial': serial_number,
-                'checkin_data_list': attendance_summary
+                'checkin_data_list': filtered_summary
             }
 
             # Get API key from config
@@ -833,7 +856,7 @@ class AttendanceSyncService:
             return {
                 'status_code': response.status_code,
                 'response_data': response_data,
-                'sent_count': len(attendance_summary),
+                'sent_count': len(filtered_summary),
                 'synced_ids': response_data.get('synced_ids') if response_data else None
             }
 

@@ -10,9 +10,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useDevice } from "@/contexts/DeviceContext";
-import { liveAPI, LiveAttendanceRecord } from "@/lib/api";
+import { attendanceAPI, liveAPI, LiveAttendanceRecord } from "@/lib/api";
 import { buildAvatarUrl, cn, getResourceDomain } from "@/lib/utils";
 import { ATTENDANCE_METHOD_MAP, PUNCH_ACTION_MAP } from "@/types/constant";
+import { format } from "date-fns";
 import {
   Activity,
   ArrowLeftFromLine,
@@ -52,6 +53,7 @@ export function LiveAttendance() {
     useState<string>("all");
   const [actionFilter, setActionFilter] = useState<"all" | 0 | 1>("all");
   const [resourceDomain, setResourceDomain] = useState<string>("");
+  const [_, setIsInitialLoading] = useState(false);
 
   // Load resource domain on mount
   useEffect(() => {
@@ -59,14 +61,85 @@ export function LiveAttendance() {
   }, []);
 
   useEffect(() => {
+    const mergeRecords = (
+      incoming: LiveAttendanceRecord[],
+      existing: LiveAttendanceRecord[]
+    ) => {
+      const combined = [...incoming, ...existing];
+      const seen = new Set<string>();
+      const unique: LiveAttendanceRecord[] = [];
+
+      for (const record of combined) {
+        const key = `${record.user_id}-${record.device_id}-${record.timestamp}-${record.action}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          unique.push(record);
+        }
+      }
+
+      return unique
+        .sort(
+          (a, b) =>
+            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+        )
+        .slice(0, MAX_RECORDS);
+    };
+
+    const mapToLiveRecord = (record: any): LiveAttendanceRecord => ({
+      id: record.id,
+      user_id: record.user_id,
+      name: record.name || "Unknown User",
+      avatar_url: record.avatar_url || null,
+      timestamp: record.timestamp,
+      method: record.method,
+      action: record.action,
+      device_id: record.device_id,
+      is_synced: record.is_synced ?? false,
+    });
+
     if (devices.length === 0) {
       setLiveAttendance([]);
       setIsConnected(false);
       return;
     }
 
+    let isMounted = true;
+
+    const loadInitialAttendance = async () => {
+      setIsInitialLoading(true);
+      try {
+        const dateStr = format(new Date(), "yyyy-MM-dd");
+        const response = await attendanceAPI.getAttendance({
+          limit: MAX_RECORDS,
+          device_id:
+            selectedDeviceFilter === "all" ? undefined : selectedDeviceFilter,
+          date: dateStr,
+        });
+
+        const initialRecords: LiveAttendanceRecord[] = Array.isArray(
+          response?.data
+        )
+          ? response.data
+              .map(mapToLiveRecord)
+              .filter((record: any) => !!record.timestamp)
+          : [];
+
+        if (!isMounted) return;
+
+        if (initialRecords.length > 0) {
+          setLiveAttendance((prev) => mergeRecords(initialRecords, prev));
+        }
+      } catch (error) {
+        console.error("Failed to load initial live attendance records:", error);
+      } finally {
+        if (isMounted) {
+          setIsInitialLoading(false);
+        }
+      }
+    };
+
     const handleMessage = (newRecord: LiveAttendanceRecord) => {
-      setLiveAttendance((prev) => [newRecord, ...prev].slice(0, MAX_RECORDS));
+      setLiveAttendance((prev) => mergeRecords([newRecord], prev));
     };
 
     const handleError = () => {
@@ -77,6 +150,8 @@ export function LiveAttendance() {
       setIsConnected(true);
     };
 
+    loadInitialAttendance();
+
     // Connect with device filter
     const cleanup = liveAPI.connect(
       handleMessage,
@@ -86,6 +161,7 @@ export function LiveAttendance() {
     );
 
     return () => {
+      isMounted = false;
       cleanup();
     };
   }, [devices, selectedDeviceFilter]);
@@ -353,9 +429,7 @@ export function LiveAttendance() {
             {/* Device Filter */}
             {devices.length > 1 && (
               <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">
-                  Device:
-                </span>
+                <span className="text-sm text-muted-foreground">Device:</span>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" size="sm">
@@ -442,7 +516,10 @@ export function LiveAttendance() {
                           )}
                         >
                           <AvatarImage
-                            src={buildAvatarUrl(record.avatar_url, resourceDomain)}
+                            src={buildAvatarUrl(
+                              record.avatar_url,
+                              resourceDomain
+                            )}
                             alt={record.name}
                           />
                           <AvatarFallback className="text-3xl font-bold">
@@ -538,7 +615,10 @@ export function LiveAttendance() {
                           )}
                         >
                           <AvatarImage
-                            src={buildAvatarUrl(record.avatar_url, resourceDomain)}
+                            src={buildAvatarUrl(
+                              record.avatar_url,
+                              resourceDomain
+                            )}
                             alt={record.name}
                           />
                           <AvatarFallback className="text-sm">

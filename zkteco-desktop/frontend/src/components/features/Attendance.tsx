@@ -51,11 +51,11 @@ import {
   RefreshCw,
   Send,
   SkipForward,
-  User,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "../ui/badge";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import { AttendanceHistoryView } from "./AttendanceHistoryView";
 
 interface AttendanceRecord {
@@ -65,6 +65,7 @@ interface AttendanceRecord {
   timestamp: string;
   method: number;
   action: number;
+  error_message: string | null;
   id: number;
   is_synced: boolean; // kept for backward compatibility
   sync_status?: string; // new field: 'pending', 'synced', 'skipped'
@@ -429,7 +430,7 @@ export function Attendance() {
                         />
                       </PopoverContent>
                     </Popover>
-                    <Button
+                    {/* <Button
                       variant="ghost"
                       size="sm"
                       onClick={() => {
@@ -438,8 +439,8 @@ export function Attendance() {
                       }}
                     >
                       Today
-                    </Button>
-                    <Button
+                    </Button> */}
+                    {/* <Button
                       variant="ghost"
                       size="sm"
                       onClick={() => {
@@ -448,7 +449,7 @@ export function Attendance() {
                       }}
                     >
                       All Dates
-                    </Button>
+                    </Button> */}
                     <Badge variant="secondary" className="ml-auto">
                       {totalCount.toLocaleString()} records
                     </Badge>
@@ -554,46 +555,64 @@ export function Attendance() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {paginatedAttendance.map((record, index) => (
-                            <TableRow key={record.id}>
-                              <TableCell>
-                                {(currentPage - 1) * PAGE_SIZE + index + 1}
-                              </TableCell>
-                              <TableCell>{record.user_id}</TableCell>
-                              <TableCell>
-                                <div className="flex items-center gap-2">
-                                  {record.avatar_url ? (
-                                    <Avatar className="h-6 w-6">
-                                      <AvatarImage
-                                        src={buildAvatarUrl(
-                                          record.avatar_url,
-                                          resourceDomain
-                                        )}
-                                        alt={record.name}
-                                      />
-                                      <AvatarFallback>
-                                        {record.name.charAt(0)}
+                          {paginatedAttendance.map((record, index) => {
+                            const initials = record.name
+                              .split(" ")
+                              .map((n) => n[0])
+                              .join("")
+                              .toUpperCase()
+                              .slice(0, 2);
+                            return (
+                              <TableRow key={record.id}>
+                                <TableCell>
+                                  {(currentPage - 1) * PAGE_SIZE + index + 1}
+                                </TableCell>
+                                <TableCell>{record.user_id}</TableCell>
+                                <TableCell>
+                                  <div className="flex items-center gap-2">
+                                    <Avatar className="h-8 w-8">
+                                      {record.avatar_url && (
+                                        <AvatarImage
+                                          src={buildAvatarUrl(
+                                            record.avatar_url,
+                                            resourceDomain
+                                          )}
+                                          alt={record.name}
+                                        />
+                                      )}
+                                      <AvatarFallback className="text-xs">
+                                        {initials}
                                       </AvatarFallback>
                                     </Avatar>
-                                  ) : (
-                                    <User className="h-5 w-5 text-muted-foreground" />
-                                  )}
-                                  {record.name}
-                                </div>
-                              </TableCell>
-                              <TableCell>{record.timestamp}</TableCell>
-                              <TableCell>
-                                {ATTENDANCE_METHOD_MAP[record.method] ||
-                                  "Unknown"}
-                              </TableCell>
-                              <TableCell>
-                                {PUNCH_ACTION_MAP[record.action] || "Unknown"}
-                              </TableCell>
-                              <TableCell>
-                                {getSyncStatusBadge(record)}
-                              </TableCell>
-                            </TableRow>
-                          ))}
+
+                                    {record.name}
+                                  </div>
+                                </TableCell>
+                                <TableCell>{record.timestamp}</TableCell>
+                                <TableCell>
+                                  {ATTENDANCE_METHOD_MAP[record.method] ||
+                                    "Unknown"}
+                                </TableCell>
+                                <TableCell>
+                                  {PUNCH_ACTION_MAP[record.action] || "Unknown"}
+                                </TableCell>
+                                <TableCell>
+                                  <Tooltip>
+                                    <TooltipTrigger>
+                                      {getSyncStatusBadge(record)}
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>
+                                        {record.error_message
+                                          ? record.error_message
+                                          : ""}
+                                      </p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
                         </TableBody>
                       </Table>
                       {totalPages > 1 && (

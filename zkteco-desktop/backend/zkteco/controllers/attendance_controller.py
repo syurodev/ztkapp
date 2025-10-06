@@ -15,7 +15,6 @@ def get_service():
 
 def _map_user_names_to_logs(logs):
     """Helper function to map user names to attendance logs."""
-    user_ids = {log.user_id for log in logs}
     users = user_repo.get_all()
     user_map = {user.user_id: user.name for user in users}
 
@@ -25,6 +24,34 @@ def _map_user_names_to_logs(logs):
         log_dict['name'] = user_map.get(log.user_id, 'Unknown User')
         logs_with_names.append(log_dict)
     return logs_with_names
+
+
+def _map_user_details_to_logs(logs):
+    """Helper function to map user names and avatars to attendance logs."""
+    users = user_repo.get_all()
+    user_map = {
+        user.user_id: {
+            'name': user.name,
+            'avatar_url': getattr(user, 'avatar_url', None)
+        }
+        for user in users
+    }
+
+    enriched_logs = []
+    for log in logs:
+        log_dict = log.to_dict()
+        user_info = user_map.get(log.user_id)
+
+        if user_info:
+            log_dict['name'] = user_info['name']
+            log_dict['avatar_url'] = user_info['avatar_url']
+        else:
+            log_dict['name'] = 'Unknown User'
+            log_dict['avatar_url'] = None
+
+        enriched_logs.append(log_dict)
+
+    return enriched_logs
 
 @bp.route('/attendance', methods=['GET'])
 def get_attendance():
@@ -59,7 +86,7 @@ def get_attendance():
         else:
             logs = attendance_repo.get_all(device_id, limit, offset, start_date, end_date)
 
-        data = _map_user_names_to_logs(logs)
+        data = _map_user_details_to_logs(logs)
 
         return jsonify({
             'success': True,
@@ -148,7 +175,7 @@ def get_attendance_logs():
         else:
             logs = attendance_repo.get_all(device_id, limit, offset)
 
-        data = _map_user_names_to_logs(logs)
+        data = _map_user_details_to_logs(logs)
 
         # Get total count for proper pagination
         if target_date:
@@ -429,8 +456,8 @@ def get_attendance_history():
         # Get filtered logs from repository
         filtered_logs = attendance_repo.get_smart_filtered_by_date(target_date, device_id)
 
-        # Map user names
-        data = _map_user_names_to_logs(filtered_logs)
+        # Map user names and avatars
+        data = _map_user_details_to_logs(filtered_logs)
 
         return jsonify({
             'success': True,

@@ -63,7 +63,9 @@ export function AttendanceHistoryView({
 
   // Apply action filter to data
   const filteredData =
-    actionFilter === "all" ? data : data.filter((r) => r.action === actionFilter);
+    actionFilter === "all"
+      ? data
+      : data.filter((r) => r.action === actionFilter);
 
   return (
     <div className="space-y-4">
@@ -88,7 +90,7 @@ export function AttendanceHistoryView({
             />
           </PopoverContent>
         </Popover>
-        <Button
+        {/* <Button
           variant="ghost"
           size="sm"
           onClick={() => {
@@ -97,8 +99,8 @@ export function AttendanceHistoryView({
           }}
         >
           Today
-        </Button>
-        <Button
+        </Button> */}
+        {/* <Button
           variant="ghost"
           size="sm"
           onClick={() => {
@@ -107,7 +109,7 @@ export function AttendanceHistoryView({
           }}
         >
           All Dates
-        </Button>
+        </Button> */}
         <Button
           variant="ghost"
           size="sm"

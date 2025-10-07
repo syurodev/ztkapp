@@ -1,8 +1,9 @@
 import sqlite3
 import os
 import threading
+import atexit
 from contextlib import contextmanager
-from typing import Optional, Any, Dict, List
+from typing import Optional, Any, Dict, List, Set
 from datetime import datetime
 
 class DatabaseManager:
@@ -27,25 +28,38 @@ class DatabaseManager:
 
         self.db_path = resolved_path
         self._local = threading.local()
+        self._connections: Set[sqlite3.Connection] = set()  # Track all connections for cleanup
+        self._lock = threading.Lock()
+
+        # Register cleanup on exit
+        atexit.register(self.close_all_connections)
+
         self.init_database()
     
     def get_connection(self) -> sqlite3.Connection:
         """Get thread-local database connection"""
-        if not hasattr(self._local, 'connection'):
-            self._local.connection = sqlite3.connect(
+        if not hasattr(self._local, 'connection') or self._local.connection is None:
+            conn = sqlite3.connect(
                 self.db_path,
                 check_same_thread=False,
                 timeout=30.0
             )
             # Enable performance-oriented pragmas. WAL improves concurrent access, while
             # NORMAL synchronous/cache/temp settings trade a little durability for speed.
-            conn = self._local.connection
             conn.execute("PRAGMA foreign_keys = ON")
             conn.execute("PRAGMA journal_mode = WAL")
             conn.execute("PRAGMA synchronous = NORMAL")
             conn.execute("PRAGMA cache_size = 10000")
             conn.execute("PRAGMA temp_store = MEMORY")
             conn.row_factory = sqlite3.Row
+
+            # Store connection in thread-local storage
+            self._local.connection = conn
+
+            # Track connection for cleanup
+            with self._lock:
+                self._connections.add(conn)
+
         return self._local.connection
     
     @contextmanager
@@ -302,9 +316,40 @@ class DatabaseManager:
     
     def close_connection(self):
         """Close thread-local connection"""
-        if hasattr(self._local, 'connection'):
-            self._local.connection.close()
-            del self._local.connection
+        if hasattr(self._local, 'connection') and self._local.connection is not None:
+            try:
+                conn = self._local.connection
+                conn.close()
+
+                # Remove from tracking set
+                with self._lock:
+                    self._connections.discard(conn)
+            except Exception as e:
+                print(f"Error closing thread-local connection: {e}")
+            finally:
+                self._local.connection = None
+
+    def close_all_connections(self):
+        """Close all tracked connections - called on shutdown"""
+        print("DatabaseManager: Closing all connections...")
+        closed_count = 0
+        error_count = 0
+
+        with self._lock:
+            # Create a list copy to avoid modification during iteration
+            connections_to_close = list(self._connections)
+            # Clear the set
+            self._connections.clear()
+
+        for conn in connections_to_close:
+            try:
+                conn.close()
+                closed_count += 1
+            except Exception as e:
+                error_count += 1
+                print(f"Error closing connection: {e}")
+
+        print(f"DatabaseManager: Closed {closed_count} connections, {error_count} errors")
 
 # Global database manager instance
 db_manager = DatabaseManager()

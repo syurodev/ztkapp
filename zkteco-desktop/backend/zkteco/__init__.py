@@ -62,6 +62,16 @@ def create_app():
     app.register_blueprint(attendance_blueprint)
     app.register_blueprint(event_blueprint)
 
+    # Register teardown handler to close database connections after each request
+    @app.teardown_appcontext
+    def teardown_db(exception=None):
+        """Close database connection at the end of each request"""
+        try:
+            from zkteco.database.db_manager import db_manager
+            db_manager.close_connection()
+        except Exception as e:
+            app.logger.debug(f"Error during database teardown: {e}")
+
     # Initialize and start the scheduler
     # When Flask reloader is disabled, WERKZEUG_RUN_MAIN is not set.
     # When reloader is enabled, only the reloader child (== "true") should start the scheduler.
@@ -81,8 +91,25 @@ def create_app():
 
             # Register cleanup function to stop services when app shuts down
             def cleanup_services():
-                scheduler_service.stop()
-                stop_multi_device_capture()
+                app.logger.info("Shutting down services...")
+                try:
+                    scheduler_service.stop()
+                except Exception as e:
+                    app.logger.error(f"Error stopping scheduler: {e}")
+
+                try:
+                    stop_multi_device_capture()
+                except Exception as e:
+                    app.logger.error(f"Error stopping live capture: {e}")
+
+                try:
+                    # Cleanup database connections
+                    from zkteco.database.db_manager import db_manager
+                    db_manager.close_all_connections()
+                except Exception as e:
+                    app.logger.error(f"Error closing database connections: {e}")
+
+                app.logger.info("Services shutdown completed")
 
             atexit.register(cleanup_services)
 

@@ -4,6 +4,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -39,6 +45,7 @@ export function DeviceManagement() {
     activeDeviceId,
     refreshDevices,
     isLoading: contextLoading,
+    getDeviceHealthStatus,
   } = useDevice();
 
   const [isLoading, setIsLoading] = useState(false);
@@ -173,6 +180,66 @@ export function DeviceManagement() {
     }
   };
 
+  const formatPingTime = (timestamp?: string) => {
+    if (!timestamp) return "";
+    try {
+      const date = new Date(timestamp);
+      return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
+    } catch (error) {
+      console.error("Failed to format timestamp:", error);
+      return timestamp;
+    }
+  };
+
+  const renderStatusCell = (device: Device) => {
+    const healthEvent = getDeviceHealthStatus(device.id);
+
+    if (healthEvent) {
+      const isSuccess = healthEvent.status === "success";
+      const Icon = isSuccess ? CheckCircle2 : AlertCircle;
+      const statusLabel = isSuccess ? "Online" : "Unreachable";
+
+      const tooltipContent = [
+        formatPingTime(healthEvent.timestamp),
+        healthEvent.message,
+        healthEvent.source && `Source: ${healthEvent.source.replace(/_/g, " ")}`,
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      return (
+        <TooltipProvider delayDuration={200}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex items-center gap-2 cursor-default">
+                <Icon className={`h-4 w-4 ${isSuccess ? "text-green-500" : "text-red-500"}`} />
+                <span>{statusLabel}</span>
+              </div>
+            </TooltipTrigger>
+            {tooltipContent && (
+              <TooltipContent className="whitespace-pre-line max-w-xs">
+                {tooltipContent}
+              </TooltipContent>
+            )}
+          </Tooltip>
+        </TooltipProvider>
+      );
+    }
+
+    const fallbackIcon = device.is_active ? (
+      <CheckCircle2 className="h-4 w-4 text-green-500" />
+    ) : (
+      <AlertCircle className="h-4 w-4 text-yellow-500" />
+    );
+
+    return (
+      <div className="flex items-center gap-2">
+        {fallbackIcon}
+        <span>{device.is_active ? "Awaiting ping" : "Inactive"}</span>
+      </div>
+    );
+  };
+
   return (
     <div className="container mx-auto p-4 space-y-6">
       <div className="flex justify-between items-center">
@@ -250,21 +317,12 @@ export function DeviceManagement() {
                       </div>
                     </TableCell>
                     <TableCell className="font-medium">
-                      {device.device_info.device_name}
+                      {device.device_info?.device_name || "Unknown"}
                     </TableCell>
                     <TableCell>
                       {device.ip}:{device.port}
                     </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        {device.is_active ? (
-                          <CheckCircle2 className="h-4 w-4 text-green-500" />
-                        ) : (
-                          <AlertCircle className="h-4 w-4 text-yellow-500" />
-                        )}
-                        {device.is_active ? "Connected" : "Inactive"}
-                      </div>
-                    </TableCell>
+                    <TableCell>{renderStatusCell(device)}</TableCell>
                     <TableCell>
                       {device.device_info?.serial_number || "Unknown"}
                     </TableCell>

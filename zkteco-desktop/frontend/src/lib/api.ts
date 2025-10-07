@@ -249,6 +249,16 @@ export const userAPI = {
       throw new Error("Failed to delete user");
     }
   },
+
+  // Sync single user
+  syncUser: async (userId: string) => {
+    try {
+      const response = await api.post(`/user/${userId}/sync`);
+      return response.data;
+    } catch (error) {
+      throw new Error("Failed to sync user");
+    }
+  },
 };
 
 // Fingerprint API
@@ -322,6 +332,23 @@ export const deviceAPI = {
 };
 
 // Multi-Device Management API
+export type DevicePingStatus = "success" | "failure";
+
+export interface DevicePingEvent {
+  type: "device_ping";
+  device_id: string;
+  status: DevicePingStatus;
+  message: string;
+  source: string;
+  timestamp: string;
+}
+
+interface DeviceEventHandlers {
+  onEvent: (event: DevicePingEvent) => void;
+  onError?: (event: Event) => void;
+  onOpen?: () => void;
+}
+
 export const devicesAPI = {
   // Get all devices
   getAllDevices: async () => {
@@ -470,6 +497,41 @@ export const devicesAPI = {
     } catch (error) {
       throw new Error(`Failed to get capture status for device ${deviceId}`);
     }
+  },
+
+  subscribeToEvents: ({ onEvent, onError, onOpen }: DeviceEventHandlers) => {
+    const eventSource = new EventSource(`${API_BASE_URL}/devices/events`);
+
+    if (onOpen) {
+      eventSource.addEventListener("ready", () => {
+        onOpen();
+      });
+    }
+
+    eventSource.onmessage = (event) => {
+      if (!event.data) {
+        return;
+      }
+
+      try {
+        const payload = JSON.parse(event.data) as DevicePingEvent;
+        if (payload?.type === "device_ping" && payload.device_id) {
+          onEvent(payload);
+        }
+      } catch (parseError) {
+        console.error("Failed to parse device event payload:", parseError);
+      }
+    };
+
+    eventSource.onerror = (event) => {
+      console.error("Device events SSE error:", event);
+      onError?.(event);
+      eventSource.close();
+    };
+
+    return () => {
+      eventSource.close();
+    };
   },
 };
 

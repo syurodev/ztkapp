@@ -1,10 +1,12 @@
 import threading
 import time
 import os
+from datetime import datetime
 from typing import Optional, Type
 from zk import ZK
 from zkteco.logger import app_logger
 from zkteco.zk_mock import ZKMock
+from zkteco.services.event_stream import device_event_stream
 
 
 def strtobool(val):
@@ -51,6 +53,25 @@ class ZkConnectionManager:
         self._retry_delay = 2  # seconds
 
         app_logger.info("ZkConnectionManager initialized")
+
+    @staticmethod
+    def _utc_timestamp() -> str:
+        """Return current UTC timestamp in ISO format with Z suffix."""
+        return datetime.utcnow().isoformat(timespec='seconds') + 'Z'
+
+    def _publish_device_ping_event(self, device_id: str, status: str, message: str, source: str) -> None:
+        """Emit ping result for SSE consumers without impacting ping flow."""
+        try:
+            device_event_stream.publish({
+                'type': 'device_ping',
+                'device_id': device_id,
+                'status': status,
+                'message': message,
+                'source': source,
+                'timestamp': self._utc_timestamp()
+            })
+        except Exception as publish_error:
+            app_logger.debug(f"Failed to publish ping event for device {device_id}: {publish_error}")
 
     @staticmethod
     def _normalize_timeout(timeout_value):
@@ -221,9 +242,21 @@ class ZkConnectionManager:
                     ping_result = connection.helper.test_ping()
                     app_logger.info(f"Ping test result for device {device_id}: {ping_result}")
                     if not ping_result:
+                        self._publish_device_ping_event(
+                            device_id,
+                            status='failure',
+                            message='Ping test failed during ensure_device_connection',
+                            source='ensure_device_connection'
+                        )
                         app_logger.warning(f"Ping test failed for device {device_id}, reconnecting")
                         self._establish_device_connection(device_id)
                     else:
+                        self._publish_device_ping_event(
+                            device_id,
+                            status='success',
+                            message='Ping test succeeded',
+                            source='ensure_device_connection'
+                        )
                         app_logger.info(f"Ping test passed for device {device_id} - connection is healthy")
                         # Ensure device is enabled before returning the connection
                         try:
@@ -238,8 +271,14 @@ class ZkConnectionManager:
                     self._establish_device_connection(device_id)
             except Exception as e:
                 app_logger.error(f"Connection check failed for device {device_id}, reconnecting: {e}")
+                self._publish_device_ping_event(
+                    device_id,
+                    status='failure',
+                    message=f'Ping check raised exception: {e}',
+                    source='ensure_device_connection'
+                )
                 self._establish_device_connection(device_id)
-                
+
             return self._connections[device_id]
     
     def ensure_connection(self) -> ZK:
@@ -347,16 +386,34 @@ class ZkConnectionManager:
             # Perform actual ping test
             ping_result = connection.helper.test_ping()
             app_logger.debug(f"Ping test result for device {device_id}: {ping_result}")
-            
+
             if ping_result:
                 self._last_ping_times[device_id] = current_time
                 app_logger.debug(f"Ping successful for device {device_id} - connection healthy")
+                self._publish_device_ping_event(
+                    device_id,
+                    status='success',
+                    message='Ping test succeeded',
+                    source='background_ping'
+                )
                 return True
             else:
                 app_logger.warning(f"Connection ping test failed for device {device_id} - device not responding")
+                self._publish_device_ping_event(
+                    device_id,
+                    status='failure',
+                    message='Ping test returned False',
+                    source='background_ping'
+                )
                 return False
         except Exception as e:
             app_logger.warning(f"Connection health check failed for device {device_id}: {e}")
+            self._publish_device_ping_event(
+                device_id,
+                status='failure',
+                message=f'Ping raised exception: {e}',
+                source='background_ping'
+            )
             return False
     
     def _is_connection_healthy(self) -> bool:

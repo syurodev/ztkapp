@@ -35,7 +35,7 @@ export function DeviceForm({
   const [formData, setFormData] = useState<DeviceFormData>({
     name: "",
     ip: "",
-    port: 0,
+    port: 4370,
     password: "",
     timeout: 180,
     retry_count: 3,
@@ -44,13 +44,16 @@ export function DeviceForm({
     force_udp: true,
   });
 
+  const [portInput, setPortInput] = useState<string>("");
+
   // Load initial data for edit mode
   useEffect(() => {
     if (initialData && mode === "edit") {
+      const portValue = initialData.port || 4370;
       setFormData({
         name: initialData.name || "",
         ip: initialData.ip || "",
-        port: initialData.port || 0,
+        port: portValue,
         password: initialData.password || "",
         timeout:
           typeof initialData.timeout === "number"
@@ -61,12 +64,13 @@ export function DeviceForm({
         ping_interval: initialData.ping_interval || 30,
         force_udp: initialData.force_udp || false,
       });
+      setPortInput(portValue.toString());
     } else if (mode === "add") {
       // Reset form for add mode
       setFormData({
         name: "",
         ip: "",
-        port: 0,
+        port: 4370,
         password: "",
         timeout: 180,
         retry_count: 3,
@@ -74,6 +78,7 @@ export function DeviceForm({
         ping_interval: 30,
         force_udp: false,
       });
+      setPortInput("");
     }
   }, [initialData, mode]);
 
@@ -84,8 +89,14 @@ export function DeviceForm({
       return;
     }
 
+    // Use default port if empty
+    const finalFormData = {
+      ...formData,
+      port: portInput === "" ? 4370 : formData.port,
+    };
+
     try {
-      await onSubmit(formData);
+      await onSubmit(finalFormData);
     } catch (error) {
       // Error handling is done in parent component
       console.error("Form submission error:", error);
@@ -131,13 +142,16 @@ export function DeviceForm({
           <Input
             id="port"
             type="number"
-            value={formData.port}
-            onChange={(e) =>
+            value={portInput}
+            onChange={(e) => {
+              const value = e.target.value;
+              setPortInput(value);
               setFormData({
                 ...formData,
-                port: parseInt(e.target.value, 10) || 0,
-              })
-            }
+                port: value === "" ? 4370 : parseInt(value, 10) || 4370,
+              });
+            }}
+            placeholder="4370"
             disabled={isLoading}
           />
         </div>

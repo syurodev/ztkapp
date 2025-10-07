@@ -1,8 +1,12 @@
-from flask import Blueprint, jsonify, request
+import queue
+import time
+from flask import Blueprint, jsonify, request, Response, stream_with_context
 from zkteco.services.zk_service import ZkService, get_zk_service
 from zk import ZK
 from flask import current_app
 from zkteco.config.config_manager_sqlite import config_manager
+from zkteco.services.connection_manager import connection_manager
+from zkteco.services.event_stream import device_event_stream
 
 # Try importing live capture service with error handling
 try:
@@ -61,6 +65,35 @@ def update_config():
 @bp.route('/config', methods=['GET'])
 def get_config():
     return jsonify(config_manager.get_config())
+
+
+@bp.route('/devices/events', methods=['GET'])
+def stream_device_events():
+    """Stream device ping events to the frontend via Server-Sent Events."""
+
+    def event_generator():
+        subscriber = device_event_stream.subscribe()
+        # Immediately send a ready event so clients know the stream is active
+        yield "event: ready\ndata: {}\n\n"
+
+        try:
+            while True:
+                try:
+                    payload = subscriber.get(timeout=25)
+                    yield f"data: {payload}\n\n"
+                except queue.Empty:
+                    # Heartbeat comment keeps connection alive when there is no data
+                    yield f": keep-alive {int(time.time())}\n\n"
+        except GeneratorExit:
+            # Client disconnected; fall through to finally for cleanup
+            pass
+        finally:
+            device_event_stream.unsubscribe(subscriber)
+
+    response = Response(stream_with_context(event_generator()), mimetype='text/event-stream')
+    response.headers['Cache-Control'] = 'no-cache'
+    response.headers['X-Accel-Buffering'] = 'no'
+    return response
 
 
 # Device Management Endpoints
@@ -362,22 +395,24 @@ def test_device_connection(device_id):
         if not device:
             return jsonify({"error": "Device not found"}), 404
 
-        from zk import ZK
-        test_zk = ZK(
-            ip=device.get('ip'),
-            port=int(device.get('port')),
-            timeout=int(device.get('timeout')),
-            password=int(device.get('password')),
-            force_udp=bool(device.get('force_udp')),
-            verbose=current_app.config.get('DEBUG', False)
-        )
+        device_config = {
+            'ip': device.get('ip'),
+            'port': int(device.get('port', 4370) or 4370),
+            'password': int(device.get('password', 0) or 0),
+            'timeout': int(device.get('timeout', 180) or 180),
+            'force_udp': bool(device.get('force_udp', False)),
+            'verbose': current_app.config.get('DEBUG', False),
+            'retry_count': int(device.get('retry_count', 3) or 3),
+            'retry_delay': int(device.get('retry_delay', 2) or 2),
+            'ping_interval': int(device.get('ping_interval', 10) or 10)
+        }
 
-        test_zk.connect()
+        connection_manager.configure_device(device_id, device_config)
 
-        if not test_zk.is_connect:
-            return jsonify({"success": False, "error": "Failed to connect to device"}), 400
-
-        test_zk.disconnect()
+        try:
+            connection_manager.ensure_device_connection(device_id)
+        finally:
+            connection_manager.disconnect_device(device_id)
 
         return jsonify({
             "success": True,
@@ -385,6 +420,7 @@ def test_device_connection(device_id):
         })
 
     except Exception as e:
+        connection_manager.reset_device_connection(device_id)
         return jsonify({
             "success": False,
             "error": f"Connection test failed: {str(e)}"

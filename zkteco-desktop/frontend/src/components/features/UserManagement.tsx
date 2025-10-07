@@ -31,6 +31,7 @@ import {
   UserCheck,
   Users,
   XCircle,
+  RefreshCcw,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -72,6 +73,7 @@ export function UserManagement() {
   // const [formData, setFormData] = useState<UserFormData>(initialFormData);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [syncingUsers, setSyncingUsers] = useState<Set<string>>(new Set());
 
   // Load users when activeDevice changes
   useEffect(() => {
@@ -201,6 +203,36 @@ export function UserManagement() {
       console.error("Error syncing employees:", err);
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  const handleSyncSingleUser = async (userId: string, userName: string) => {
+    if (!activeDevice) {
+      toast.error("Please select a device first");
+      return;
+    }
+
+    setSyncingUsers((prev) => new Set(prev).add(userId));
+    try {
+      const result = await userAPI.syncUser(userId);
+
+      if (result.success) {
+        toast.success(`Successfully synced ${userName} to external API`);
+        // Reload users to get updated sync status
+        await loadUsers();
+      } else {
+        toast.error(result.message || "Failed to sync user");
+      }
+    } catch (err: any) {
+      const errorMessage = err.message || "Failed to sync user";
+      toast.error(errorMessage);
+      console.error("Error syncing user:", err);
+    } finally {
+      setSyncingUsers((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(userId);
+        return newSet;
+      });
     }
   };
 
@@ -511,6 +543,7 @@ export function UserManagement() {
                   <TableHead>Sync Status</TableHead>
                   <TableHead>Synced At</TableHead>
                   <TableHead>Created At</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -549,6 +582,20 @@ export function UserManagement() {
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {formatDate(user.created_at)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleSyncSingleUser(user.id, user.name)}
+                          disabled={syncingUsers.has(user.id)}
+                          className="h-8 w-8 p-0"
+                          title="Sync this user to external API"
+                        >
+                          <RefreshCcw
+                            className={`h-4 w-4 ${syncingUsers.has(user.id) ? "animate-spin" : ""}`}
+                          />
+                        </Button>
                       </TableCell>
                     </TableRow>
                   );

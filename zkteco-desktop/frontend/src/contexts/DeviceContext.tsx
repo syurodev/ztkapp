@@ -2,6 +2,7 @@ import {
     CaptureStatusResponse,
     Device,
     DeviceCaptureStatus,
+    DevicePingEvent,
     devicesAPI,
     DevicesResponse,
     liveAPI,
@@ -20,6 +21,8 @@ interface DeviceContextValue {
     addDevice: (device: Device) => void;
     updateDevice: (deviceId: string, device: Device) => void;
     removeDevice: (deviceId: string) => void;
+    deviceHealth: Record<string, DevicePingEvent>;
+    getDeviceHealthStatus: (deviceId: string) => DevicePingEvent | null;
 
     // Multi-Device Live Capture Management
     captureStatus: CaptureStatusResponse | null;
@@ -43,6 +46,8 @@ export function DeviceProvider({ children }: DeviceProviderProps) {
     const [devices, setDevices] = useState<Device[]>([]);
     const [activeDeviceId, setActiveDeviceId] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
+    const [deviceHealth, setDeviceHealth] =
+        useState<Record<string, DevicePingEvent>>({});
 
     // Multi-Device Live Capture State
     const [captureStatus, setCaptureStatus] =
@@ -115,6 +120,10 @@ export function DeviceProvider({ children }: DeviceProviderProps) {
         if (activeDeviceId === deviceId) {
             setActiveDeviceId(null);
         }
+    };
+
+    const getDeviceHealthStatus = (deviceId: string): DevicePingEvent | null => {
+        return deviceHealth[deviceId] ?? null;
     };
 
     // Multi-Device Live Capture Functions
@@ -235,6 +244,62 @@ export function DeviceProvider({ children }: DeviceProviderProps) {
         return () => clearInterval(interval);
     }, []);
 
+    useEffect(() => {
+        let isUnmounted = false;
+        let cleanup: (() => void) | null = null;
+        let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+        let retryDelay = 2000;
+
+        const scheduleReconnect = () => {
+            if (isUnmounted) {
+                return;
+            }
+            if (reconnectTimer) {
+                clearTimeout(reconnectTimer);
+            }
+            reconnectTimer = setTimeout(() => {
+                connect();
+            }, retryDelay);
+            retryDelay = Math.min(retryDelay * 2, 30000);
+        };
+
+        const connect = () => {
+            if (isUnmounted) {
+                return;
+            }
+
+            cleanup?.();
+
+            cleanup = devicesAPI.subscribeToEvents({
+                onOpen: () => {
+                    retryDelay = 2000;
+                },
+                onEvent: (event) => {
+                    setDeviceHealth((prev) => ({
+                        ...prev,
+                        [event.device_id]: event,
+                    }));
+                    retryDelay = 2000;
+                },
+                onError: () => {
+                    cleanup?.();
+                    cleanup = null;
+                    scheduleReconnect();
+                },
+            });
+        };
+
+        connect();
+
+        return () => {
+            isUnmounted = true;
+            if (reconnectTimer) {
+                clearTimeout(reconnectTimer);
+            }
+            cleanup?.();
+        };
+    }, []);
+
     const value: DeviceContextValue = {
         devices,
         activeDevice,
@@ -246,6 +311,8 @@ export function DeviceProvider({ children }: DeviceProviderProps) {
         addDevice,
         updateDevice,
         removeDevice,
+        deviceHealth,
+        getDeviceHealthStatus,
 
         // Multi-Device Live Capture
         captureStatus,

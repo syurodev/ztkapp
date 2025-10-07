@@ -54,7 +54,7 @@ def create_app():
 
     # Remove health check noise from werkzeug request logs
     werkzeug_logger = logging.getLogger('werkzeug')
-    werkzeug_logger.addFilter(EndpointFilter('/service/status'))
+    werkzeug_logger.addFilter(EndpointFilter('/service/status', '/devices/events'))
 
     # Register the blueprints
     app.register_blueprint(user_blueprint)

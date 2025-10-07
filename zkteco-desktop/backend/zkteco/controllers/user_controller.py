@@ -330,7 +330,7 @@ def get_fingerprint(user_id, temp_id):
     error = validate_data(data, get_fingerprint_schema.schema)
     if error:
         return jsonify({"error": error}), 400
-    
+
     try:
         current_app.logger.info(f"Getting fingerprint for user with ID: {user_id} and finger index: {temp_id}")
         template = get_service().get_user_template(data["user_id"], data["temp_id"])
@@ -344,3 +344,127 @@ def get_fingerprint(user_id, temp_id):
         error_message = f"Error retrieving fingerprint: {str(e)}"
         current_app.logger.error(error_message)
         return jsonify({"message": error_message}), 500
+
+@bp.route('/user/<user_id>/sync', methods=['POST'])
+def sync_single_user(user_id):
+    """Sync a single user to external API"""
+    try:
+        current_app.logger.info(f"Syncing single user with ID: {user_id}")
+
+        # Get active device
+        active_device = config_manager.get_active_device()
+        if not active_device:
+            return jsonify({
+                "success": False,
+                "message": "No active device found"
+            }), 400
+
+        device_id = active_device['id']
+
+        # Get user from database
+        db_user = user_repo.get_by_user_id(user_id, device_id)
+        if not db_user:
+            return jsonify({
+                "success": False,
+                "message": f"User {user_id} not found in database"
+            }), 404
+
+        # Get external API configuration
+        external_api_domain = config_manager.get_external_api_url()
+        if not external_api_domain:
+            return jsonify({
+                "success": False,
+                "message": "API_GATEWAY_DOMAIN not configured"
+            }), 400
+
+        api_key = config_manager.get_external_api_key()
+        if not api_key:
+            return jsonify({
+                "success": False,
+                "message": "EXTERNAL_API_KEY not configured"
+            }), 400
+
+        # Prepare employee data
+        employee = {
+            "userId": db_user.user_id,
+            "name": db_user.name,
+            "groupId": db_user.group_id
+        }
+
+        # Get device serial number
+        device_info = active_device.get('device_info', {})
+        serial_number = device_info.get('serial_number', device_id or 'unknown')
+
+        # Prepare sync data
+        sync_data = {
+            "timestamp": int(time.time()),
+            "employees": [employee]
+        }
+
+        # Prepare headers
+        headers = {
+            'Content-Type': 'application/json',
+            'x-api-key': api_key,
+            'x-device-sync': serial_number,
+            'ProjectId': "1055"
+        }
+
+        # Make API request
+        external_api_url = external_api_domain + '/time-clock-employees/sync'
+        response = requests.post(
+            external_api_url,
+            json=sync_data,
+            headers=headers,
+            timeout=30
+        )
+
+        data = response.json()
+
+        if data.get('status') != 200:
+            return jsonify({
+                'success': False,
+                'message': data.get('message', 'Sync failed')
+            }), 400
+
+        response.raise_for_status()
+
+        # Fetch employee details
+        employee_details = get_service()._fetch_employee_details([db_user.user_id], external_api_domain)
+
+        # Update user with sync status
+        updates = {
+            'is_synced': True,
+            'synced_at': datetime.now()
+        }
+
+        # Add employee details if available
+        if employee_details and db_user.user_id in employee_details:
+            details = employee_details[db_user.user_id]
+            updates['external_user_id'] = details.get('employee_id')
+            updates['avatar_url'] = details.get('employee_avatar')
+
+        user_repo.update(db_user.id, updates)
+
+        current_app.logger.info(f"Successfully synced user {user_id} to external API")
+
+        return jsonify({
+            'success': True,
+            'message': f'User {db_user.name} synced successfully',
+            'user_id': user_id,
+            'employee_details': employee_details.get(db_user.user_id) if employee_details else None
+        })
+
+    except requests.exceptions.RequestException as e:
+        error_message = f"HTTP error syncing user: {str(e)}"
+        current_app.logger.error(error_message)
+        return jsonify({
+            "success": False,
+            "message": error_message
+        }), 500
+    except Exception as e:
+        error_message = f"Error syncing user: {str(e)}"
+        current_app.logger.error(error_message)
+        return jsonify({
+            "success": False,
+            "message": error_message
+        }), 500

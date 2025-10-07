@@ -57,23 +57,45 @@ def sync_users_from_device(device_id=None):
             return True, 0, None
         
         synced_count = 0
-        
+        updated_count = 0
+
         for device_user in device_users:
             try:
-                # Check if user already exists in database
-                existing_user = user_repo.get_by_user_id(str(device_user.user_id), target_device_id)
-                
-                if existing_user:
-                    current_app.logger.debug(f"User {device_user.user_id} already exists, skipping...")
-                    continue
-                
                 # Get device serial_number for tracking
                 device_serial = active_device.get('serial_number')
                 if not device_serial:
                     # Fallback to device_info if serial_number column is empty
                     device_info = active_device.get('device_info', {})
                     device_serial = device_info.get('serial_number') if device_info else None
-                
+
+                # Check if user already exists in database
+                existing_user = user_repo.get_by_user_id(str(device_user.user_id), target_device_id)
+
+                if existing_user:
+                    # Update existing user with latest info from device
+                    updates = {
+                        'name': device_user.name or existing_user.name,
+                        'privilege': getattr(device_user, 'privilege', existing_user.privilege),
+                        'group_id': getattr(device_user, 'group_id', existing_user.group_id),
+                        'card': getattr(device_user, 'card', existing_user.card),
+                        'password': getattr(device_user, 'password', existing_user.password),
+                        'serial_number': device_serial
+                    }
+
+                    # Check if any field changed
+                    has_changes = any(
+                        getattr(existing_user, key) != value
+                        for key, value in updates.items()
+                    )
+
+                    if has_changes:
+                        user_repo.update(existing_user.id, updates)
+                        updated_count += 1
+                        current_app.logger.info(f"Updated user {device_user.user_id}: {device_user.name}")
+                    else:
+                        current_app.logger.debug(f"User {device_user.user_id} already up-to-date, skipping...")
+                    continue
+
                 # Create new user in database
                 user = User(
                     user_id=str(device_user.user_id),
@@ -84,19 +106,19 @@ def sync_users_from_device(device_id=None):
                     group_id=getattr(device_user, 'group_id', 0),
                     card=getattr(device_user, 'card', 0),
                     password=getattr(device_user, 'password', ''),
-                    is_synced=True  # Mark as synced since we got it from device
+                    is_synced=False  # Not synced to external API yet
                 )
-                
+
                 created_user = user_repo.create(user)
                 if created_user:
                     synced_count += 1
-                    current_app.logger.info(f"Synced user {device_user.user_id}: {device_user.name}")
-                
+                    current_app.logger.info(f"Created user {device_user.user_id}: {device_user.name}")
+
             except Exception as user_error:
                 current_app.logger.error(f"Error syncing user {device_user.user_id}: {user_error}")
                 continue
         
-        current_app.logger.info(f"Sync completed: {synced_count} users synced from device")
+        current_app.logger.info(f"Sync completed: {synced_count} new users created, {updated_count} users updated")
         return True, synced_count, None
         
     except Exception as e:
@@ -411,6 +433,10 @@ def sync_single_user(user_id):
 
         # Make API request
         external_api_url = external_api_domain + '/time-clock-employees/sync'
+        current_app.logger.info(f"Sending sync request to: {external_api_url}")
+        current_app.logger.info(f"Sync data: {sync_data}")
+        current_app.logger.info(f"Headers: {dict(headers)}")
+
         response = requests.post(
             external_api_url,
             json=sync_data,
@@ -418,9 +444,13 @@ def sync_single_user(user_id):
             timeout=30
         )
 
+        current_app.logger.info(f"Response status code: {response.status_code}")
+        current_app.logger.info(f"Response text: {response.text}")
+
         data = response.json()
 
         if data.get('status') != 200:
+            current_app.logger.error(f"API returned non-200 status: {data.get('status')}, message: {data.get('message')}")
             return jsonify({
                 'success': False,
                 'message': data.get('message', 'Sync failed')

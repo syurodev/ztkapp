@@ -116,7 +116,7 @@ export function AppLayout({ children }: AppLayoutProps) {
               {getStatusIcon()}
               {sidebarOpen && (
                 <div>
-                  <h1 className="text-lg font-semibold">ZKTeco Manager</h1>
+                  <h1 className="text-lg font-semibold">HAO HOA Time Clock</h1>
                   <div className="text-xs text-muted-foreground flex items-center gap-1">
                     <div
                       className={cn("w-2 h-2 rounded-full", getStatusColor())}

@@ -204,13 +204,13 @@ class UserRepository:
         """Create new user"""
         query = '''
             INSERT INTO users (
-                user_id, name, device_id, serial_number, privilege, group_id, card, password
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                user_id, name, device_id, serial_number, privilege, group_id, card, password, is_synced
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         '''
 
         cursor = db_manager.execute_query(query, (
             user.user_id, user.name, user.device_id, user.serial_number, user.privilege,
-            user.group_id, user.card, user.password
+            user.group_id, user.card, user.password, user.is_synced
         ))
 
         # Get the created user with auto-generated ID

@@ -255,8 +255,12 @@ export const userAPI = {
     try {
       const response = await api.post(`/user/${userId}/sync`);
       return response.data;
-    } catch (error) {
-      throw new Error("Failed to sync user");
+    } catch (error: any) {
+      // Preserve the error message from the API response
+      const message = error.response?.data?.message || error.message || "Failed to sync user";
+      const newError = new Error(message);
+      (newError as any).response = error.response;
+      throw newError;
     }
   },
 };

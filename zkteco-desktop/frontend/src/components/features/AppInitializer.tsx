@@ -81,7 +81,7 @@ export function AppInitializer({ children }: AppInitializerProps) {
             <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
               <Loader2 className="h-6 w-6 text-primary animate-spin" />
             </div>
-            <CardTitle>Initializing ZKTeco Manager</CardTitle>
+            <CardTitle>Initializing HAO HOA Time Clock</CardTitle>
             <CardDescription>
               Setting up the application and starting services...
             </CardDescription>
@@ -123,7 +123,7 @@ export function AppInitializer({ children }: AppInitializerProps) {
               Initialization Failed
             </CardTitle>
             <CardDescription>
-              Unable to start the ZKTeco Manager application
+              Unable to start the HAO HOA Time Clock application
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">

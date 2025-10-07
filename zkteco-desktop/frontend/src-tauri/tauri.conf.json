@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "frontend",
+  "productName": "HAO HOA Time Clock",
   "version": "0.1.0",
-  "identifier": "com.techres.frontend",
+  "identifier": "com.haohoa.timeclock",
   "build": {
     "beforeDevCommand": "bun run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "ZKTeco Desktop",
+        "title": "HAO HOA Time Clock",
         "width": 800,
         "height": 600,
         "closable": true

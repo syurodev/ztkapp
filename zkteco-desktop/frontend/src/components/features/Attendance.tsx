@@ -86,7 +86,7 @@ const getSyncStatusBadge = (record: AttendanceRecord) => {
           className="bg-green-100 text-green-800 border-green-300"
         >
           <CheckCircle2 className="h-3 w-3 mr-1" />
-          Synced
+          Đã đồng bộ
         </Badge>
       );
     case "skipped":
@@ -96,14 +96,14 @@ const getSyncStatusBadge = (record: AttendanceRecord) => {
           className="bg-gray-100 text-gray-800 border-gray-300"
         >
           <SkipForward className="h-3 w-3 mr-1" />
-          Skipped
+          Đã bỏ qua
         </Badge>
       );
     case "error":
       return (
         <Badge variant="destructive">
           <CloudAlert className="h-3 w-3 mr-1" />
-          Error
+          Lỗi
         </Badge>
       );
     case "pending":
@@ -114,7 +114,7 @@ const getSyncStatusBadge = (record: AttendanceRecord) => {
           className="bg-yellow-100 text-yellow-800 border-yellow-300"
         >
           <Clock className="h-3 w-3 mr-1" />
-          Pending
+          Đang chờ
         </Badge>
       );
   }
@@ -191,10 +191,10 @@ export function Attendance() {
       setTotalCount(response.pagination?.total_count || 0);
       setCurrentPage(page);
     } catch (err) {
-      setError("Failed to load attendance records from the database.");
+      setError("Không thể tải dữ liệu chấm công từ cơ sở dữ liệu.");
       console.error("Error loading attendance:", err);
-      toast.error("Error", {
-        description: "Could not fetch attendance logs from the local database.",
+      toast.error("Lỗi", {
+        description: "Không thể lấy dữ liệu chấm công từ cơ sở dữ liệu cục bộ.",
       });
     } finally {
       setIsLoading(false);
@@ -219,11 +219,11 @@ export function Attendance() {
       if (response.success) {
         setHistoryData(response.data);
       } else {
-        setError("Failed to load attendance history");
+        setError("Không thể tải lịch sử chấm công");
       }
     } catch (err) {
       console.error("Error fetching attendance history:", err);
-      setError("Failed to load attendance history");
+      setError("Không thể tải lịch sử chấm công");
     } finally {
       setIsHistoryLoading(false);
     }
@@ -234,21 +234,21 @@ export function Attendance() {
 
     setIsSyncing(true);
     setError(null);
-    toast.info("Syncing...", {
+    toast.info("Đang đồng bộ...", {
       description:
-        "Fetching attendance logs from the device. This may take a moment.",
+        "Đang lấy dữ liệu chấm công từ thiết bị. Vui lòng chờ trong giây lát.",
     });
     try {
       const response = await attendanceAPI.syncAttendance();
-      toast.success("Sync Complete", {
-        description: `Synced ${response.sync_stats?.new || 0} new records.`,
+      toast.success("Đồng bộ hoàn tất", {
+        description: `Đã đồng bộ thêm ${response.sync_stats?.new || 0} bản ghi mới.`,
       });
       await loadAttendance(); // Refresh data from DB after sync
     } catch (err) {
-      setError("Failed to sync attendance records from the device.");
+      setError("Không thể đồng bộ dữ liệu chấm công từ thiết bị.");
       console.error("Error syncing attendance:", err);
-      toast.error("Sync Failed", {
-        description: "Could not fetch attendance logs from the device.",
+      toast.error("Đồng bộ thất bại", {
+        description: "Không thể lấy dữ liệu chấm công từ thiết bị.",
       });
     } finally {
       setIsSyncing(false);
@@ -268,15 +268,15 @@ export function Attendance() {
     const pageNumber = parseInt(pageInputValue.trim());
 
     if (isNaN(pageNumber) || pageNumber < 1) {
-      toast.error("Error", {
-        description: "Please enter a valid page number.",
+      toast.error("Lỗi", {
+        description: "Vui lòng nhập số trang hợp lệ.",
       });
       return;
     }
 
     if (pageNumber > totalPages) {
-      toast.error("Error", {
-        description: `Page must be between 1 and ${totalPages.toLocaleString()}.`,
+      toast.error("Lỗi", {
+        description: `Trang phải nằm trong khoảng từ 1 đến ${totalPages.toLocaleString()}.`,
       });
       return;
     }
@@ -299,10 +299,10 @@ export function Attendance() {
 
     const targetDateLabel = selectedDate
       ? format(selectedDate, "yyyy-MM-dd")
-      : "all pending dates";
+      : "tất cả ngày đang chờ";
 
-    toast.info("Syncing...", {
-      description: `Sending attendance data for ${targetDateLabel}.`,
+    toast.info("Đang đồng bộ...", {
+      description: `Đang gửi dữ liệu chấm công cho ${targetDateLabel}.`,
     });
 
     try {
@@ -315,23 +315,23 @@ export function Attendance() {
       });
 
       if (response.success) {
-        toast.success("Sync Successful!", {
+        toast.success("Đồng bộ thành công!", {
           description: response.message
             ? response.message
-            : `Sent attendance data for ${targetDateLabel}.`,
+            : `Đã gửi dữ liệu chấm công cho ${targetDateLabel}.`,
         });
         await loadAttendance();
       } else {
-        toast.error("Sync Failed", {
-          description: response.error || "Failed to send attendance data.",
+        toast.error("Đồng bộ thất bại", {
+          description: response.error || "Không thể gửi dữ liệu chấm công.",
         });
       }
     } catch (err) {
-      setError("Failed to sync daily attendance data.");
+      setError("Không thể đồng bộ dữ liệu chấm công trong ngày.");
       console.error("Error syncing daily attendance:", err);
-      toast.error("Sync Error", {
+      toast.error("Lỗi đồng bộ", {
         description:
-          "Could not send today's attendance data. Please try again.",
+          "Không thể gửi dữ liệu chấm công cho ngày hôm nay. Vui lòng thử lại.",
       });
     } finally {
       setIsDailySyncing(false);
@@ -342,7 +342,7 @@ export function Attendance() {
   const paginatedAttendance = attendance; // No client-side slicing needed as API handles pagination
   const dialogTargetLabel = selectedDate
     ? format(selectedDate, "PPP")
-    : "all pending dates";
+    : "tất cả ngày đang chờ";
 
   return (
     <div className="space-y-6">
@@ -350,8 +350,7 @@ export function Attendance() {
         <Alert>
           <Monitor className="h-4 w-4" />
           <AlertDescription>
-            Please select a device first to view attendance records. Go to
-            Device Management to configure a device.
+            Vui lòng chọn thiết bị để xem dữ liệu chấm công. Truy cập mục Quản lý thiết bị để cấu hình thiết bị.
           </AlertDescription>
         </Alert>
       )}
@@ -361,7 +360,7 @@ export function Attendance() {
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2">
               <Clock className="h-6 w-6" />
-              Attendance Log
+              Nhật ký chấm công
             </CardTitle>
             <div className="flex gap-2">
               <Button
@@ -371,7 +370,7 @@ export function Attendance() {
                 disabled={!activeDevice && viewMode === "history"} // Không cho phép chuyển sang lịch sử nếu không có thiết bị
               >
                 <List className="h-4 w-4 mr-2" />
-                Table
+                Bảng
               </Button>
               <Button
                 variant={viewMode === "history" ? "default" : "outline"}
@@ -380,7 +379,7 @@ export function Attendance() {
                 disabled={!activeDevice && viewMode === "table"} // Không cho phép chuyển sang bảng nếu không có thiết bị
               >
                 <History className="h-4 w-4 mr-2" />
-                History
+                Lịch sử
               </Button>
             </div>
           </div>
@@ -415,7 +414,7 @@ export function Attendance() {
                           <CalendarIcon className="h-4 w-4" />
                           {selectedDate
                             ? format(selectedDate, "PPP")
-                            : "All Dates"}
+                            : "Tất cả ngày"}
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent className="w-auto p-0" align="start">
@@ -451,7 +450,7 @@ export function Attendance() {
                       All Dates
                     </Button> */}
                     <Badge variant="secondary" className="ml-auto">
-                      {totalCount.toLocaleString()} records
+                      {totalCount.toLocaleString()} bản ghi
                     </Badge>
                   </div>
 
@@ -460,22 +459,25 @@ export function Attendance() {
                     <p className="text-sm text-muted-foreground">
                       {selectedDate
                         ? format(selectedDate, "MMMM d, yyyy")
-                        : "All Dates"}
+                        : "Tất cả ngày"}
                     </p>
                     <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleSync}
-                        disabled={isSyncing || isLoading || isDailySyncing}
-                      >
-                        {isSyncing ? (
-                          <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                          <Download className="mr-2 h-4 w-4" />
-                        )}
-                        Get logs from {activeDevice.name}
-                      </Button>
+                      {/* Only show sync button for pull devices, push devices send data automatically */}
+                      {activeDevice.device_type === 'pull' && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleSync}
+                          disabled={isSyncing || isLoading || isDailySyncing}
+                        >
+                          {isSyncing ? (
+                            <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                          ) : (
+                            <Download className="mr-2 h-4 w-4" />
+                          )}
+                          Lấy dữ liệu từ {activeDevice.name}
+                        </Button>
+                      )}
                       <Button
                         variant="outline"
                         size="sm"
@@ -490,7 +492,7 @@ export function Attendance() {
                         ) : (
                           <Send className="mr-2 h-4 w-4" />
                         )}
-                        Sync Daily Attendance
+                        Đồng bộ chấm công trong ngày
                       </Button>
                       <Button
                         variant="outline"
@@ -508,7 +510,7 @@ export function Attendance() {
                         ) : (
                           <RefreshCw className="mr-2 h-4 w-4" />
                         )}
-                        Refresh
+                        Làm mới
                       </Button>
                     </div>
                   </div>
@@ -518,7 +520,7 @@ export function Attendance() {
                     <div className="flex flex-col items-center justify-center py-8">
                       <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mb-4" />
                       <p className="text-muted-foreground">
-                        Loading attendance...
+                        Đang tải dữ liệu chấm công...
                       </p>
                     </div>
                   ) : error ? (
@@ -529,15 +531,14 @@ export function Attendance() {
                   ) : attendance.length === 0 ? (
                     <div className="text-center py-8">
                       <p className="text-muted-foreground">
-                        No attendance records found for{" "}
+                        Không tìm thấy dữ liệu chấm công cho{" "}
                         {selectedDate
                           ? format(selectedDate, "PPP")
-                          : "all dates"}
+                          : "tất cả ngày"}
                         .
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        Try syncing with the device to fetch logs or select
-                        another date.
+                        Hãy đồng bộ với thiết bị để lấy dữ liệu hoặc chọn ngày khác.
                       </p>
                     </div>
                   ) : (
@@ -546,12 +547,12 @@ export function Attendance() {
                         <TableHeader>
                           <TableRow>
                             <TableHead>#</TableHead>
-                            <TableHead>User ID</TableHead>
-                            <TableHead>Name</TableHead>
-                            <TableHead>Timestamp</TableHead>
-                            <TableHead>Method</TableHead>
-                            <TableHead>Action</TableHead>
-                            <TableHead>Sync Status</TableHead>
+                            <TableHead>ID người dùng</TableHead>
+                            <TableHead>Họ tên</TableHead>
+                            <TableHead>Thời điểm</TableHead>
+                            <TableHead>Phương thức</TableHead>
+                            <TableHead>Hành động</TableHead>
+                            <TableHead>Trạng thái đồng bộ</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -591,10 +592,10 @@ export function Attendance() {
                                 <TableCell>{record.timestamp}</TableCell>
                                 <TableCell>
                                   {ATTENDANCE_METHOD_MAP[record.method] ||
-                                    "Unknown"}
+                                    "Không xác định"}
                                 </TableCell>
                                 <TableCell>
-                                  {PUNCH_ACTION_MAP[record.action] || "Unknown"}
+                                  {PUNCH_ACTION_MAP[record.action] || "Không xác định"}
                                 </TableCell>
                                 <TableCell>
                                   <Tooltip>
@@ -639,7 +640,7 @@ export function Attendance() {
                               </PaginationItem>
                               <PaginationItem>
                                 <div className="flex items-center gap-2 text-sm">
-                                  <span>Go to page:</span>
+                                  <span>Đi tới trang:</span>
                                   <Input
                                     type="text"
                                     value={pageInputValue}
@@ -657,7 +658,7 @@ export function Attendance() {
                                     placeholder={currentPage.toString()}
                                     className="w-20 h-8 text-center"
                                     disabled={isPageLoading || isLoading}
-                                    title={`Enter page (1-${totalPages.toLocaleString()})`}
+                                    title={`Nhập số trang (1-${totalPages.toLocaleString()})`}
                                   />
                                   <Button
                                     variant="outline"
@@ -670,7 +671,7 @@ export function Attendance() {
                                     }
                                     className="h-8 px-3"
                                   >
-                                    Go
+                                    Đi
                                   </Button>
                                 </div>
                               </PaginationItem>
@@ -679,7 +680,7 @@ export function Attendance() {
                                   {isPageLoading && (
                                     <RefreshCw className="h-3 w-3 animate-spin" />
                                   )}
-                                  Page {currentPage} / {totalPages}
+                                  Trang {currentPage} / {totalPages}
                                 </span>
                               </PaginationItem>
                               <PaginationItem>
@@ -712,9 +713,9 @@ export function Attendance() {
                 <div className="flex items-center justify-center py-8">
                   <div className="text-center">
                     <Monitor className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                    <p className="text-muted-foreground">No device selected</p>
+                    <p className="text-muted-foreground">Chưa chọn thiết bị</p>
                     <p className="text-sm text-muted-foreground">
-                      Select a device to view attendance records
+                      Chọn thiết bị để xem dữ liệu chấm công
                     </p>
                   </div>
                 </div>
@@ -729,33 +730,31 @@ export function Attendance() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              Confirm Daily Attendance Sync
+              Xác nhận đồng bộ chấm công trong ngày
             </DialogTitle>
             <DialogDescription className="space-y-2">
               <p>
-                Are you sure you want to send attendance data for{" "}
+                Bạn có chắc chắn muốn gửi dữ liệu chấm công cho{" "}
                 {dialogTargetLabel}?
               </p>
               <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3">
                 <div className="flex items-start gap-2">
                   <AlertCircle className="h-4 w-4 text-yellow-600 mt-0.5 flex-shrink-0" />
                   <div className="text-sm text-yellow-800">
-                    <p className="font-medium">Important Notice:</p>
+                    <p className="font-medium">Lưu ý quan trọng:</p>
                     <p>
-                      After syncing, attendance data will be finalized (if any)
-                      using the following logic:
+                      Sau khi đồng bộ, dữ liệu chấm công (nếu có) sẽ được chốt theo logic sau:
                     </p>
                     <ul className="mt-1 list-disc list-inside ml-2 space-y-1">
                       <li>
-                        <strong>First checkin:</strong> First entry of the day
+                        <strong>Check-in đầu tiên:</strong> Lần vào ca đầu tiên trong ngày
                       </li>
                       <li>
-                        <strong>Last checkout:</strong> Last exit of the day
+                        <strong>Check-out cuối cùng:</strong> Lần ra ca cuối cùng trong ngày
                       </li>
                     </ul>
                     <p className="mt-2">
-                      Data will be sent to the external system and cannot be
-                      undone.
+                      Dữ liệu sẽ được gửi lên hệ thống ngoài và không thể hoàn tác.
                     </p>
                   </div>
                 </div>
@@ -768,7 +767,7 @@ export function Attendance() {
               onClick={() => setShowDailySyncDialog(false)}
               disabled={isDailySyncing}
             >
-              Cancel
+              Hủy
             </Button>
             <Button
               onClick={handleDailySyncConfirm}
@@ -778,12 +777,12 @@ export function Attendance() {
               {isDailySyncing ? (
                 <>
                   <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                  Sending...
+                  Đang gửi...
                 </>
               ) : (
                 <>
                   <Send className="mr-2 h-4 w-4" />
-                  Confirm Send
+                  Xác nhận gửi
                 </>
               )}
             </Button>

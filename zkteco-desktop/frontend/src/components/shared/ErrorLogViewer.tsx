@@ -54,7 +54,7 @@ export function ErrorLogViewer({
   const defaultTrigger = (
     <Button variant="outline" size="sm">
       <FileText className="h-4 w-4 mr-2" />
-      View Logs
+      Xem log
       {errorLogs.length > 0 && (
         <Badge variant="destructive" className="ml-2">
           {errorLogs.length}
@@ -72,20 +72,20 @@ export function ErrorLogViewer({
         <DialogHeader className="flex flex-row items-center justify-between">
           <DialogTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5" />
-            Backend Logs
+            Log backend
             {errorLogs.length > 0 && (
               <Badge variant="destructive">
-                {errorLogs.length} errors
+                {errorLogs.length} lỗi
               </Badge>
             )}
           </DialogTitle>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={onRefreshLogs}>
-              Refresh
+              Làm mới
             </Button>
             <Button variant="outline" size="sm" onClick={onClearLogs}>
               <X className="h-4 w-4 mr-1" />
-              Clear
+              Xóa
             </Button>
           </div>
         </DialogHeader>
@@ -95,8 +95,8 @@ export function ErrorLogViewer({
             <div className="flex items-center justify-center h-48 text-muted-foreground">
               <div className="text-center">
                 <FileText className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                <p>No logs available</p>
-                <p className="text-sm">Backend logs will appear here when available</p>
+                <p>Không có log nào</p>
+                <p className="text-sm">Log backend sẽ hiển thị ở đây khi có dữ liệu</p>
               </div>
             </div>
           ) : (
@@ -148,7 +148,7 @@ export function ErrorLogViewer({
           <div className="border-t pt-4">
             <h4 className="text-sm font-medium text-red-600 mb-2 flex items-center gap-2">
               <AlertTriangle className="h-4 w-4" />
-              Recent Errors ({errorLogs.length})
+              Lỗi gần đây ({errorLogs.length})
             </h4>
             <ScrollArea className="h-24 border rounded-md bg-red-50">
               <div className="p-2 space-y-1">

@@ -13,8 +13,11 @@ COPY .env.production .env
 # Install any needed packages specified in requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Set PYTHONPATH to include src directory
+ENV PYTHONPATH=/app/src:$PYTHONPATH
+
 # Make port 80 available to the world outside this container
 EXPOSE 80
 
 # Run the app with Gunicorn
-CMD ["gunicorn", "-w", "2", "-b", "0.0.0.0:80", "app:app"]
+CMD ["gunicorn", "-w", "2", "-b", "0.0.0.0:80", "service_app:app"]

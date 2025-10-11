@@ -81,9 +81,9 @@ export function AppInitializer({ children }: AppInitializerProps) {
             <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
               <Loader2 className="h-6 w-6 text-primary animate-spin" />
             </div>
-            <CardTitle>Initializing HAO HOA Time Clock</CardTitle>
+            <CardTitle>Đang khởi tạo HAO HOA Time Clock</CardTitle>
             <CardDescription>
-              Setting up the application and starting services...
+              Đang chuẩn bị ứng dụng và khởi động các dịch vụ...
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -91,8 +91,8 @@ export function AppInitializer({ children }: AppInitializerProps) {
               <Loader2 className="h-4 w-4 animate-spin" />
               <span>
                 {isStarting
-                  ? "Starting backend service..."
-                  : "Checking backend status..."}
+                  ? "Đang khởi động dịch vụ backend..."
+                  : "Đang kiểm tra trạng thái backend..."}
               </span>
             </div>
 
@@ -120,16 +120,16 @@ export function AppInitializer({ children }: AppInitializerProps) {
               <AlertCircle className="h-6 w-6 text-red-600" />
             </div>
             <CardTitle className="text-red-600">
-              Initialization Failed
+              Khởi tạo thất bại
             </CardTitle>
             <CardDescription>
-              Unable to start the HAO HOA Time Clock application
+              Không thể khởi động ứng dụng HAO HOA Time Clock
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <Alert variant="destructive">
               <AlertDescription>
-                {initError || error || "Unknown error occurred"}
+                {initError || error || "Đã xảy ra lỗi không xác định"}
               </AlertDescription>
             </Alert>
 
@@ -139,18 +139,18 @@ export function AppInitializer({ children }: AppInitializerProps) {
               variant="outline"
             >
               <RefreshCw className="h-4 w-4 mr-2" />
-              Retry Initialization
+              Thử khởi động lại
             </Button>
 
             <div className="text-xs text-muted-foreground space-y-1">
               <p>
-                <strong>Troubleshooting:</strong>
+                <strong>Hướng dẫn xử lý:</strong>
               </p>
               <ul className="list-disc list-inside space-y-1 ml-2">
-                <li>Check if backend executable exists</li>
-                <li>Verify port 57575 is available</li>
-                <li>Check system permissions</li>
-                <li>Review application logs</li>
+                <li>Kiểm tra file thực thi backend đã tồn tại hay chưa</li>
+                <li>Đảm bảo cổng 57575 đang trống</li>
+                <li>Kiểm tra quyền truy cập hệ thống</li>
+                <li>Xem lại nhật ký ứng dụng</li>
               </ul>
             </div>
           </CardContent>

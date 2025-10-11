@@ -50,7 +50,7 @@ export function Logs() {
       setLogs(result);
     } catch (error) {
       console.error("Failed to fetch logs:", error);
-      toast.error("Failed to fetch logs");
+      toast.error("Không thể tải log");
     } finally {
       setLoading(false);
     }
@@ -60,10 +60,10 @@ export function Logs() {
     try {
       await invoke("clear_log_file");
       setLogs([]);
-      toast.success("Log file cleared successfully");
+      toast.success("Đã xóa file log thành công");
     } catch (error) {
       console.error("Failed to clear logs:", error);
-      toast.error("Failed to clear logs");
+      toast.error("Không thể xóa log");
     }
   };
 
@@ -88,10 +88,10 @@ export function Logs() {
 
       // Export log file
       await invoke("export_log_file", { destination: filePath });
-      toast.success("Log file exported successfully");
+      toast.success("Xuất file log thành công");
     } catch (error) {
       console.error("Failed to export logs:", error);
-      toast.error("Failed to export logs");
+      toast.error("Không thể xuất log");
     }
   };
 
@@ -111,7 +111,7 @@ export function Logs() {
       await open(folderPath);
     } catch (error) {
       console.error("Failed to open log folder:", error);
-      toast.error("Failed to open log folder");
+      toast.error("Không thể mở thư mục log");
     }
   };
 
@@ -162,8 +162,8 @@ export function Logs() {
             <div className="space-y-1">
               <CardTitle className="flex items-center gap-2">
                 <FileText className="h-5 w-5" />
-                Backend Log File
-                <Badge variant="outline">{filteredLogs.length} entries</Badge>
+                File log backend
+                <Badge variant="outline">{filteredLogs.length} dòng</Badge>
               </CardTitle>
               {logFilePath && (
                 <div className="flex items-center gap-2">
@@ -189,28 +189,28 @@ export function Logs() {
                   size="sm"
                   onClick={() => setFilterLevel("all")}
                 >
-                  All
+                  Tất cả
                 </Button>
                 <Button
                   variant={filterLevel === "info" ? "default" : "outline"}
                   size="sm"
                   onClick={() => setFilterLevel("info")}
                 >
-                  Info
+                  Thông tin
                 </Button>
                 <Button
                   variant={filterLevel === "warning" ? "default" : "outline"}
                   size="sm"
                   onClick={() => setFilterLevel("warning")}
                 >
-                  Warning
+                  Cảnh báo
                 </Button>
                 <Button
                   variant={filterLevel === "error" ? "default" : "outline"}
                   size="sm"
                   onClick={() => setFilterLevel("error")}
                 >
-                  Error
+                  Lỗi
                 </Button>
               </div>
 
@@ -220,7 +220,7 @@ export function Logs() {
                 size="sm"
                 onClick={fetchLogs}
                 disabled={loading}
-                title="Refresh logs"
+                title="Làm mới log"
               >
                 <RefreshCw
                   className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
@@ -231,7 +231,7 @@ export function Logs() {
                 size="sm"
                 onClick={exportLogs}
                 disabled={logs.length === 0}
-                title="Export logs"
+                title="Xuất log"
               >
                 <Download className="h-4 w-4" />
               </Button>
@@ -240,7 +240,7 @@ export function Logs() {
                 size="sm"
                 onClick={clearLogs}
                 disabled={logs.length === 0}
-                title="Clear logs"
+                title="Xóa log"
               >
                 <Trash2 className="h-4 w-4" />
               </Button>
@@ -251,7 +251,7 @@ export function Logs() {
           <ScrollArea className="h-[calc(100vh-245px)]">
             {filteredLogs.length === 0 ? (
               <div className="flex items-center justify-center py-12 text-muted-foreground">
-                No logs available
+                Không có log nào
               </div>
             ) : (
               <div className="space-y-2">
@@ -274,7 +274,7 @@ export function Logs() {
                             {log.module}
                           </Badge>
                           <Badge variant="secondary" className="text-xs">
-                            Line {log.line_number}
+                            Dòng {log.line_number}
                           </Badge>
                           <span className="text-xs text-muted-foreground">
                             {log.timestamp}

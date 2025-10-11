@@ -16,6 +16,8 @@ export interface ServiceMetrics {
     cpuUsage: number;
     pid?: number;
     port: number;
+    publicIp?: string;
+    localIp?: string;
     lastRestart?: Date;
 }
 
@@ -117,6 +119,8 @@ export const useBackendHealth = (): BackendHealthHook => {
                     cpuUsage: metricsData.cpu_percent || 0,
                     pid: metricsData.pid,
                     port: 57575,
+                    publicIp: metricsData.public_ip || 'N/A',
+                    localIp: metricsData.local_ip || 'N/A',
                     lastRestart: new Date(),
                 });
             }

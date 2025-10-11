@@ -20,7 +20,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useDevice } from "@/contexts/DeviceContext";
-import { deviceAPI, User, userAPI, UsersResponse } from "@/lib/api";
+import { deviceAPI, devicesAPI, User, userAPI, UsersResponse } from "@/lib/api";
 import { buildAvatarUrl, getResourceDomain } from "@/lib/utils";
 import {
   AlertCircle,
@@ -63,6 +63,7 @@ export function UserManagement() {
   const [deviceConnected, setDeviceConnected] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isSyncingFromDevice, setIsSyncingFromDevice] = useState(false);
   const [resourceDomain, setResourceDomain] = useState<string>("");
 
   // Load resource domain on mount
@@ -104,7 +105,7 @@ export function UserManagement() {
       setUsers(response.data || []);
     } catch (err) {
       setError(
-        "Failed to load users. Make sure the backend service is running."
+        "Không thể tải danh sách người dùng. Vui lòng kiểm tra dịch vụ backend."
       );
       console.error("Error loading users:", err);
     } finally {
@@ -176,7 +177,7 @@ export function UserManagement() {
 
   const handleSyncEmployee = async () => {
     if (!activeDevice) {
-      toast.error("Please select a device first");
+      toast.error("Vui lòng chọn thiết bị trước");
       return;
     }
 
@@ -186,7 +187,7 @@ export function UserManagement() {
 
       if (result["success"]) {
         toast.success(
-          `Successfully synced ${result.employees_count} employees to external API`
+          `Đã đồng bộ ${result.employees_count} nhân sự lên hệ thống ngoài`
         );
         // Reload users to get updated sync status
         await loadUsers();
@@ -198,7 +199,7 @@ export function UserManagement() {
     } catch (err: any) {
       console.log(err);
 
-      const errorMessage = err.message || "Failed to sync employees";
+      const errorMessage = err.message || "Không thể đồng bộ nhân sự";
       toast.error(errorMessage);
       console.error("Error syncing employees:", err);
     } finally {
@@ -208,7 +209,7 @@ export function UserManagement() {
 
   const handleSyncSingleUser = async (userId: string, userName: string) => {
     if (!activeDevice) {
-      toast.error("Please select a device first");
+      toast.error("Vui lòng chọn thiết bị trước");
       return;
     }
 
@@ -217,14 +218,14 @@ export function UserManagement() {
       const result = await userAPI.syncUser(userId);
 
       if (result.success) {
-        toast.success(`Successfully synced ${userName} to external API`);
+        toast.success(`Đã đồng bộ ${userName} lên hệ thống ngoài`);
         // Reload users to get updated sync status
         await loadUsers();
       } else {
-        toast.error(result.message || "Failed to sync user");
+        toast.error(result.message || "Không thể đồng bộ người dùng");
       }
     } catch (err: any) {
-      const errorMessage = err.message || "Failed to sync user";
+      const errorMessage = err.message || "Không thể đồng bộ người dùng";
       toast.error(errorMessage);
       console.error("Error syncing user:", err);
     } finally {
@@ -233,6 +234,58 @@ export function UserManagement() {
         newSet.delete(userId);
         return newSet;
       });
+    }
+  };
+
+  const handleSyncUsersFromDevice = async () => {
+    if (!activeDevice) {
+      toast.error("Vui lòng chọn thiết bị trước");
+      return;
+    }
+
+    setIsSyncingFromDevice(true);
+    try {
+      const result = await userAPI.syncUsersFromDevice();
+
+      if (result.success) {
+        toast.success(`Đã đồng bộ ${result.synced_count} người dùng từ thiết bị`);
+        // Reload users to get updated data
+        await loadUsers();
+      } else {
+        toast.error(result.message || "Không thể đồng bộ người dùng từ thiết bị");
+      }
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.error || err.message || "Không thể đồng bộ người dùng từ thiết bị";
+      toast.error(errorMessage);
+      console.error("Error syncing users from device:", err);
+    } finally {
+      setIsSyncingFromDevice(false);
+    }
+  };
+
+  const handleSyncUsersFromPushDevice = async () => {
+    if (!activeDevice) {
+      toast.error("Vui lòng chọn thiết bị trước");
+      return;
+    }
+
+    setIsSyncingFromDevice(true);
+    try {
+      const result = await devicesAPI.syncUsersFromPushDevice(activeDevice.id);
+
+      toast.success(result.message || "Đã gửi lệnh đồng bộ người dùng thành công");
+      toast.info("Thiết bị sẽ đẩy dữ liệu người dùng ở lần ping tiếp theo. Vui lòng chờ...");
+
+      // Wait a bit then reload users
+      setTimeout(() => {
+        loadUsers();
+      }, 3000);
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.error || err.message || "Không thể đồng bộ người dùng từ thiết bị push";
+      toast.error(errorMessage);
+      console.error("Error syncing users from push device:", err);
+    } finally {
+      setIsSyncingFromDevice(false);
     }
   };
 
@@ -249,7 +302,7 @@ export function UserManagement() {
           className="bg-green-100 text-green-800 border-green-300"
         >
           <CheckCircle2 className="h-3 w-3 mr-1" />
-          Synced
+          Đã đồng bộ
         </Badge>
       );
     } else {
@@ -259,14 +312,14 @@ export function UserManagement() {
           className="bg-yellow-100 text-yellow-800 border-yellow-300"
         >
           <Clock className="h-3 w-3 mr-1" />
-          Pending
+          Đang chờ
         </Badge>
       );
     }
   };
 
   const formatDate = (dateString: string | null) => {
-    if (!dateString) return "N/A";
+    if (!dateString) return "Không có";
     try {
       return new Date(dateString).toLocaleString("vi-VN", {
         year: "numeric",
@@ -302,11 +355,11 @@ export function UserManagement() {
         <div>
           <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
             <Users className="h-6 w-6" />
-            User Management
+            Quản lý người dùng
           </h2>
           <div className="flex items-center gap-4 mt-1">
             <p className="text-muted-foreground">
-              Manage users and their access permissions
+              Quản lý người dùng và quyền truy cập
             </p>
             {syncStatus && (
               <div className="flex items-center gap-2">
@@ -316,7 +369,7 @@ export function UserManagement() {
                     className="bg-green-100 text-green-800 border-green-300"
                   >
                     <CheckCircle2 className="h-3 w-3 mr-1" />
-                    Device Connected
+                    Thiết bị đã kết nối
                   </Badge>
                 ) : (
                   <Badge
@@ -324,7 +377,7 @@ export function UserManagement() {
                     className="bg-orange-100 text-orange-800 border-orange-300"
                   >
                     <XCircle className="h-3 w-3 mr-1" />
-                    Device Offline
+                    Thiết bị ngoại tuyến
                   </Badge>
                 )}
                 {syncStatus.success && syncStatus.synced_count > 0 && (
@@ -332,7 +385,7 @@ export function UserManagement() {
                     variant="outline"
                     className="bg-blue-50 text-blue-800 border-blue-300"
                   >
-                    +{syncStatus.synced_count} new users synced
+                    +{syncStatus.synced_count} người dùng mới đã đồng bộ
                   </Badge>
                 )}
               </div>
@@ -340,6 +393,34 @@ export function UserManagement() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Sync from device button for pull devices */}
+          {activeDevice?.device_type === 'pull' && (
+            <Button
+              variant="outline"
+              onClick={handleSyncUsersFromDevice}
+              disabled={isSyncingFromDevice}
+              className="flex items-center gap-2"
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${isSyncingFromDevice ? "animate-spin" : ""}`}
+              />
+              {isSyncingFromDevice ? "Đang đồng bộ..." : "Đồng bộ từ thiết bị"}
+            </Button>
+          )}
+          {/* Refresh button for push devices - just reload data from DB */}
+          {activeDevice?.device_type === 'push' && (
+            <Button
+              variant="outline"
+              onClick={loadUsers}
+              disabled={isLoading}
+              className="flex items-center gap-2"
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`}
+              />
+              {isLoading ? "Đang tải..." : "Làm mới"}
+            </Button>
+          )}
           <Button
             variant="outline"
             onClick={handleSyncEmployee}
@@ -349,7 +430,7 @@ export function UserManagement() {
             <RefreshCw
               className={`h-4 w-4 ${isSyncing ? "animate-spin" : ""}`}
             />
-            {isSyncing ? "Syncing..." : "Sync Employee"}
+            {isSyncing ? "Đang đồng bộ..." : "Đồng bộ nhân sự"}
           </Button>
           {/* <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
@@ -467,7 +548,7 @@ export function UserManagement() {
       <div className="flex items-center space-x-2">
         <div className="flex-1">
           <Input
-            placeholder="Search users by name..."
+            placeholder="Tìm kiếm người dùng theo tên..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="max-w-sm"
@@ -480,8 +561,7 @@ export function UserManagement() {
         <Alert>
           <Monitor className="h-4 w-4" />
           <AlertDescription>
-            Please select a device first to manage users. Go to Device
-            Management to configure a device.
+            Vui lòng chọn thiết bị để quản lý người dùng. Truy cập Quản lý thiết bị để cấu hình.
           </AlertDescription>
         </Alert>
       ) : error ? (
@@ -493,8 +573,7 @@ export function UserManagement() {
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            Device sync failed: {syncStatus.error}. Showing data from database
-            only.
+            Đồng bộ với thiết bị thất bại: {syncStatus.error}. Đang hiển thị dữ liệu từ cơ sở dữ liệu.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -504,16 +583,16 @@ export function UserManagement() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <UserCheck className="h-5 w-5" />
-            Users ({filteredUsers.length})
+            Người dùng ({filteredUsers.length})
           </CardTitle>
           <CardDescription>
-            Current users registered in the system
+            Danh sách người dùng đang có trong hệ thống
           </CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
-              <div className="text-muted-foreground">Loading users...</div>
+              <div className="text-muted-foreground">Đang tải danh sách người dùng...</div>
             </div>
           ) : filteredUsers.length === 0 ? (
             <div className="flex items-center justify-center py-8">
@@ -521,29 +600,29 @@ export function UserManagement() {
                 <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                 <p className="text-muted-foreground">
                   {searchQuery
-                    ? `No users found matching "${searchQuery}"`
-                    : "No users found"}
+                    ? `Không tìm thấy người dùng nào khớp với "${searchQuery}"`
+                    : "Chưa có người dùng nào"}
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  Click "Add User" to create the first user
+                  Bấm "Thêm người dùng" để tạo người dùng đầu tiên
                 </p>
               </div>
             </div>
           ) : (
             <Table>
               <TableCaption>
-                User list from ZKTeco device with sync status
+                Danh sách người dùng từ thiết bị ZKTeco kèm trạng thái đồng bộ
               </TableCaption>
               <TableHeader>
                 <TableRow>
                   <TableHead>STT</TableHead>
-                  <TableHead>User ID</TableHead>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Group</TableHead>
-                  <TableHead>Sync Status</TableHead>
-                  <TableHead>Synced At</TableHead>
-                  <TableHead>Created At</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead>ID người dùng</TableHead>
+                  <TableHead>Họ tên</TableHead>
+                  <TableHead>Nhóm</TableHead>
+                  <TableHead>Trạng thái đồng bộ</TableHead>
+                  <TableHead>Đồng bộ lúc</TableHead>
+                  <TableHead>Tạo lúc</TableHead>
+                  <TableHead className="text-right">Hành động</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -590,7 +669,7 @@ export function UserManagement() {
                           onClick={() => handleSyncSingleUser(user.id, user.name)}
                           disabled={syncingUsers.has(user.id)}
                           className="h-8 w-8 p-0"
-                          title="Sync this user to external API"
+                          title="Đồng bộ người dùng này lên API ngoài"
                         >
                           <RefreshCcw
                             className={`h-4 w-4 ${syncingUsers.has(user.id) ? "animate-spin" : ""}`}
@@ -610,11 +689,11 @@ export function UserManagement() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Total Users</CardTitle>
+            <CardTitle className="text-lg">Tổng số người dùng</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold">{users.length}</div>
-            <p className="text-sm text-muted-foreground">Registered users</p>
+            <p className="text-sm text-muted-foreground">Số người dùng đã đăng ký</p>
           </CardContent>
         </Card>
 
@@ -622,7 +701,7 @@ export function UserManagement() {
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
               <CheckCircle2 className="h-4 w-4 text-green-600" />
-              Synced Users
+              Đã đồng bộ
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -630,7 +709,7 @@ export function UserManagement() {
               {users.filter((user) => user.is_synced).length}
             </div>
             <p className="text-sm text-muted-foreground">
-              Synced to external API
+              Đã đẩy lên hệ thống ngoài
             </p>
           </CardContent>
         </Card>
@@ -639,26 +718,26 @@ export function UserManagement() {
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
               <Clock className="h-4 w-4 text-yellow-600" />
-              Pending Sync
+              Đang chờ đồng bộ
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-yellow-600">
               {users.filter((user) => !user.is_synced).length}
             </div>
-            <p className="text-sm text-muted-foreground">Waiting to sync</p>
+            <p className="text-sm text-muted-foreground">Đang chờ đồng bộ</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Administrators</CardTitle>
+            <CardTitle className="text-lg">Quản trị viên</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold">
               {users.filter((user) => user.privilege >= 2).length}
             </div>
-            <p className="text-sm text-muted-foreground">Admin level users</p>
+            <p className="text-sm text-muted-foreground">Người dùng thuộc nhóm quản trị</p>
           </CardContent>
         </Card>
       </div>

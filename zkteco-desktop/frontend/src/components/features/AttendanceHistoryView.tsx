@@ -75,7 +75,7 @@ export function AttendanceHistoryView({
           <PopoverTrigger asChild>
             <Button variant="outline" className="justify-start gap-2">
               <CalendarIcon className="h-4 w-4" />
-              {selectedDate ? format(selectedDate, "PPP") : "All Dates"}
+              {selectedDate ? format(selectedDate, "PPP") : "Tất cả ngày"}
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-auto p-0" align="start">
@@ -108,7 +108,7 @@ export function AttendanceHistoryView({
             setIsDatePickerOpen(false);
           }}
         >
-          All Dates
+          Tất cả ngày
         </Button> */}
         <Button
           variant="ghost"
@@ -123,13 +123,13 @@ export function AttendanceHistoryView({
           )}
         </Button>
         <Badge variant="secondary" className="ml-auto">
-          {filteredData.length} records
+          {filteredData.length} bản ghi
         </Badge>
       </div>
 
       {/* Action Filter Buttons */}
       <div className="flex items-center gap-2">
-        <span className="text-sm text-muted-foreground">Filter:</span>
+        <span className="text-sm text-muted-foreground">Lọc:</span>
         <div className="flex gap-1">
           <Button
             variant={actionFilter === "all" ? "default" : "outline"}
@@ -143,14 +143,14 @@ export function AttendanceHistoryView({
             size="sm"
             onClick={() => setActionFilter(0)}
           >
-            Check-in
+            Vào ca
           </Button>
           <Button
             variant={actionFilter === 1 ? "default" : "outline"}
             size="sm"
             onClick={() => setActionFilter(1)}
           >
-            Check-out
+            Ra ca
           </Button>
         </div>
       </div>
@@ -164,7 +164,7 @@ export function AttendanceHistoryView({
         <div className="flex items-center justify-center py-12">
           <div className="text-center">
             <Loader2 className="h-12 w-12 text-muted-foreground mx-auto mb-4 animate-spin" />
-            <p className="text-muted-foreground">Loading attendance...</p>
+            <p className="text-muted-foreground">Đang tải dữ liệu chấm công...</p>
           </div>
         </div>
       ) : filteredData.length === 0 ? (
@@ -173,12 +173,12 @@ export function AttendanceHistoryView({
             <History className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
             <p className="text-muted-foreground">
               {data.length === 0
-                ? `No attendance records for ${
+                ? `Không có dữ liệu chấm công cho ${
                     selectedDate
                       ? format(selectedDate, "MMMM d, yyyy")
-                      : "all dates"
+                      : "tất cả ngày"
                   }`
-                : "No records match the selected filter"}
+                : "Không có dữ liệu phù hợp với bộ lọc đã chọn"}
             </p>
           </div>
         </div>
@@ -237,11 +237,11 @@ export function AttendanceHistoryView({
                     {methodIcon && (
                       <Badge variant={"outline"}>
                         {methodIcon}
-                        {ATTENDANCE_METHOD_MAP[record.method] || "Unknown"}
+                        {ATTENDANCE_METHOD_MAP[record.method] || "Không xác định"}
                       </Badge>
                     )}
                     {record.is_synced && (
-                      <Badge variant={"outline"}>Synced</Badge>
+                      <Badge variant={"outline"}>Đã đồng bộ</Badge>
                     )}
                   </div>
                 </div>
@@ -253,7 +253,7 @@ export function AttendanceHistoryView({
                     className={`gap-1 ${actionColor} w-[100px]`}
                   >
                     {actionIcon}
-                    {PUNCH_ACTION_MAP[record.action] || "Unknown"}
+                    {PUNCH_ACTION_MAP[record.action] || "Không xác định"}
                   </Badge>
                 </div>
               </div>

@@ -89,9 +89,9 @@ export function DeviceProvider({ children }: DeviceProviderProps) {
         try {
             await devicesAPI.activateDevice(deviceId);
             setActiveDeviceId(deviceId);
-            toast.success("Active device changed successfully");
+            toast.success("Đã chuyển thiết bị hoạt động thành công");
         } catch (error) {
-            toast.error("Failed to change active device");
+            toast.error("Không thể đổi thiết bị đang hoạt động");
             console.error("Error setting active device:", error);
             throw error;
         }
@@ -135,7 +135,7 @@ export function DeviceProvider({ children }: DeviceProviderProps) {
         } catch (error) {
             console.error("Error loading capture status:", error);
             const errorMessage = getErrorMessage(error);
-            toast.error(`Failed to load capture status: ${errorMessage}`);
+            toast.error(`Không thể tải trạng thái thu dữ liệu: ${errorMessage}`);
         } finally {
             setIsCaptureLoading(false);
         }
@@ -145,13 +145,13 @@ export function DeviceProvider({ children }: DeviceProviderProps) {
         setIsCaptureLoading(true);
         try {
             await liveAPI.multiDevice.startAllCapture();
-            toast.success("Multi-device live capture started successfully");
+            toast.success("Đã bật thu dữ liệu realtime cho nhiều thiết bị");
             await loadCaptureStatus(); // Refresh status
         } catch (error) {
             console.error("Error starting multi-device capture:", error);
             const errorMessage = getErrorMessage(error);
             toast.error(
-                `Failed to start multi-device capture: ${errorMessage}`,
+                `Không thể bật thu dữ liệu cho nhiều thiết bị: ${errorMessage}`,
             );
             throw error;
         } finally {
@@ -163,12 +163,14 @@ export function DeviceProvider({ children }: DeviceProviderProps) {
         setIsCaptureLoading(true);
         try {
             await liveAPI.multiDevice.stopAllCapture();
-            toast.success("Multi-device live capture stopped successfully");
+            toast.success("Đã tắt thu dữ liệu realtime cho nhiều thiết bị");
             await loadCaptureStatus(); // Refresh status
         } catch (error) {
             console.error("Error stopping multi-device capture:", error);
             const errorMessage = getErrorMessage(error);
-            toast.error(`Failed to stop multi-device capture: ${errorMessage}`);
+            toast.error(
+                `Không thể tắt thu dữ liệu cho nhiều thiết bị: ${errorMessage}`,
+            );
             throw error;
         } finally {
             setIsCaptureLoading(false);
@@ -181,7 +183,7 @@ export function DeviceProvider({ children }: DeviceProviderProps) {
 
         try {
             await liveAPI.multiDevice.startDeviceCapture(deviceId);
-            toast.success(`Live capture started for ${deviceName}`);
+            toast.success(`Đã bật thu dữ liệu cho ${deviceName}`);
             await loadCaptureStatus(); // Refresh status
         } catch (error) {
             console.error(
@@ -190,7 +192,7 @@ export function DeviceProvider({ children }: DeviceProviderProps) {
             );
             const errorMessage = getErrorMessage(error);
             toast.error(
-                `Failed to start capture for ${deviceName}: ${errorMessage}`,
+                `Không thể bật thu dữ liệu cho ${deviceName}: ${errorMessage}`,
             );
             throw error;
         }
@@ -202,7 +204,7 @@ export function DeviceProvider({ children }: DeviceProviderProps) {
 
         try {
             await liveAPI.multiDevice.stopDeviceCapture(deviceId);
-            toast.success(`Live capture stopped for ${deviceName}`);
+            toast.success(`Đã tắt thu dữ liệu cho ${deviceName}`);
             await loadCaptureStatus(); // Refresh status
         } catch (error) {
             console.error(
@@ -211,7 +213,7 @@ export function DeviceProvider({ children }: DeviceProviderProps) {
             );
             const errorMessage = getErrorMessage(error);
             toast.error(
-                `Failed to stop capture for ${deviceName}: ${errorMessage}`,
+                `Không thể tắt thu dữ liệu cho ${deviceName}: ${errorMessage}`,
             );
             throw error;
         }

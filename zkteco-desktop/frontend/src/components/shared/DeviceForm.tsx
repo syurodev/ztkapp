@@ -15,6 +15,7 @@ export interface DeviceFormData {
   retry_delay: number;
   ping_interval: number;
   force_udp: boolean;
+  device_type?: 'pull' | 'push';
 }
 
 interface DeviceFormProps {
@@ -42,6 +43,7 @@ export function DeviceForm({
     retry_delay: 2,
     ping_interval: 30,
     force_udp: true,
+    device_type: 'pull',
   });
 
   const [portInput, setPortInput] = useState<string>("");
@@ -63,6 +65,7 @@ export function DeviceForm({
         retry_delay: initialData.retry_delay || 2,
         ping_interval: initialData.ping_interval || 30,
         force_udp: initialData.force_udp || false,
+        device_type: initialData.device_type || 'pull',
       });
       setPortInput(portValue.toString());
     } else if (mode === "add") {
@@ -77,6 +80,7 @@ export function DeviceForm({
         retry_delay: 2,
         ping_interval: 30,
         force_udp: false,
+        device_type: 'pull',
       });
       setPortInput("");
     }
@@ -84,8 +88,16 @@ export function DeviceForm({
 
   const handleSubmit = async () => {
     // Validation
-    if (!formData.name || !formData.ip) {
-      toast.error("Device name and IP are required");
+    const isPushDevice = formData.device_type === 'push';
+
+    if (!formData.name) {
+      toast.error("Tên thiết bị là bắt buộc");
+      return;
+    }
+
+    // IP validation only for Pull devices
+    if (!isPushDevice && !formData.ip) {
+      toast.error("Thiết bị Pull bắt buộc phải có địa chỉ IP");
       return;
     }
 
@@ -93,6 +105,8 @@ export function DeviceForm({
     const finalFormData = {
       ...formData,
       port: portInput === "" ? 4370 : formData.port,
+      // For push devices, set IP to 0.0.0.0 (not needed)
+      ip: isPushDevice ? "0.0.0.0" : formData.ip,
     };
 
     try {
@@ -113,32 +127,75 @@ export function DeviceForm({
     }
   };
 
+  const isPushDevice = formData.device_type === 'push';
+
   return (
     <div className="space-y-6" onKeyDown={handleKeyDown}>
+      {/* Device Type Selector */}
+      <div className="space-y-2">
+        <Label htmlFor="device_type">Loại thiết bị *</Label>
+        <div className="flex gap-4">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name="device_type"
+              value="pull"
+              checked={formData.device_type === 'pull'}
+              onChange={(e) => setFormData({ ...formData, device_type: 'pull' })}
+              disabled={isLoading || mode === 'edit'}
+              className="cursor-pointer"
+            />
+            <span className={mode === 'edit' ? 'text-muted-foreground' : ''}>Pull (TCP) - Thiết bị truyền thống</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name="device_type"
+              value="push"
+              checked={formData.device_type === 'push'}
+              onChange={(e) => setFormData({ ...formData, device_type: 'push' })}
+              disabled={isLoading || mode === 'edit'}
+              className="cursor-pointer"
+            />
+            <span className={mode === 'edit' ? 'text-muted-foreground' : ''}>Push (HTTP) - Thiết bị hiện đại</span>
+          </label>
+        </div>
+        {isPushDevice && (
+          <p className="text-sm text-muted-foreground">
+            Thiết bị Push sẽ tự đăng ký khi gửi tín hiệu về máy chủ. Không cần cấu hình IP.
+          </p>
+        )}
+        {mode === 'edit' && (
+          <p className="text-sm text-yellow-600">
+            Không thể đổi loại thiết bị sau khi đã tạo
+          </p>
+        )}
+      </div>
+
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="name">Device Name *</Label>
+          <Label htmlFor="name">Tên thiết bị *</Label>
           <Input
             id="name"
             value={formData.name}
             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            placeholder="Main Entrance"
+            placeholder="Cổng chính"
             disabled={isLoading}
             autoFocus
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="ip">IP Address *</Label>
+          <Label htmlFor="ip">Địa chỉ IP {!isPushDevice && '*'}</Label>
           <Input
             id="ip"
             value={formData.ip}
             onChange={(e) => setFormData({ ...formData, ip: e.target.value })}
-            placeholder="192.168.1.201"
-            disabled={isLoading}
+            placeholder={isPushDevice ? "Không cần cho thiết bị Push" : "192.168.1.201"}
+            disabled={isLoading || isPushDevice}
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="port">Port</Label>
+          <Label htmlFor="port">Cổng kết nối</Label>
           <Input
             id="port"
             type="number"
@@ -151,12 +208,12 @@ export function DeviceForm({
                 port: value === "" ? 4370 : parseInt(value, 10) || 4370,
               });
             }}
-            placeholder="4370"
-            disabled={isLoading}
+            placeholder={isPushDevice ? "Không cần thiết" : "4370"}
+            disabled={isLoading || isPushDevice}
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="password">Password</Label>
+          <Label htmlFor="password">Mật khẩu</Label>
           <Input
             id="password"
             type="password"
@@ -171,7 +228,7 @@ export function DeviceForm({
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="timeout">Timeout (seconds)</Label>
+          <Label htmlFor="timeout">Timeout (giây)</Label>
           <Input
             id="timeout"
             type="number"
@@ -186,7 +243,7 @@ export function DeviceForm({
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="retry_count">Retry Count</Label>
+          <Label htmlFor="retry_count">Số lần thử lại</Label>
           <Input
             id="retry_count"
             type="number"
@@ -204,16 +261,16 @@ export function DeviceForm({
 
       <div className="flex justify-end gap-2">
         <Button variant="outline" onClick={onCancel} disabled={isLoading}>
-          Cancel
+          Hủy
         </Button>
         <Button onClick={handleSubmit} disabled={isLoading}>
           {isLoading
             ? mode === "add"
-              ? "Adding..."
-              : "Updating..."
+              ? "Đang thêm..."
+              : "Đang cập nhật..."
             : mode === "add"
-            ? "Add Device"
-            : "Update Device"}
+            ? "Thêm thiết bị"
+            : "Cập nhật thiết bị"}
         </Button>
       </div>
     </div>

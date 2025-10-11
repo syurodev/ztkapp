@@ -4,11 +4,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { useDevice } from "@/contexts/DeviceContext";
 import { attendanceAPI, liveAPI, LiveAttendanceRecord } from "@/lib/api";
 import { buildAvatarUrl, cn, getResourceDomain } from "@/lib/utils";
@@ -21,9 +23,6 @@ import {
   Fingerprint,
   IdCard,
   Monitor,
-  Play,
-  Settings,
-  Square,
   User,
   Wifi,
   WifiOff,
@@ -33,24 +32,13 @@ import { useEffect, useState } from "react";
 const MAX_RECORDS = 50;
 
 export function LiveAttendance() {
-  const {
-    devices,
-    captureStatus,
-    isCaptureLoading,
-    startAllCapture,
-    stopAllCapture,
-    startDeviceCapture,
-    stopDeviceCapture,
-    isDeviceCapturing,
-    getDeviceCaptureStatus,
-  } = useDevice();
+  const { devices, activeDevice, activeDeviceId } = useDevice();
 
   const [liveAttendance, setLiveAttendance] = useState<LiveAttendanceRecord[]>(
     []
   );
   const [isConnected, setIsConnected] = useState(false);
-  const [selectedDeviceFilter, setSelectedDeviceFilter] =
-    useState<string>("all");
+  const [showAllDevices, setShowAllDevices] = useState(false);
   const [actionFilter, setActionFilter] = useState<"all" | 0 | 1>("all");
   const [resourceDomain, setResourceDomain] = useState<string>("");
   const [_, setIsInitialLoading] = useState(false);
@@ -88,13 +76,19 @@ export function LiveAttendance() {
     const mapToLiveRecord = (record: any): LiveAttendanceRecord => ({
       id: record.id,
       user_id: record.user_id,
-      name: record.name || "Unknown User",
+      name: record.name || "Người dùng không xác định",
       avatar_url: record.avatar_url || null,
       timestamp: record.timestamp,
       method: record.method,
       action: record.action,
       device_id: record.device_id,
       is_synced: record.is_synced ?? false,
+      // New employee fields
+      full_name: record.full_name,
+      employee_code: record.employee_code,
+      position: record.position,
+      department: record.department,
+      notes: record.notes,
     });
 
     if (devices.length === 0) {
@@ -111,8 +105,7 @@ export function LiveAttendance() {
         const dateStr = format(new Date(), "yyyy-MM-dd");
         const response = await attendanceAPI.getAttendance({
           limit: MAX_RECORDS,
-          device_id:
-            selectedDeviceFilter === "all" ? undefined : selectedDeviceFilter,
+          device_id: showAllDevices ? undefined : (activeDeviceId as string),
           date: dateStr,
         });
 
@@ -152,49 +145,14 @@ export function LiveAttendance() {
 
     loadInitialAttendance();
 
-    // Connect with device filter
-    const cleanup = liveAPI.connect(
-      handleMessage,
-      handleError,
-      handleOpen,
-      selectedDeviceFilter
-    );
+    // Connect to all devices - backend always listens to all
+    const cleanup = liveAPI.connect(handleMessage, handleError, handleOpen);
 
     return () => {
       isMounted = false;
       cleanup();
     };
-  }, [devices, selectedDeviceFilter]);
-
-  // Helper functions for device management
-  const handleStartAllCapture = async () => {
-    try {
-      await startAllCapture();
-    } catch (error) {
-      console.error("Failed to start all capture:", error);
-    }
-  };
-
-  const handleStopAllCapture = async () => {
-    try {
-      await stopAllCapture();
-    } catch (error) {
-      console.error("Failed to stop all capture:", error);
-    }
-  };
-
-  const handleToggleDeviceCapture = async (deviceId: string) => {
-    try {
-      const isCapturing = isDeviceCapturing(deviceId);
-      if (isCapturing) {
-        await stopDeviceCapture(deviceId);
-      } else {
-        await startDeviceCapture(deviceId);
-      }
-    } catch (error) {
-      console.error(`Failed to toggle capture for device ${deviceId}:`, error);
-    }
-  };
+  }, [devices, activeDeviceId, showAllDevices]);
 
   // Filter attendance: only show first checkin and last checkout per user per day
   const filterFirstLastAttendance = (records: LiveAttendanceRecord[]) => {
@@ -244,12 +202,9 @@ export function LiveAttendance() {
   };
 
   // Get filtered attendance records
-  const deviceFiltered =
-    selectedDeviceFilter === "all"
-      ? liveAttendance
-      : liveAttendance.filter(
-          (record) => record.device_id === selectedDeviceFilter
-        );
+  const deviceFiltered = showAllDevices
+    ? liveAttendance
+    : liveAttendance.filter((record) => record.device_id === activeDeviceId);
 
   // Apply first/last filter
   let filteredAttendance = filterFirstLastAttendance(deviceFiltered);
@@ -277,135 +232,34 @@ export function LiveAttendance() {
         <Alert>
           <Monitor className="h-4 w-4" />
           <AlertDescription>
-            No devices configured. Go to Device Management to add devices for
-            live attendance monitoring.
+            Chưa cấu hình thiết bị. Vào Quản lý thiết bị để thêm thiết bị phục
+            vụ theo dõi realtime.
           </AlertDescription>
         </Alert>
       )}
 
-      {/* Multi-Device Capture Control Panel */}
-      {devices.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Settings className="h-5 w-5" />
-              Live Capture Control
-              <Badge variant="secondary" className="ml-auto">
-                {captureStatus?.overall_status.active_captures || 0} /{" "}
-                {devices.length} Active
-              </Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {/* Global Controls */}
-              <div className="flex gap-2">
-                <Button
-                  onClick={handleStartAllCapture}
-                  disabled={isCaptureLoading}
-                  size="sm"
-                  className="flex items-center gap-2"
-                >
-                  <Play className="h-4 w-4" />
-                  Start All Devices
-                </Button>
-                <Button
-                  onClick={handleStopAllCapture}
-                  disabled={isCaptureLoading}
-                  variant="outline"
-                  size="sm"
-                  className="flex items-center gap-2"
-                >
-                  <Square className="h-4 w-4" />
-                  Stop All Devices
-                </Button>
-              </div>
-
-              {/* Individual Device Controls */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {devices.map((device) => {
-                  const isCapturing = isDeviceCapturing(device.id);
-                  const deviceStatus = getDeviceCaptureStatus(device.id);
-                  const isHealthy = deviceStatus?.is_healthy !== false;
-
-                  return (
-                    <div
-                      key={device.id}
-                      className="border rounded-lg p-3 space-y-2"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium text-sm">
-                          {device.name}
-                        </span>
-                        <div className="flex items-center gap-1">
-                          <Badge
-                            variant={isCapturing ? "default" : "secondary"}
-                            className="text-xs"
-                          >
-                            {isCapturing ? "Active" : "Inactive"}
-                          </Badge>
-                          {!isHealthy && (
-                            <Badge variant="destructive" className="text-xs">
-                              Unhealthy
-                            </Badge>
-                          )}
-                        </div>
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {device.ip}:{device.port}
-                      </div>
-                      <Button
-                        onClick={() => handleToggleDeviceCapture(device.id)}
-                        disabled={isCaptureLoading}
-                        size="sm"
-                        variant={isCapturing ? "outline" : "default"}
-                        className="w-full flex items-center gap-1"
-                      >
-                        {isCapturing ? (
-                          <>
-                            <Square className="h-3 w-3" />
-                            Stop
-                          </>
-                        ) : (
-                          <>
-                            <Play className="h-3 w-3" />
-                            Start
-                          </>
-                        )}
-                      </Button>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Live Attendance Feed */}
+      {/* Live Attendance Feed - Optimized Header */}
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Activity className="h-6 w-6" />
-            Live Attendance Feed
-            {devices.length > 0 && (
-              <span
-                title={isConnected ? "Connected" : "Disconnected"}
-                className="ml-auto"
-              >
-                <ConnectionIcon className={`h-5 w-5 ${connectionColor}`} />
-              </span>
-            )}
-          </CardTitle>
-          <div className="flex items-center gap-4 pt-2 flex-wrap">
-            {/* Action Filter */}
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            {/* Title */}
+            <CardTitle className="flex items-center gap-2">
+              <Activity className="h-5 w-5" />
+              Chấm công Realtime
+              {devices.length > 0 && (
+                <ConnectionIcon className={`h-4 w-4 ${connectionColor}`} />
+              )}
+            </CardTitle>
+
+            {/* Compact Filters */}
             <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Filter:</span>
+              {/* Action Filter - Compact */}
               <div className="flex gap-1">
                 <Button
                   variant={actionFilter === "all" ? "default" : "outline"}
                   size="sm"
                   onClick={() => setActionFilter("all")}
+                  className="h-8 px-3 text-xs"
                 >
                   Tất cả
                 </Button>
@@ -413,49 +267,33 @@ export function LiveAttendance() {
                   variant={actionFilter === 0 ? "default" : "outline"}
                   size="sm"
                   onClick={() => setActionFilter(0)}
+                  className="h-8 px-3 text-xs"
                 >
-                  Check-in
+                  Vào ca
                 </Button>
                 <Button
                   variant={actionFilter === 1 ? "default" : "outline"}
                   size="sm"
                   onClick={() => setActionFilter(1)}
+                  className="h-8 px-3 text-xs"
                 >
-                  Check-out
+                  Ra ca
                 </Button>
               </div>
-            </div>
 
-            {/* Device Filter */}
-            {devices.length > 1 && (
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">Device:</span>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm">
-                      {selectedDeviceFilter === "all"
-                        ? "All Devices"
-                        : getDeviceName(selectedDeviceFilter)}
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent>
-                    <DropdownMenuItem
-                      onClick={() => setSelectedDeviceFilter("all")}
-                    >
-                      All Devices
-                    </DropdownMenuItem>
-                    {devices.map((device) => (
-                      <DropdownMenuItem
-                        key={device.id}
-                        onClick={() => setSelectedDeviceFilter(device.id)}
-                      >
-                        {device.name}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            )}
+              {/* Device Filter - Toggle between Active Device / All Devices */}
+              {devices.length > 1 && activeDevice && (
+                <Button
+                  variant={showAllDevices ? "outline" : "default"}
+                  size="sm"
+                  onClick={() => setShowAllDevices(!showAllDevices)}
+                  className="h-8 px-3 text-xs flex items-center gap-1"
+                >
+                  <Monitor className="h-3 w-3" />
+                  {showAllDevices ? "Tất cả thiết bị" : activeDevice.name}
+                </Button>
+              )}
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -463,9 +301,9 @@ export function LiveAttendance() {
             <div className="flex items-center justify-center py-8">
               <div className="text-center">
                 <Monitor className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <p className="text-muted-foreground">No devices configured</p>
+                <p className="text-muted-foreground">Chưa có thiết bị nào</p>
                 <p className="text-sm text-muted-foreground">
-                  Add devices to view live attendance feed
+                  Thêm thiết bị để xem dữ liệu chấm công realtime
                 </p>
               </div>
             </div>
@@ -475,205 +313,304 @@ export function LiveAttendance() {
                 <Activity className="h-12 w-12 text-muted-foreground mx-auto mb-4 animate-pulse" />
                 <p className="text-muted-foreground">
                   {isConnected
-                    ? "Waiting for attendance events..."
-                    : "Connecting to live feed..."}
+                    ? "Đang chờ dữ liệu chấm công..."
+                    : "Đang kết nối luồng realtime..."}
                 </p>
               </div>
             </div>
           ) : (
-            <div className="space-y-4 max-h-[600px] overflow-y-auto p-2 ">
-              {filteredAttendance.map((record, index) => {
-                const isLatest = index === 0;
-                const actionIcon =
-                  record.action === 0 ? (
-                    <ArrowRightToLine className="h-5 w-5" />
-                  ) : (
-                    <ArrowLeftFromLine className="h-5 w-5" />
-                  );
-                const actionColor =
-                  record.action === 0
-                    ? "border-teal-500 dark:border-teal-500"
-                    : "border-sky-500 dark:border-sky-500";
-                const methodIcon =
-                  record.method === 1 ? (
-                    <Fingerprint className="h-3 w-3" />
-                  ) : record.method === 4 ? (
-                    <IdCard className="h-3 w-3" />
-                  ) : null;
-
-                if (isLatest) {
-                  // Latest record - Full width highlight card
-                  return (
-                    <Card
-                      key={`${record.user_id}-${record.timestamp}-${index}`}
-                    >
-                      <CardContent className="flex items-center gap-6 p-6 rounded-xl transition-all animate-in slide-in-from-top-2">
-                        {/* Avatar */}
-                        <Avatar
-                          className={cn(
-                            "size-32 flex-shrink-0 border-2",
-                            actionColor
-                          )}
-                        >
-                          <AvatarImage
-                            src={buildAvatarUrl(
-                              record.avatar_url,
-                              resourceDomain
-                            )}
-                            alt={record.name}
-                          />
-                          <AvatarFallback className="text-3xl font-bold">
-                            {record.name ? (
-                              record.name
-                                .split(" ")
-                                .map((n) => n[0])
-                                .join("")
-                                .toUpperCase()
-                                .slice(0, 2)
-                            ) : (
-                              <User className="h-16 w-16" />
-                            )}
-                          </AvatarFallback>
-                        </Avatar>
-
-                        {/* Info */}
-                        <div className="flex-1 min-w-0 space-y-3">
-                          <div className="font-bold text-3xl truncate flex items-center gap-4">
-                            {record.name}
-                            <Badge
-                              variant={"outline"}
-                              className={`gap-2 ${actionColor} `}
-                            >
-                              {actionIcon}
-                              {PUNCH_ACTION_MAP[record.action] || "Unknown"}
-                            </Badge>
-                          </div>
-                          <div className="flex items-center gap-4 flex-wrap">
-                            <div className="font-mono font-bold text-2xl">
-                              {record.timestamp.split(" ")[1]}
-                            </div>
-                            {methodIcon && (
-                              <Badge
-                                variant="outline"
-                                className="gap-1 text-sm px-3 py-1"
-                              >
-                                {methodIcon}
-                                {ATTENDANCE_METHOD_MAP[record.method] ||
-                                  "Unknown"}
-                              </Badge>
-                            )}
-                            {devices.length > 1 && (
-                              <Badge
-                                variant="secondary"
-                                className="text-sm px-3 py-1"
-                              >
-                                {getDeviceName(record.device_id)}
-                              </Badge>
-                            )}
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  );
-                }
-
-                // Other records - Grid layout
-                return null;
-              })}
-
-              {/* Grid for other records */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 ">
-                {filteredAttendance.slice(1).map((record, index) => {
-                  const actualIndex = index + 1;
+            <div className="space-y-6">
+              {/* Latest Attendance - Large Display with Avatar (2/3 ratio rectangle) */}
+              {filteredAttendance.length > 0 &&
+                (() => {
+                  const latestRecord = filteredAttendance[0];
+                  const displayName =
+                    latestRecord.full_name || latestRecord.name;
                   const actionIcon =
-                    record.action === 0 ? (
-                      <ArrowRightToLine className="h-4 w-4" />
+                    latestRecord.action === 0 ? (
+                      <ArrowRightToLine className="h-6 w-6" />
                     ) : (
-                      <ArrowLeftFromLine className="h-4 w-4" />
+                      <ArrowLeftFromLine className="h-6 w-6" />
                     );
                   const actionColor =
-                    record.action === 0
-                      ? "border-teal-500 dark:border-teal-500"
-                      : "border-sky-500 dark:border-sky-500";
+                    latestRecord.action === 0
+                      ? "border-teal-500 dark:border-teal-500 bg-teal-50 dark:bg-teal-950"
+                      : "border-sky-500 dark:border-sky-500 bg-sky-50 dark:bg-sky-950";
                   const methodIcon =
-                    record.method === 1 ? (
-                      <Fingerprint className="h-3 w-3" />
-                    ) : record.method === 4 ? (
-                      <IdCard className="h-3 w-3" />
+                    latestRecord.method === 1 ? (
+                      <Fingerprint className="h-4 w-4" />
+                    ) : latestRecord.method === 4 ? (
+                      <IdCard className="h-4 w-4" />
                     ) : null;
 
                   return (
-                    <Card
-                      key={`${record.user_id}-${record.timestamp}-${actualIndex}`}
-                    >
-                      <CardContent className="flex items-center gap-4">
-                        {/* Avatar */}
-                        <Avatar
-                          className={cn(
-                            "h-16 w-16 flex-shrink-0 border-2",
-                            actionColor
-                          )}
-                        >
-                          <AvatarImage
-                            src={buildAvatarUrl(
-                              record.avatar_url,
-                              resourceDomain
-                            )}
-                            alt={record.name}
-                          />
-                          <AvatarFallback className="text-sm">
-                            {record.name ? (
-                              record.name
-                                .split(" ")
-                                .map((n) => n[0])
-                                .join("")
-                                .toUpperCase()
-                                .slice(0, 2)
-                            ) : (
-                              <User className="h-8 w-8" />
-                            )}
-                          </AvatarFallback>
-                        </Avatar>
-
-                        {/* Info */}
-                        <div className="flex-1 min-w-0 space-y-1">
-                          <div className="font-semibold truncate flex items-center gap-4">
-                            {record.name}
-                            <Badge
-                              variant={"outline"}
-                              className={`gap-1 ${actionColor}`}
+                    <Card className="border-2 shadow-lg">
+                      <CardContent className="p-6">
+                        <div className="flex gap-6">
+                          {/* Avatar - Rectangle with 2/3 ratio (width:height) */}
+                          <div className="flex-shrink-0 w-64">
+                            <Avatar
+                              className={cn(
+                                "w-64 h-96 rounded-2xl border-4 shadow-xl",
+                                actionColor
+                              )}
                             >
-                              {actionIcon}
-                              {PUNCH_ACTION_MAP[record.action] || "Unknown"}
-                            </Badge>
+                              <AvatarImage
+                                src={buildAvatarUrl(
+                                  latestRecord.avatar_url,
+                                  resourceDomain
+                                )}
+                                alt={displayName}
+                                className="object-cover"
+                              />
+                              <AvatarFallback className="text-6xl font-bold rounded-lg">
+                                {displayName ? (
+                                  displayName
+                                    .split(" ")
+                                    .map((n) => n[0])
+                                    .join("")
+                                    .toUpperCase()
+                                    .slice(0, 2)
+                                ) : (
+                                  <User className="h-32 w-32" />
+                                )}
+                              </AvatarFallback>
+                            </Avatar>
                           </div>
 
-                          <div className="font-mono text-xs text-muted-foreground">
-                            {record.timestamp.split(" ")[1]}
-                          </div>
-                          <div className="flex items-center gap-1 flex-wrap">
-                            {methodIcon && (
+                          {/* Information Panel */}
+                          <div className="flex-1 space-y-4">
+                            {/* Full name from external system */}
+                            <div className="space-y-1">
+                              <div className="text-sm text-muted-foreground font-medium">
+                                Tên hệ thống
+                              </div>
+                              <div className="text-4xl font-semibold">
+                                {latestRecord.full_name || "-"}
+                              </div>
+                            </div>
+
+                            {/* Time */}
+                            <div className="space-y-1">
+                              <div className="text-sm text-muted-foreground font-medium">
+                                Thời gian
+                              </div>
+                              <div className="font-mono font-bold text-3xl text-primary">
+                                {latestRecord.timestamp.split(" ")[1]}
+                              </div>
+                            </div>
+
+                            {/* Employee Information Grid */}
+                            <div className="grid grid-cols-2 gap-4 pt-2">
+                              {/* User ID on device */}
+                              <div className="space-y-1">
+                                <div className="text-sm text-muted-foreground font-medium">
+                                  ID người dùng trên máy
+                                </div>
+                                <div className="text-lg font-semibold font-mono">
+                                  {latestRecord.user_id}
+                                </div>
+                              </div>
+
+                              {/* Employee Code */}
+                              <div className="space-y-1">
+                                <div className="text-sm text-muted-foreground font-medium">
+                                  Mã nhân viên
+                                </div>
+                                <div className="text-lg font-semibold">
+                                  {latestRecord.employee_code || "-"}
+                                </div>
+                              </div>
+
+                              {/* Name on device */}
+                              <div className="space-y-1">
+                                <div className="text-sm text-muted-foreground font-medium">
+                                  Tên trên máy
+                                </div>
+                                <div className="text-lg font-semibold">
+                                  {latestRecord.name}
+                                </div>
+                              </div>
+
+                              {/* Position */}
+                              <div className="space-y-1">
+                                <div className="text-sm text-muted-foreground font-medium">
+                                  Vị trí
+                                </div>
+                                <div className="text-lg font-semibold">
+                                  {latestRecord.position || "-"}
+                                </div>
+                              </div>
+
+                              {/* Department */}
+                              <div className="space-y-1">
+                                <div className="text-sm text-muted-foreground font-medium">
+                                  Phòng ban
+                                </div>
+                                <div className="text-lg font-semibold">
+                                  {latestRecord.department || "-"}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Method and Device badges */}
+                            <div className="flex items-center gap-3 flex-wrap pt-2">
+                              {/* Action Badge */}
                               <Badge
                                 variant="outline"
-                                className="gap-1 text-xs"
+                                className={`gap-2 text-sm px-3 py-1.5 ${actionColor}`}
                               >
-                                {methodIcon}
-                                {ATTENDANCE_METHOD_MAP[record.method] ||
-                                  "Unknown"}
+                                {actionIcon}
+                                {PUNCH_ACTION_MAP[latestRecord.action] ||
+                                  "Không xác định"}
                               </Badge>
-                            )}
-                            {devices.length > 1 && (
-                              <Badge variant="secondary" className="text-xs">
-                                {getDeviceName(record.device_id)}
-                              </Badge>
-                            )}
+                              {methodIcon && (
+                                <Badge
+                                  variant="outline"
+                                  className="gap-2 text-sm px-3 py-1.5"
+                                >
+                                  {methodIcon}
+                                  {ATTENDANCE_METHOD_MAP[latestRecord.method] ||
+                                    "Không xác định"}
+                                </Badge>
+                              )}
+                              {devices.length > 1 && (
+                                <Badge
+                                  variant="secondary"
+                                  className="text-sm px-3 py-1.5"
+                                >
+                                  <Monitor className="h-3 w-3 mr-1" />
+                                  {getDeviceName(latestRecord.device_id)}
+                                </Badge>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </CardContent>
                     </Card>
                   );
-                })}
-              </div>
+                })()}
+
+              {/* History Table - Previous Actions */}
+              {filteredAttendance.length > 1 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Lịch sử chấm công</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-32">Thời gian</TableHead>
+                          <TableHead>Tên</TableHead>
+                          <TableHead className="w-32">Mã NV</TableHead>
+                          <TableHead className="w-32">ID máy</TableHead>
+                          <TableHead className="w-32">Phòng ban</TableHead>
+                          <TableHead className="w-24">Vị trí</TableHead>
+                          <TableHead className="w-28">Hành động</TableHead>
+                          <TableHead className="w-28">Phương thức</TableHead>
+                          {devices.length > 1 && (
+                            <TableHead className="w-32">Thiết bị</TableHead>
+                          )}
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredAttendance.slice(1).map((record, index) => {
+                          const displayName = record.full_name || record.name;
+                          const actionIcon =
+                            record.action === 0 ? (
+                              <ArrowRightToLine className="h-4 w-4" />
+                            ) : (
+                              <ArrowLeftFromLine className="h-4 w-4" />
+                            );
+                          const actionColor =
+                            record.action === 0
+                              ? "text-teal-600 dark:text-teal-400"
+                              : "text-sky-600 dark:text-sky-400";
+                          const methodIcon =
+                            record.method === 1 ? (
+                              <Fingerprint className="h-4 w-4" />
+                            ) : record.method === 4 ? (
+                              <IdCard className="h-4 w-4" />
+                            ) : null;
+
+                          return (
+                            <TableRow
+                              key={`${record.user_id}-${record.timestamp}-${index}`}
+                            >
+                              <TableCell className="font-mono text-sm">
+                                {record.timestamp.split(" ")[1]}
+                              </TableCell>
+                              <TableCell className="font-medium flex gap-2 items-center">
+                                <Avatar className={cn(actionColor)}>
+                                  <AvatarImage
+                                    src={buildAvatarUrl(
+                                      record.avatar_url,
+                                      resourceDomain
+                                    )}
+                                    alt={displayName}
+                                    className="object-cover"
+                                  />
+                                  <AvatarFallback>
+                                    {displayName ? (
+                                      displayName
+                                        .split(" ")
+                                        .map((n) => n[0])
+                                        .join("")
+                                        .toUpperCase()
+                                        .slice(0, 2)
+                                    ) : (
+                                      <User className="h-32 w-32" />
+                                    )}
+                                  </AvatarFallback>
+                                </Avatar>
+                                {displayName}
+                              </TableCell>
+                              <TableCell className="font-mono">
+                                {record.employee_code || "-"}
+                              </TableCell>
+                              <TableCell className="font-mono">
+                                {record.user_id}
+                              </TableCell>
+                              <TableCell>{record.department || "-"}</TableCell>
+                              <TableCell>{record.position || "-"}</TableCell>
+                              <TableCell>
+                                <div
+                                  className={`flex items-center gap-1 ${actionColor}`}
+                                >
+                                  {actionIcon}
+                                  <span className="text-sm font-medium">
+                                    {PUNCH_ACTION_MAP[record.action] || "N/A"}
+                                  </span>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-1">
+                                  {methodIcon}
+                                  <span className="text-sm">
+                                    {ATTENDANCE_METHOD_MAP[record.method] ||
+                                      "N/A"}
+                                  </span>
+                                </div>
+                              </TableCell>
+                              {devices.length > 1 && (
+                                <TableCell>
+                                  <Badge
+                                    variant="secondary"
+                                    className="text-xs"
+                                  >
+                                    {getDeviceName(record.device_id)}
+                                  </Badge>
+                                </TableCell>
+                              )}
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              )}
             </div>
           )}
         </CardContent>

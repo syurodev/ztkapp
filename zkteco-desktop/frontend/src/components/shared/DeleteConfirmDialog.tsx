@@ -46,10 +46,10 @@ export function DeleteConfirmDialog({
             </div>
             <div>
               <AlertDialogTitle className="text-lg font-semibold">
-                Delete Device
+                Xóa thiết bị
               </AlertDialogTitle>
               <AlertDialogDescription className="text-sm text-muted-foreground">
-                This action cannot be undone
+                Thao tác này không thể hoàn tác
               </AlertDialogDescription>
             </div>
           </div>
@@ -65,7 +65,7 @@ export function DeleteConfirmDialog({
                   <span className="font-medium">{device.name}</span>
                   {isActiveDevice && (
                     <Badge variant="default" className="bg-teal-400">
-                      Active
+                      Đang dùng
                     </Badge>
                   )}
                 </div>
@@ -77,7 +77,7 @@ export function DeleteConfirmDialog({
 
             {device.device_info?.serial_number && (
               <div className="text-xs text-gray-500">
-                Serial: {device.device_info.serial_number}
+                Số serial: {device.device_info.serial_number}
               </div>
             )}
           </div>
@@ -87,15 +87,13 @@ export function DeleteConfirmDialog({
             <AlertTriangle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
             <div className="text-sm">
               <p className="font-medium text-yellow-800">
-                Are you sure you want to delete this device?
+                Bạn có chắc chắn muốn xóa thiết bị này?
               </p>
               <p className="text-yellow-700 mt-1">
-                This will permanently remove the device configuration and
-                disconnect any active connections.
+                Hành động này sẽ xóa cấu hình thiết bị và ngắt mọi kết nối đang hoạt động.
                 {isActiveDevice && (
                   <span className="block mt-1 font-medium">
-                    ⚠️ This is your active device. You'll need to activate
-                    another device after deletion.
+                    ⚠️ Đây là thiết bị đang hoạt động. Bạn cần kích hoạt thiết bị khác sau khi xóa.
                   </span>
                 )}
               </p>
@@ -105,7 +103,7 @@ export function DeleteConfirmDialog({
 
         <AlertDialogFooter className="gap-2">
           <AlertDialogCancel disabled={isLoading} className="flex-1">
-            Cancel
+            Hủy
           </AlertDialogCancel>
           <AlertDialogAction
             onClick={handleConfirm}
@@ -115,12 +113,12 @@ export function DeleteConfirmDialog({
             {isLoading ? (
               <div className="flex items-center gap-2">
                 <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                Deleting...
+                Đang xóa...
               </div>
             ) : (
               <div className="flex items-center gap-2">
                 <Trash2 className="h-4 w-4" />
-                Delete Device
+                Xóa thiết bị
               </div>
             )}
           </AlertDialogAction>

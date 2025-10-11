@@ -35,13 +35,13 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { title: "Service Status", icon: Server, href: "/", badge: "running" },
-  { title: "Device Management", icon: Monitor, href: "/devices" },
-  { title: "User Management", icon: Users, href: "/users" },
-  { title: "Attendance", icon: Clock, href: "/attendance" },
-  { title: "Live Attendance", icon: Activity, href: "/live-attendance" },
-  { title: "Logs", icon: FileText, href: "/logs" },
-  { title: "Settings", icon: Settings, href: "/settings" },
+  { title: "Trạng thái dịch vụ", icon: Server, href: "/" },
+  { title: "Quản lý thiết bị", icon: Monitor, href: "/devices" },
+  { title: "Quản lý người dùng", icon: Users, href: "/users" },
+  { title: "Chấm công", icon: Clock, href: "/attendance" },
+  { title: "Chấm công realtime", icon: Activity, href: "/live-attendance" },
+  { title: "Nhật ký", icon: FileText, href: "/logs" },
+  { title: "Cài đặt", icon: Settings, href: "/settings" },
 ];
 
 export function AppLayout({ children }: AppLayoutProps) {
@@ -95,9 +95,9 @@ export function AppLayout({ children }: AppLayoutProps) {
   };
 
   const getStatusText = () => {
-    if (isStarting) return "starting";
-    if (error) return "error";
-    return isBackendRunning ? "running" : "stopped";
+    if (isStarting) return "đang khởi động";
+    if (error) return "lỗi";
+    return isBackendRunning ? "đang chạy" : "đã dừng";
   };
 
   return (
@@ -116,12 +116,14 @@ export function AppLayout({ children }: AppLayoutProps) {
               {getStatusIcon()}
               {sidebarOpen && (
                 <div>
-                  <h1 className="text-lg font-semibold">HAO HOA Time Clock</h1>
+                  <h1 className="text-lg font-semibold">
+                    HAO HOA <br /> Time Clock
+                  </h1>
                   <div className="text-xs text-muted-foreground flex items-center gap-1">
                     <div
                       className={cn("w-2 h-2 rounded-full", getStatusColor())}
                     />
-                    Service {getStatusText()}
+                    Dịch vụ {getStatusText()}
                   </div>
                 </div>
               )}
@@ -163,7 +165,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                     <span className="ml-2 flex-1 text-left">{item.title}</span>
                   )}
                   {sidebarOpen && item.badge && (
-                    <Badge variant="secondary" className="ml-auto">
+                    <Badge variant="secondary" className="ml-0 text-xs">
                       {item.badge}
                     </Badge>
                   )}
@@ -181,7 +183,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold">
               {navItems.find((item) => item.href === location.pathname)
-                ?.title || "Dashboard"}
+                ?.title || "Tổng quan"}
             </h2>
             <div className="flex items-center space-x-3">
               <DeviceSelector />
@@ -198,14 +200,14 @@ export function AppLayout({ children }: AppLayoutProps) {
                 }
                 title={
                   !isBackendRunning && !isStarting
-                    ? "Click to start backend"
+                    ? "Click để khởi chạy backend"
                     : undefined
                 }
               >
                 <div className={cn("w-2 h-2 rounded-full", getStatusColor())} />
-                Backend Service
+                Dịch vụ backend
                 {!isBackendRunning && !isStarting && (
-                  <span className="text-xs ml-1">(click to start)</span>
+                  <span className="text-xs ml-1">(bấm để khởi chạy)</span>
                 )}
               </Badge>
               <ThemeToggle />

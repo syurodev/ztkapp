@@ -1,15 +1,19 @@
-// Map for attendance method (what the 'status' field represents)
+// Map for attendance method (VERIFY field - verification method)
+// 0=password, 1=fingerprint, 2=face, 3=card, 4=combined
 export const ATTENDANCE_METHOD_MAP: { [key: number]: string } = {
-  1: "Fingerprint",
-  4: "Card",
+  0: "Mật khẩu",
+  1: "Vân tay",
+  2: "Khuôn mặt",
+  3: "Thẻ",
+  4: "Kết hợp",
 };
 
 // Map for punch action (what the 'punch' field represents)
 export const PUNCH_ACTION_MAP: { [key: number]: string } = {
-  0: "Check-in",
-  1: "Check-out",
-  2: "Break",
-  3: "Interrupt",
-  4: "Overtime Start",
-  5: "Overtime End",
+  0: "Vào ca",
+  1: "Ra ca",
+  2: "Nghỉ giải lao",
+  3: "Tạm dừng",
+  4: "Bắt đầu tăng ca",
+  5: "Kết thúc tăng ca",
 };

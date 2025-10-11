@@ -4,12 +4,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -24,14 +18,22 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useDevice } from "@/contexts/DeviceContext";
 import { Device, devicesAPI } from "@/lib/api";
 import {
   AlertCircle,
   CheckCircle2,
   Monitor,
+  Play,
   Plus,
   RefreshCw,
+  SearchCheck,
   Settings,
   Trash2,
 } from "lucide-react";
@@ -68,7 +70,7 @@ export function DeviceManagement() {
     if (typeof error === "string") {
       return error;
     }
-    return "An unexpected error occurred";
+    return "Đã xảy ra lỗi không xác định";
   };
 
   const openAddDialog = () => {
@@ -90,13 +92,13 @@ export function DeviceManagement() {
     setIsLoading(true);
     try {
       await devicesAPI.addDevice(formData);
-      toast.success("Device added successfully");
+      toast.success("Thêm thiết bị thành công");
       setIsAddDialogOpen(false);
       // Refresh devices in context - this will also update DeviceSelector
       await refreshDevices();
     } catch (error) {
       const errorMessage = getErrorMessage(error);
-      toast.error(`Failed to add device: ${errorMessage}`);
+      toast.error(`Không thể thêm thiết bị: ${errorMessage}`);
       console.error("Error adding device:", error);
       throw error; // Re-throw to let DeviceForm handle it
     } finally {
@@ -106,20 +108,20 @@ export function DeviceManagement() {
 
   const handleUpdateDevice = async (formData: DeviceFormData) => {
     if (!selectedDevice) {
-      toast.error("No device selected for update");
+      toast.error("Chưa chọn thiết bị để cập nhật");
       return;
     }
 
     setIsLoading(true);
     try {
       await devicesAPI.updateDevice(selectedDevice.id, formData);
-      toast.success("Device updated successfully");
+      toast.success("Cập nhật thiết bị thành công");
       setIsEditDialogOpen(false);
       // Refresh devices in context - this will also update DeviceSelector
       await refreshDevices();
     } catch (error) {
       const errorMessage = getErrorMessage(error);
-      toast.error(`Failed to update device: ${errorMessage}`);
+      toast.error(`Không thể cập nhật thiết bị: ${errorMessage}`);
       console.error("Error updating device:", error);
       throw error; // Re-throw to let DeviceForm handle it
     } finally {
@@ -133,13 +135,13 @@ export function DeviceManagement() {
     setIsLoading(true);
     try {
       await devicesAPI.deleteDevice(selectedDevice.id);
-      toast.success("Device deleted successfully");
+      toast.success("Xóa thiết bị thành công");
       setIsDeleteDialogOpen(false);
       // Refresh devices in context - this will also update DeviceSelector
       await refreshDevices();
     } catch (error) {
       const errorMessage = getErrorMessage(error);
-      toast.error(`Failed to delete device: ${errorMessage}`);
+      toast.error(`Không thể xóa thiết bị: ${errorMessage}`);
       console.error("Error deleting device:", error);
     } finally {
       setIsLoading(false);
@@ -150,12 +152,12 @@ export function DeviceManagement() {
     setIsLoading(true);
     try {
       await devicesAPI.activateDevice(deviceId);
-      toast.success("Device activated successfully");
+      toast.success("Kích hoạt thiết bị thành công");
       // Refresh devices in context - this will also update DeviceSelector
       await refreshDevices();
     } catch (error) {
       const errorMessage = getErrorMessage(error);
-      toast.error(`Failed to activate device: ${errorMessage}`);
+      toast.error(`Không thể kích hoạt thiết bị: ${errorMessage}`);
       console.error("Error activating device:", error);
     } finally {
       setIsLoading(false);
@@ -167,13 +169,13 @@ export function DeviceManagement() {
     try {
       const result = await devicesAPI.testDevice(deviceId);
       if (result.success) {
-        toast.success("Device connection successful");
+        toast.success("Kết nối thiết bị thành công");
       } else {
-        toast.error(`Connection failed: ${result.error}`);
+        toast.error(`Kết nối thất bại: ${result.error}`);
       }
     } catch (error) {
       const errorMessage = getErrorMessage(error);
-      toast.error(`Failed to test device connection: ${errorMessage}`);
+      toast.error(`Không thể kiểm tra kết nối thiết bị: ${errorMessage}`);
       console.error("Error testing device:", error);
     } finally {
       setIsLoading(false);
@@ -192,17 +194,30 @@ export function DeviceManagement() {
   };
 
   const renderStatusCell = (device: Device) => {
+    const isPushDevice = device.device_type === "push";
+
+    // Push devices are always connected (they push data to server)
+    if (isPushDevice) {
+      return (
+        <div className="flex items-center gap-2">
+          <CheckCircle2 className="h-4 w-4 text-green-500" />
+          <span>Đã kết nối</span>
+        </div>
+      );
+    }
+
+    // Pull devices use health monitoring
     const healthEvent = getDeviceHealthStatus(device.id);
 
     if (healthEvent) {
       const isSuccess = healthEvent.status === "success";
       const Icon = isSuccess ? CheckCircle2 : AlertCircle;
-      const statusLabel = isSuccess ? "Online" : "Unreachable";
+      const statusLabel = isSuccess ? "Sẵn sàng" : "Không liên lạc được";
 
       const tooltipContent = [
         formatPingTime(healthEvent.timestamp),
         healthEvent.message,
-        healthEvent.source && `Source: ${healthEvent.source.replace(/_/g, " ")}`,
+        healthEvent.source && `Nguồn: ${healthEvent.source.replace(/_/g, " ")}`,
       ]
         .filter(Boolean)
         .join("\n");
@@ -212,7 +227,11 @@ export function DeviceManagement() {
           <Tooltip>
             <TooltipTrigger asChild>
               <div className="flex items-center gap-2 cursor-default">
-                <Icon className={`h-4 w-4 ${isSuccess ? "text-green-500" : "text-red-500"}`} />
+                <Icon
+                  className={`h-4 w-4 ${
+                    isSuccess ? "text-green-500" : "text-red-500"
+                  }`}
+                />
                 <span>{statusLabel}</span>
               </div>
             </TooltipTrigger>
@@ -235,7 +254,9 @@ export function DeviceManagement() {
     return (
       <div className="flex items-center gap-2">
         {fallbackIcon}
-        <span>{device.is_active ? "Awaiting ping" : "Inactive"}</span>
+        <span>
+          {device.is_active ? "Đang chờ tín hiệu" : "Không hoạt động"}
+        </span>
       </div>
     );
   };
@@ -243,7 +264,7 @@ export function DeviceManagement() {
   return (
     <div className="container mx-auto p-4 space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold">Device Management</h1>
+        <h1 className="text-3xl font-bold">Quản lý thiết bị</h1>
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
@@ -252,11 +273,11 @@ export function DeviceManagement() {
             className="flex items-center gap-2"
           >
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-            Reload
+            Tải lại
           </Button>
           <Button onClick={openAddDialog} className="flex items-center gap-2">
             <Plus className="h-4 w-4" />
-            Add Device
+            Thêm thiết bị
           </Button>
         </div>
       </div>
@@ -265,18 +286,18 @@ export function DeviceManagement() {
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-8">
             <Monitor className="h-16 w-16 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-medium mb-2">No devices configured</h3>
+            <h3 className="text-lg font-medium mb-2">Chưa có thiết bị nào</h3>
             <p className="text-muted-foreground mb-4">
-              Add your first ZKTeco device to get started
+              Thêm thiết bị ZKTeco đầu tiên để bắt đầu sử dụng
             </p>
-            <Button onClick={openAddDialog}>Add Device</Button>
+            <Button onClick={openAddDialog}>Thêm thiết bị</Button>
           </CardContent>
         </Card>
       ) : (
         <Card>
           <CardHeader>
             <div className="flex justify-between items-center">
-              <CardTitle>Devices</CardTitle>
+              <CardTitle>Danh sách thiết bị</CardTitle>
               <Button
                 variant="ghost"
                 size="sm"
@@ -287,7 +308,7 @@ export function DeviceManagement() {
                 <RefreshCw
                   className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
                 />
-                Refresh
+                Làm mới
               </Button>
             </div>
           </CardHeader>
@@ -295,77 +316,127 @@ export function DeviceManagement() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Device Name</TableHead>
-                  <TableHead>IP Address</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Serial Number</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <TableHead>Tên hiển thị</TableHead>
+                  <TableHead>Tên thiết bị</TableHead>
+                  <TableHead>Loại</TableHead>
+                  <TableHead>Địa chỉ IP</TableHead>
+                  <TableHead>Trạng thái</TableHead>
+                  <TableHead>Số serial</TableHead>
+                  <TableHead>Hành động</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {devices.map((device) => (
-                  <TableRow key={device.id}>
-                    <TableCell className="font-medium">
-                      <div className="flex items-center gap-2">
-                        {device.name}
-                        {activeDeviceId === device.id && (
-                          <Badge variant="default" className="bg-teal-400">
-                            Active
-                          </Badge>
+                {devices.map((device) => {
+                  const isPushDevice = device.device_type === "push";
+
+                  return (
+                    <TableRow key={device.id}>
+                      <TableCell className="font-medium">
+                        <div className="flex items-center gap-2">
+                          {device.name}
+                          {activeDeviceId === device.id && (
+                            <Badge variant="default" className="bg-teal-400">
+                              Đang dùng
+                            </Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="font-medium">
+                        {device.device_info?.device_name || "Không rõ"}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={isPushDevice ? "secondary" : "outline"}>
+                          {isPushDevice ? "Push" : "Pull"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {isPushDevice ? (
+                          <span className="text-muted-foreground">
+                            Không áp dụng
+                          </span>
+                        ) : (
+                          `${device.ip}:${device.port}`
                         )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="font-medium">
-                      {device.device_info?.device_name || "Unknown"}
-                    </TableCell>
-                    <TableCell>
-                      {device.ip}:{device.port}
-                    </TableCell>
-                    <TableCell>{renderStatusCell(device)}</TableCell>
-                    <TableCell>
-                      {device.device_info?.serial_number || "Unknown"}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleTestDevice(device.id)}
-                          disabled={loading}
-                        >
-                          Test
-                        </Button>
-                        {activeDeviceId !== device.id && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleActivateDevice(device.id)}
-                            disabled={loading}
-                          >
-                            Activate
-                          </Button>
-                        )}
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => openEditDialog(device)}
-                          disabled={loading}
-                        >
-                          <Settings className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={() => openDeleteDialog(device)}
-                          disabled={loading}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                      </TableCell>
+                      <TableCell>{renderStatusCell(device)}</TableCell>
+                      <TableCell>
+                        {device.device_info?.serial_number || "Không rõ"}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          {/* Test button only for Pull devices */}
+                          {!isPushDevice && (
+                            <Tooltip>
+                              <TooltipTrigger>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleTestDevice(device.id)}
+                                  disabled={loading}
+                                >
+                                  <SearchCheck />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Kiểm tra</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                          {activeDeviceId !== device.id && (
+                            <Tooltip>
+                              <TooltipTrigger>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() =>
+                                    handleActivateDevice(device.id)
+                                  }
+                                  disabled={loading}
+                                >
+                                  <Play />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Kích hoạt</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                          <Tooltip>
+                            <TooltipTrigger>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => openEditDialog(device)}
+                                disabled={loading}
+                              >
+                                <Settings className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Cài đặt</p>
+                            </TooltipContent>
+                          </Tooltip>
+
+                          <Tooltip>
+                            <TooltipTrigger>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => openDeleteDialog(device)}
+                                disabled={loading}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Xoá</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </CardContent>

@@ -26,7 +26,7 @@ const detectApiHost = async (): Promise<string> => {
     } catch (error) {
       console.log(
         `Host ${host} not reachable:`,
-        error instanceof Error ? error.message : error,
+        error instanceof Error ? error.message : error
       );
     }
   }
@@ -52,14 +52,14 @@ export const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     console.log(
-      `Making ${config.method?.toUpperCase()} request to ${config.url}`,
+      `Making ${config.method?.toUpperCase()} request to ${config.url}`
     );
     return config;
   },
   (error) => {
     console.error("Request error:", error);
     return Promise.reject(error);
-  },
+  }
 );
 
 // Auto-restart backend function
@@ -72,7 +72,7 @@ const attemptBackendRestart = async (): Promise<boolean> => {
   try {
     backendStartupAttempts++;
     console.log(
-      `Attempting to start backend (attempt ${backendStartupAttempts}/${MAX_STARTUP_ATTEMPTS})`,
+      `Attempting to start backend (attempt ${backendStartupAttempts}/${MAX_STARTUP_ATTEMPTS})`
     );
 
     const result = await invoke<string>("start_backend");
@@ -159,7 +159,7 @@ api.interceptors.response.use(
     }
 
     return Promise.reject(error);
-  },
+  }
 );
 
 // Service Status API
@@ -222,11 +222,24 @@ export const userAPI = {
     try {
       const response = await api.post(
         "/users/sync",
-        deviceId ? { device_id: deviceId } : {},
+        deviceId ? { device_id: deviceId } : {}
       );
       return response.data;
     } catch (error) {
-      throw new Error("Failed to sync users from device");
+      throw new Error((error as any)?.["response"]["data"]["error"]);
+    }
+  },
+
+  // Alias for syncUsers (for backward compatibility)
+  syncUsersFromDevice: async (deviceId?: string) => {
+    try {
+      const response = await api.post(
+        "/users/sync",
+        deviceId ? { device_id: deviceId } : {}
+      );
+      return response.data;
+    } catch (error) {
+      throw new Error((error as any)?.["response"]["data"]["error"]);
     }
   },
 
@@ -236,7 +249,7 @@ export const userAPI = {
       const response = await api.post("/user", userData);
       return response.data;
     } catch (error) {
-      throw new Error("Failed to create user");
+      throw new Error((error as any)?.["response"]["data"]["error"]);
     }
   },
 
@@ -246,7 +259,7 @@ export const userAPI = {
       const response = await api.delete(`/user/${userId}`);
       return response.data;
     } catch (error) {
-      throw new Error("Failed to delete user");
+      throw new Error((error as any)?.["response"]["data"]["error"]);
     }
   },
 
@@ -257,7 +270,8 @@ export const userAPI = {
       return response.data;
     } catch (error: any) {
       // Preserve the error message from the API response
-      const message = error.response?.data?.message || error.message || "Failed to sync user";
+      const message =
+        error.response?.data?.message || error.message || "Failed to sync user";
       const newError = new Error(message);
       (newError as any).response = error.response;
       throw newError;
@@ -273,7 +287,7 @@ export const fingerprintAPI = {
       const response = await api.get(`/user/${userId}/fingerprint/${tempId}`);
       return response.data;
     } catch (error) {
-      throw new Error("Failed to get fingerprint");
+      throw new Error((error as any)?.["response"]["data"]["error"]);
     }
   },
 
@@ -285,7 +299,7 @@ export const fingerprintAPI = {
       });
       return response.data;
     } catch (error) {
-      throw new Error("Failed to create fingerprint");
+      throw new Error((error as any)?.["response"]["data"]["error"]);
     }
   },
 
@@ -293,11 +307,11 @@ export const fingerprintAPI = {
   deleteFingerprint: async (userId: number, tempId: number) => {
     try {
       const response = await api.delete(
-        `/user/${userId}/fingerprint/${tempId}`,
+        `/user/${userId}/fingerprint/${tempId}`
       );
       return response.data;
     } catch (error) {
-      throw new Error("Failed to delete fingerprint");
+      throw new Error((error as any)?.["response"]["data"]["error"]);
     }
   },
 };
@@ -310,7 +324,7 @@ export const deviceAPI = {
       const response = await api.get("/device/capture");
       return response.data;
     } catch (error) {
-      throw new Error("Failed to connect to device");
+      throw new Error((error as any)?.["response"]["data"]["error"]);
     }
   },
 
@@ -320,7 +334,7 @@ export const deviceAPI = {
       const response = await api.get("/device/info");
       return response.data;
     } catch (error) {
-      throw new Error("Failed to get device info");
+      throw new Error((error as any)?.["response"]["data"]["error"]);
     }
   },
 
@@ -330,7 +344,7 @@ export const deviceAPI = {
       const response = await api.post("/device/sync-employee");
       return response.data;
     } catch (error) {
-      throw new Error("Failed to sync employees");
+      throw new Error((error as any)?.["response"]["data"]["error"]);
     }
   },
 };
@@ -379,7 +393,7 @@ export const devicesAPI = {
       return response.data;
     } catch (error) {
       // Re-throw the original error to preserve response data
-      throw error;
+      throw new Error((error as any)?.["response"]["data"]["error"]);
     }
   },
 
@@ -390,7 +404,7 @@ export const devicesAPI = {
       return response.data;
     } catch (error) {
       // Re-throw the original error to preserve response data
-      throw error;
+      throw new Error((error as any)?.["response"]["data"]["error"]);
     }
   },
 
@@ -401,7 +415,7 @@ export const devicesAPI = {
       return response.data;
     } catch (error) {
       // Re-throw the original error to preserve response data
-      throw error;
+      throw new Error((error as any)?.["response"]["data"]["error"]);
     }
   },
 
@@ -412,7 +426,7 @@ export const devicesAPI = {
       return response.data;
     } catch (error) {
       // Re-throw the original error to preserve response data
-      throw error;
+      throw new Error((error as any)?.["response"]["data"]["error"]);
     }
   },
 
@@ -423,7 +437,7 @@ export const devicesAPI = {
       return response.data;
     } catch (error) {
       // Re-throw the original error to preserve response data
-      throw error;
+      throw new Error((error as any)?.["response"]["data"]["error"]);
     }
   },
 
@@ -433,7 +447,7 @@ export const devicesAPI = {
       const response = await api.get(`/devices/${deviceId}/info`);
       return response.data;
     } catch (error) {
-      throw new Error("Failed to get device info");
+      throw new Error((error as any)?.["response"]["data"]["error"]);
     }
   },
 
@@ -444,7 +458,18 @@ export const devicesAPI = {
       return response.data;
     } catch (error) {
       // Re-throw the original error to preserve response data
-      throw error;
+      throw new Error((error as any)?.["response"]["data"]["error"]);
+    }
+  },
+
+  // Sync users from push device (queues DATA UPDATE USERINFO command)
+  syncUsersFromPushDevice: async (deviceId: string) => {
+    try {
+      const response = await api.post(`/devices/${deviceId}/sync-users`);
+      return response.data;
+    } catch (error) {
+      // Re-throw the original error to preserve response data
+      throw new Error((error as any)?.["response"]["data"]["error"]);
     }
   },
 
@@ -454,7 +479,7 @@ export const devicesAPI = {
       const response = await api.post("/devices/capture/start-all");
       return response.data;
     } catch (error) {
-      throw new Error("Failed to start multi-device capture");
+      throw new Error((error as any)?.["response"]["data"]["error"]);
     }
   },
 
@@ -463,7 +488,7 @@ export const devicesAPI = {
       const response = await api.post("/devices/capture/stop-all");
       return response.data;
     } catch (error) {
-      throw new Error("Failed to stop multi-device capture");
+      throw new Error((error as any)?.["response"]["data"]["error"]);
     }
   },
 
@@ -472,7 +497,7 @@ export const devicesAPI = {
       const response = await api.post(`/devices/${deviceId}/capture/start`);
       return response.data;
     } catch (error) {
-      throw new Error(`Failed to start capture for device ${deviceId}`);
+      throw new Error((error as any)?.["response"]["data"]["error"]);
     }
   },
 
@@ -481,7 +506,7 @@ export const devicesAPI = {
       const response = await api.post(`/devices/${deviceId}/capture/stop`);
       return response.data;
     } catch (error) {
-      throw new Error(`Failed to stop capture for device ${deviceId}`);
+      throw new Error((error as any)?.["response"]["data"]["error"]);
     }
   },
 
@@ -490,7 +515,7 @@ export const devicesAPI = {
       const response = await api.get("/devices/capture/status");
       return response.data;
     } catch (error) {
-      throw new Error("Failed to get capture status");
+      throw new Error((error as any)?.["response"]["data"]["error"]);
     }
   },
 
@@ -499,7 +524,7 @@ export const devicesAPI = {
       const response = await api.get(`/devices/${deviceId}/capture/status`);
       return response.data;
     } catch (error) {
-      throw new Error(`Failed to get capture status for device ${deviceId}`);
+      throw new Error((error as any)?.["response"]["data"]["error"]);
     }
   },
 
@@ -553,7 +578,9 @@ export const attendanceAPI = {
       if (options?.device_id) params.set("device_id", options.device_id);
       if (options?.date) params.set("date", options.date);
 
-      const url = `/attendance/logs${params.toString() ? `?${params.toString()}` : ""}`;
+      const url = `/attendance/logs${
+        params.toString() ? `?${params.toString()}` : ""
+      }`;
       const response = await api.get(url);
       return response.data;
     } catch (error) {
@@ -566,7 +593,7 @@ export const attendanceAPI = {
       const response = await api.post(
         "/attendance/sync",
         {},
-        { timeout: 120000 },
+        { timeout: 120000 }
       );
       return response.data;
     } catch (error) {
@@ -584,11 +611,11 @@ export const attendanceAPI = {
           date: options?.date,
           device_id: options?.device_id,
         },
-        { timeout: 60000 },
+        { timeout: 60000 }
       );
       return response.data;
     } catch (error) {
-      throw new Error("Failed to sync daily attendance");
+      throw new Error((error as any)?.["response"]["data"]["error"]);
     }
   },
   previewDailyAttendance: async (options?: {
@@ -600,27 +627,28 @@ export const attendanceAPI = {
       if (options?.date) params.set("date", options.date);
       if (options?.device_id) params.set("device_id", options.device_id);
 
-      const url = `/attendance/daily-preview${params.toString() ? `?${params.toString()}` : ""}`;
+      const url = `/attendance/daily-preview${
+        params.toString() ? `?${params.toString()}` : ""
+      }`;
       const response = await api.get(url);
       return response.data;
     } catch (error) {
-      throw new Error("Failed to preview daily attendance");
+      throw new Error((error as any)?.["response"]["data"]["error"]);
     }
   },
-  getHistory: async (options?: {
-    date?: string;
-    device_id?: string;
-  }) => {
+  getHistory: async (options?: { date?: string; device_id?: string }) => {
     try {
       const params = new URLSearchParams();
       if (options?.date) params.set("date", options.date);
       if (options?.device_id) params.set("device_id", options.device_id);
 
-      const url = `/attendance/history${params.toString() ? `?${params.toString()}` : ""}`;
+      const url = `/attendance/history${
+        params.toString() ? `?${params.toString()}` : ""
+      }`;
       const response = await api.get(url);
       return response.data;
     } catch (error) {
-      throw new Error("Failed to get attendance history");
+      throw new Error((error as any)?.["response"]["data"]["error"]);
     }
   },
 };
@@ -646,7 +674,83 @@ export const configAPI = {
       const response = await api.post("/config", configData);
       return response.data;
     } catch (error) {
-      throw new Error("Failed to update config");
+      throw new Error((error as any)?.["response"]["data"]["error"]);
+    }
+  },
+};
+
+// Settings API
+export const settingsAPI = {
+  getAllSettings: async () => {
+    try {
+      const response = await api.get("/settings");
+      return response.data;
+    } catch (error) {
+      throw new Error((error as any)?.["response"]["data"]["error"]);
+    }
+  },
+  getSetting: async (key: string) => {
+    try {
+      const response = await api.get(`/settings/${key}`);
+      return response.data;
+    } catch (error) {
+      throw new Error((error as any)?.["response"]["data"]["error"]);
+    }
+  },
+  updateSetting: async (key: string, value: string, description?: string) => {
+    try {
+      const response = await api.put(`/settings/${key}`, {
+        value,
+        description,
+      });
+      return response.data;
+    } catch (error) {
+      throw new Error((error as any)?.["response"]["data"]["error"]);
+    }
+  },
+  getCleanupConfig: async () => {
+    try {
+      const response = await api.get("/settings/cleanup/config");
+      return response.data;
+    } catch (error) {
+      throw new Error((error as any)?.["response"]["data"]["error"]);
+    }
+  },
+  updateCleanupConfig: async (config: {
+    retention_days?: number;
+    enabled?: boolean;
+  }) => {
+    try {
+      const response = await api.put("/settings/cleanup/config", config);
+      return response.data;
+    } catch (error) {
+      throw new Error((error as any)?.["response"]["data"]["error"]);
+    }
+  },
+};
+
+// Cleanup API
+export const cleanupAPI = {
+  previewCleanup: async (retentionDays?: number) => {
+    try {
+      const params = retentionDays
+        ? `?retention_days=${retentionDays}`
+        : "";
+      const response = await api.get(`/attendance/cleanup/preview${params}`);
+      return response.data;
+    } catch (error) {
+      throw new Error((error as any)?.["response"]["data"]["error"]);
+    }
+  },
+  executeCleanup: async (retentionDays?: number) => {
+    try {
+      const response = await api.post("/attendance/cleanup", {
+        retention_days: retentionDays,
+        confirmed: true,
+      });
+      return response.data;
+    } catch (error) {
+      throw new Error((error as any)?.["response"]["data"]["error"]);
     }
   },
 };
@@ -664,6 +768,7 @@ export interface Device {
   ping_interval: number;
   force_udp: boolean;
   is_active: boolean;
+  device_type?: "pull" | "push"; // Device type: pull (TCP) or push (HTTP), defaults to 'pull'
   device_info: DeviceInfo;
 }
 
@@ -752,6 +857,12 @@ export interface LiveAttendanceRecord {
   action: number;
   device_id: string;
   is_synced: boolean;
+  // New employee fields from external API
+  full_name?: string;
+  employee_code?: string;
+  position?: string;
+  department?: string;
+  notes?: string;
 }
 
 // Health check
@@ -813,7 +924,7 @@ export const liveAPI = {
         const response = await api.post("/devices/capture/start-all");
         return response.data;
       } catch (error) {
-        throw new Error("Failed to start multi-device capture");
+        throw new Error((error as any)?.["response"]["data"]["error"]);
       }
     },
 
@@ -822,7 +933,7 @@ export const liveAPI = {
         const response = await api.post("/devices/capture/stop-all");
         return response.data;
       } catch (error) {
-        throw new Error("Failed to stop multi-device capture");
+        throw new Error((error as any)?.["response"]["data"]["error"]);
       }
     },
 
@@ -831,7 +942,7 @@ export const liveAPI = {
         const response = await api.post(`/devices/${deviceId}/capture/start`);
         return response.data;
       } catch (error) {
-        throw new Error(`Failed to start capture for device ${deviceId}`);
+        throw new Error((error as any)?.["response"]["data"]["error"]);
       }
     },
 
@@ -840,7 +951,7 @@ export const liveAPI = {
         const response = await api.post(`/devices/${deviceId}/capture/stop`);
         return response.data;
       } catch (error) {
-        throw new Error(`Failed to stop capture for device ${deviceId}`);
+        throw new Error((error as any)?.["response"]["data"]["error"]);
       }
     },
 
@@ -849,16 +960,18 @@ export const liveAPI = {
         const response = await api.get("/devices/capture/status");
         return response.data;
       } catch (error) {
-        throw new Error("Failed to get capture status");
+        throw new Error((error as any)?.["response"]["data"]["error"]);
       }
     },
 
-    getDeviceCaptureStatus: async (deviceId: string): Promise<DeviceCaptureStatus> => {
+    getDeviceCaptureStatus: async (
+      deviceId: string
+    ): Promise<DeviceCaptureStatus> => {
       try {
         const response = await api.get(`/devices/${deviceId}/capture/status`);
         return response.data;
       } catch (error) {
-        throw new Error(`Failed to get capture status for device ${deviceId}`);
+        throw new Error((error as any)?.["response"]["data"]["error"]);
       }
     },
   },
@@ -867,7 +980,7 @@ export const liveAPI = {
 // Health check with better error handling and retries
 export const healthCheck = async (
   retries = 3,
-  delay = 1000,
+  delay = 1000
 ): Promise<boolean> => {
   // First try to detect the correct API host
   console.log("Detecting API host...");
@@ -890,7 +1003,7 @@ export const healthCheck = async (
         });
 
         console.log(
-          `Health check response status: ${response.status} for ${host}`,
+          `Health check response status: ${response.status} for ${host}`
         );
 
         if (response.ok) {
@@ -903,7 +1016,7 @@ export const healthCheck = async (
           return true;
         } else {
           console.warn(
-            `Health check failed with status: ${response.status} for ${host}`,
+            `Health check failed with status: ${response.status} for ${host}`
           );
         }
       } catch (error) {

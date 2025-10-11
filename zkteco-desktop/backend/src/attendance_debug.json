@@ -1,1 +1,72 @@
-[]
+[
+  {
+    "user_id": "1",
+    "name": "Unknown User",
+    "external_user_id": null,
+    "first_checkin": "2025-10-10 10:44:58",
+    "first_checkin_id": 9,
+    "last_checkout": "2025-10-10 14:24:43",
+    "last_checkout_id": 19,
+    "total_checkins": 2,
+    "total_checkouts": 2,
+    "date": "2025-10-10",
+    "device_id": "bfa24841-4582-4a28-ae79-5b49f1d3d31f",
+    "device_serial": "PYA8252300166"
+  },
+  {
+    "user_id": "2",
+    "name": "Unknown User",
+    "external_user_id": null,
+    "first_checkin": "2025-10-10 11:41:52",
+    "first_checkin_id": 12,
+    "last_checkout": null,
+    "last_checkout_id": null,
+    "total_checkins": 1,
+    "total_checkouts": 0,
+    "date": "2025-10-10",
+    "device_id": "bfa24841-4582-4a28-ae79-5b49f1d3d31f",
+    "device_serial": "PYA8252300166"
+  },
+  {
+    "user_id": "3",
+    "name": "Unknown User",
+    "external_user_id": null,
+    "first_checkin": "2025-10-10 12:21:10",
+    "first_checkin_id": 13,
+    "last_checkout": "2025-10-10 14:22:24",
+    "last_checkout_id": 17,
+    "total_checkins": 1,
+    "total_checkouts": 1,
+    "date": "2025-10-10",
+    "device_id": "bfa24841-4582-4a28-ae79-5b49f1d3d31f",
+    "device_serial": "PYA8252300166"
+  },
+  {
+    "user_id": "4",
+    "name": "hhhhh",
+    "external_user_id": 5983,
+    "first_checkin": "2025-10-10 14:11:22",
+    "first_checkin_id": 14,
+    "last_checkout": "2025-10-10 14:23:34",
+    "last_checkout_id": 18,
+    "total_checkins": 2,
+    "total_checkouts": 2,
+    "date": "2025-10-10",
+    "device_id": "bfa24841-4582-4a28-ae79-5b49f1d3d31f",
+    "device_serial": "PYA8252300166"
+  },
+  {
+    "user_id": "5",
+    "name": "ccccc",
+    "external_user_id": 5983,
+    "first_checkin": "2025-10-10 14:26:58",
+    "first_checkin_id": 20,
+    "last_checkout": null,
+    "last_checkout_id": null,
+    "total_checkins": 1,
+    "total_checkouts": 0,
+    "date": "2025-10-10",
+    "device_id": "bfa24841-4582-4a28-ae79-5b49f1d3d31f",
+    "device_serial": "PYA8252300166"
+  }
+]

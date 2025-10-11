@@ -830,6 +830,9 @@ class AttendanceSyncService:
                 'checkin_data_list': filtered_summary
             }
 
+            app_logger.info(sync_data)
+
+
             # Get API key from config
             api_key = config_manager.get_external_api_key()
             if not api_key:
@@ -856,6 +859,9 @@ class AttendanceSyncService:
 
             response.raise_for_status()
             response_data = response.json()
+
+            app_logger.info(response)
+            app_logger.info(response_data)
 
             return {
                 'status_code': response.status_code,

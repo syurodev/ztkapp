@@ -270,6 +270,14 @@ class DatabaseManager:
                 print("notes column added to users table successfully")
             except Exception as e:
                 print(f"Warning: Could not add notes column to users table: {e}")
+
+        if 'employee_object' not in columns:
+            try:
+                print("Adding employee_object column to users table...")
+                cursor.execute('ALTER TABLE users ADD COLUMN employee_object TEXT NULL')
+                print("employee_object column added to users table successfully")
+            except Exception as e:
+                print(f"Warning: Could not add employee_object column to users table: {e}")
     
     def _migrate_attendance_logs_table(self, cursor):
         """Migrate existing attendance_logs table to add sync tracking columns and unique constraint"""

@@ -488,12 +488,13 @@ class ZkService:
                         'employee_id': employee.get('employee_id'),
                         'employee_name': employee.get('employee_name'),
                         'employee_avatar': employee.get('employee_avatar'),
-                        # New fields with safe defaults
-                        'full_name': employee.get('full_name') or employee.get('employee_name') or '',
-                        'employee_code': employee.get('employee_code') or employee.get('code') or '',
-                        'position': employee.get('position') or employee.get('title') or '',
-                        'department': employee.get('department') or employee.get('dept_name') or '',
-                        'notes': employee.get('notes') or employee.get('note') or ''
+                        # Map theo response API mới:
+                        'full_name': employee.get('employee_name') or '',
+                        'employee_code': employee.get('employee_user_name') or '',
+                        'position': employee.get('employee_role') or '',
+                        'employee_object': employee.get('employee_object_text') or '',
+                        'department': '',  # Để trống theo yêu cầu
+                        'notes': ''  # API không trả về notes
                     }
 
             app_logger.info(f"Successfully mapped details for {len(result)} employees")
@@ -640,13 +641,14 @@ class ZkService:
                         updates['full_name'] = details.get('full_name') or ''
                         updates['employee_code'] = details.get('employee_code') or ''
                         updates['position'] = details.get('position') or ''
+                        updates['employee_object'] = details.get('employee_object') or ''
                         updates['department'] = details.get('department') or ''
                         updates['notes'] = details.get('notes') or ''
 
                         app_logger.info(
                             f"User {user.user_id} ({user.name}): marked as synced + mapped to employee_id={details.get('employee_id')}, "
                             f"full_name={details.get('full_name')}, code={details.get('employee_code')}, "
-                            f"position={details.get('position')}, dept={details.get('department')}"
+                            f"position={details.get('position')}, object={details.get('employee_object')}"
                         )
                         updated_with_details_count += 1
                     else:

@@ -35,7 +35,7 @@ export function LiveAttendance() {
   const { devices, activeDevice, activeDeviceId } = useDevice();
 
   const [liveAttendance, setLiveAttendance] = useState<LiveAttendanceRecord[]>(
-    []
+    [],
   );
   const [isConnected, setIsConnected] = useState(false);
   const [showAllDevices, setShowAllDevices] = useState(false);
@@ -51,7 +51,7 @@ export function LiveAttendance() {
   useEffect(() => {
     const mergeRecords = (
       incoming: LiveAttendanceRecord[],
-      existing: LiveAttendanceRecord[]
+      existing: LiveAttendanceRecord[],
     ) => {
       const combined = [...incoming, ...existing];
       const seen = new Set<string>();
@@ -68,7 +68,7 @@ export function LiveAttendance() {
       return unique
         .sort(
           (a, b) =>
-            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
         )
         .slice(0, MAX_RECORDS);
     };
@@ -89,6 +89,7 @@ export function LiveAttendance() {
       position: record.position,
       department: record.department,
       notes: record.notes,
+      employee_object: record.employee_object,
     });
 
     if (devices.length === 0) {
@@ -110,7 +111,7 @@ export function LiveAttendance() {
         });
 
         const initialRecords: LiveAttendanceRecord[] = Array.isArray(
-          response?.data
+          response?.data,
         )
           ? response.data
               .map(mapToLiveRecord)
@@ -176,7 +177,7 @@ export function LiveAttendance() {
       // Sort by timestamp ascending
       const sorted = [...userDayRecords].sort(
         (a, b) =>
-          new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+          new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
       );
 
       // Find first checkin (action = 0)
@@ -197,7 +198,7 @@ export function LiveAttendance() {
     // Sort final result by timestamp descending (newest first)
     return filtered.sort(
       (a, b) =>
-        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
     );
   };
 
@@ -212,7 +213,7 @@ export function LiveAttendance() {
   // Apply action filter
   if (actionFilter !== "all") {
     filteredAttendance = filteredAttendance.filter(
-      (record) => record.action === actionFilter
+      (record) => record.action === actionFilter,
     );
   }
 
@@ -352,13 +353,13 @@ export function LiveAttendance() {
                             <Avatar
                               className={cn(
                                 "w-64 h-96 rounded-2xl border-4 shadow-xl",
-                                actionColor
+                                actionColor,
                               )}
                             >
                               <AvatarImage
                                 src={buildAvatarUrl(
                                   latestRecord.avatar_url,
-                                  resourceDomain
+                                  resourceDomain,
                                 )}
                                 alt={displayName}
                                 className="object-cover"
@@ -449,6 +450,16 @@ export function LiveAttendance() {
                                 </div>
                                 <div className="text-lg font-semibold">
                                   {latestRecord.department || "-"}
+                                </div>
+                              </div>
+
+                              {/* Employee Object */}
+                              <div className="space-y-1">
+                                <div className="text-sm text-muted-foreground font-medium">
+                                  Đối tượng
+                                </div>
+                                <div className="text-lg font-semibold">
+                                  {latestRecord.employee_object || "-"}
                                 </div>
                               </div>
                             </div>
@@ -546,7 +557,7 @@ export function LiveAttendance() {
                                   <AvatarImage
                                     src={buildAvatarUrl(
                                       record.avatar_url,
-                                      resourceDomain
+                                      resourceDomain,
                                     )}
                                     alt={displayName}
                                     className="object-cover"

@@ -34,6 +34,7 @@ from app.events.event_stream import device_event_stream
 # TYPE DEFINITIONS
 # ============================================================================
 
+
 @dataclass
 class AttendanceRecord:
     """
@@ -42,6 +43,7 @@ class AttendanceRecord:
     Format: user_id \t timestamp \t status \t verify_method
     Example: 1001\t2025-01-09 15:30:00\t0\t1
     """
+
     user_id: str  # Employee ID from device
     timestamp: str  # Format: YYYY-MM-DD HH:MM:SS
     status: int  # 0=check-in, 1=check-out, 2=break-start, 3=break-end, 4=overtime-start, 5=overtime-end
@@ -50,10 +52,10 @@ class AttendanceRecord:
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for logging/storage"""
         return {
-            'user_id': self.user_id,
-            'timestamp': self.timestamp,
-            'status': self.status,
-            'verify_method': self.verify_method
+            "user_id": self.user_id,
+            "timestamp": self.timestamp,
+            "status": self.status,
+            "verify_method": self.verify_method,
         }
 
 
@@ -64,6 +66,7 @@ class UserInfo:
 
     Format: USER PIN=123 Name=John Doe Grp=1 Pri=0 Verify=1 TZ=0
     """
+
     user_id: str  # PIN from device
     name: str = ""
     group: str = "0"
@@ -75,13 +78,13 @@ class UserInfo:
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for logging/storage"""
         return {
-            'user_id': self.user_id,
-            'name': self.name,
-            'group': self.group,
-            'privilege': self.privilege,
-            'verify': self.verify,
-            'timezone': self.timezone,
-            'has_face': self.has_face
+            "user_id": self.user_id,
+            "name": self.name,
+            "group": self.group,
+            "privilege": self.privilege,
+            "verify": self.verify,
+            "timezone": self.timezone,
+            "has_face": self.has_face,
         }
 
 
@@ -96,6 +99,7 @@ class DeviceCommand:
     - DATA QUERY ATTLOG: Request attendance logs
     - CLEAR DATA: Clear device data
     """
+
     command: str  # Command string to send
     created_at: datetime = field(default_factory=datetime.now)
     device_sn: Optional[str] = None  # Serial number of target device
@@ -104,6 +108,7 @@ class DeviceCommand:
 # ============================================================================
 # PUSH PROTOCOL SERVICE
 # ============================================================================
+
 
 class PushProtocolService:
     """
@@ -140,7 +145,9 @@ class PushProtocolService:
             str: Absolute path to biodata directory
         """
         # Get project root (backend directory)
-        backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        backend_dir = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
         biodata_dir = os.path.join(backend_dir, "biodata")
 
         # Create directory if not exists
@@ -149,7 +156,9 @@ class PushProtocolService:
         app_logger.info(f"Biodata directory: {biodata_dir}")
         return biodata_dir
 
-    def _parse_device_info(self, query_params: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+    def _parse_device_info(
+        self, query_params: Dict[str, Any]
+    ) -> Tuple[Optional[str], Optional[str]]:
         """
         Parse device serial number and options from query parameters.
 
@@ -162,8 +171,8 @@ class PushProtocolService:
         Example query params from device:
             SN=ABC123456789&options=all&pushver=3.0&language=69
         """
-        serial_number = query_params.get('SN')
-        options = query_params.get('options', '')
+        serial_number = query_params.get("SN")
+        options = query_params.get("options", "")
 
         if serial_number:
             app_logger.debug(f"Device info: SN={serial_number}, options={options}")
@@ -197,7 +206,9 @@ class PushProtocolService:
         """
         serial_number, _ = self._parse_device_info(query_params)
 
-        app_logger.info(f"[PUSH] Device ping: SN={serial_number}, params={query_params}")
+        app_logger.info(
+            f"[PUSH] Device ping: SN={serial_number}, params={query_params}"
+        )
 
         # Auto-register device if not exists
         if serial_number:
@@ -207,13 +218,17 @@ class PushProtocolService:
         command = self._get_next_command(serial_number)
 
         if command:
-            app_logger.info(f"[PUSH] Sending command to device {serial_number}: {command.command}")
+            app_logger.info(
+                f"[PUSH] Sending command to device {serial_number}: {command.command}"
+            )
             return f"C:{command.command}\r\n"
 
         # No commands
         return "OK\r\n"
 
-    def _get_next_command(self, serial_number: Optional[str]) -> Optional[DeviceCommand]:
+    def _get_next_command(
+        self, serial_number: Optional[str]
+    ) -> Optional[DeviceCommand]:
         """
         Get next pending command for device (FIFO queue).
 
@@ -233,7 +248,9 @@ class PushProtocolService:
             if queue:
                 # Pop first command (FIFO)
                 command = queue.pop(0)
-                app_logger.debug(f"Popped command for {serial_number}: {command.command}")
+                app_logger.debug(
+                    f"Popped command for {serial_number}: {command.command}"
+                )
                 return command
 
         return None
@@ -277,7 +294,9 @@ class PushProtocolService:
     # DEVICE AUTO-REGISTRATION
     # ========================================================================
 
-    def _auto_register_device(self, serial_number: str, query_params: Dict[str, Any]) -> None:
+    def _auto_register_device(
+        self, serial_number: str, query_params: Dict[str, Any]
+    ) -> None:
         """
         Auto-register push device when it first pings the server.
 
@@ -303,19 +322,19 @@ class PushProtocolService:
 
             # Auto-register new push device
             device_data = {
-                'name': f'Auto-registered Push Device {serial_number}',
-                'ip': '0.0.0.0',  # Push devices don't need IP (they connect to us)
-                'port': 0,  # No port needed for push
-                'serial_number': serial_number,
-                'device_type': 'push',
-                'is_active': True,
-                'device_info': {
-                    'auto_registered': True,
-                    'registered_at': datetime.now().isoformat(),
-                    'push_protocol_version': query_params.get('pushver', 'unknown'),
-                    'options': query_params.get('options', ''),
-                    'language': query_params.get('language', 'unknown')
-                }
+                "name": f"Auto-registered Push Device {serial_number}",
+                "ip": "0.0.0.0",  # Push devices don't need IP (they connect to us)
+                "port": 0,  # No port needed for push
+                "serial_number": serial_number,
+                "device_type": "push",
+                "is_active": True,
+                "device_info": {
+                    "auto_registered": True,
+                    "registered_at": datetime.now().isoformat(),
+                    "push_protocol_version": query_params.get("pushver", "unknown"),
+                    "options": query_params.get("options", ""),
+                    "language": query_params.get("language", "unknown"),
+                },
             }
 
             device_id = config_manager.add_device(device_data)
@@ -355,9 +374,7 @@ class PushProtocolService:
     # ========================================================================
 
     def handle_attendance_data(
-        self,
-        raw_data: str,
-        query_params: Dict[str, Any]
+        self, raw_data: str, query_params: Dict[str, Any]
     ) -> Tuple[List[AttendanceRecord], int]:
         """
         Process attendance data from ATTLOG table.
@@ -427,17 +444,19 @@ class PushProtocolService:
         """
         records = []
 
-        for line in raw_data.strip().split('\n'):
+        for line in raw_data.strip().split("\n"):
             line = line.strip()
             if not line:
                 continue
 
             try:
                 # Split by tab
-                parts = line.split('\t')
+                parts = line.split("\t")
 
                 if len(parts) < 4:
-                    app_logger.warning(f"Invalid ATTLOG line (expected 4 fields): {line}")
+                    app_logger.warning(
+                        f"Invalid ATTLOG line (expected 4 fields): {line}"
+                    )
                     continue
 
                 user_id, timestamp, status, verify_method = parts[:4]
@@ -446,7 +465,7 @@ class PushProtocolService:
                     user_id=user_id.strip(),
                     timestamp=timestamp.strip(),
                     status=int(status),
-                    verify_method=int(verify_method)
+                    verify_method=int(verify_method),
                 )
 
                 records.append(record)
@@ -463,11 +482,7 @@ class PushProtocolService:
         return records
 
     def _determine_action(
-        self,
-        user_id: str,
-        timestamp: datetime,
-        status: int,
-        device_id: Optional[str]
+        self, user_id: str, timestamp: datetime, status: int, device_id: Optional[str]
     ) -> int:
         """
         Determine check-in/out action from STATUS field.
@@ -519,7 +534,7 @@ class PushProtocolService:
         self,
         records: List[AttendanceRecord],
         device_id: Optional[str],
-        serial_number: Optional[str]
+        serial_number: Optional[str],
     ) -> int:
         """
         Save attendance records to database.
@@ -542,13 +557,19 @@ class PushProtocolService:
             try:
                 # Parse timestamp
                 try:
-                    timestamp_dt = datetime.strptime(record.timestamp, '%Y-%m-%d %H:%M:%S')
+                    timestamp_dt = datetime.strptime(
+                        record.timestamp, "%Y-%m-%d %H:%M:%S"
+                    )
                 except ValueError:
                     # Try alternative format
-                    timestamp_dt = datetime.strptime(record.timestamp, '%Y/%m/%d %H:%M:%S')
+                    timestamp_dt = datetime.strptime(
+                        record.timestamp, "%Y/%m/%d %H:%M:%S"
+                    )
 
                 # Determine smart action from STATUS (handles STATUS=255 for push devices)
-                action = self._determine_action(record.user_id, timestamp_dt, record.status, device_id)
+                action = self._determine_action(
+                    record.user_id, timestamp_dt, record.status, device_id
+                )
 
                 # Create AttendanceLog model with both original_status and computed action
                 log = AttendanceLog(
@@ -559,7 +580,7 @@ class PushProtocolService:
                     method=record.verify_method,
                     action=action,  # Smart computed status (0/1 for STATUS=255, or explicit 0-5)
                     original_status=record.status,  # Raw STATUS from device (255 or 0-5)
-                    raw_data=record.to_dict()
+                    raw_data=record.to_dict(),
                 )
 
                 # Save to database (will handle duplicates via unique constraint)
@@ -570,16 +591,22 @@ class PushProtocolService:
                     app_logger.debug(f"Saved attendance: {record.to_dict()}")
 
                     # Broadcast to SSE for real-time UI updates (Push devices)
-                    self._broadcast_attendance_event(saved_log, device_id, serial_number)
+                    self._broadcast_attendance_event(
+                        saved_log, device_id, serial_number
+                    )
 
             except Exception as e:
                 # Log error but continue processing other records
                 error_msg = str(e).lower()
 
-                if 'unique' in error_msg or 'duplicate' in error_msg:
-                    app_logger.debug(f"Duplicate attendance record (skipped): {record.to_dict()}")
+                if "unique" in error_msg or "duplicate" in error_msg:
+                    app_logger.debug(
+                        f"Duplicate attendance record (skipped): {record.to_dict()}"
+                    )
                 else:
-                    app_logger.error(f"Failed to save attendance record {record.to_dict()}: {e}")
+                    app_logger.error(
+                        f"Failed to save attendance record {record.to_dict()}: {e}"
+                    )
 
         return saved_count
 
@@ -587,7 +614,7 @@ class PushProtocolService:
         self,
         attendance_log: AttendanceLog,
         device_id: Optional[str],
-        serial_number: Optional[str]
+        serial_number: Optional[str],
     ) -> None:
         """
         Broadcast attendance event to SSE for real-time UI updates.
@@ -621,32 +648,38 @@ class PushProtocolService:
             position = user.position if user and user.position else ""
             department = user.department if user and user.department else ""
             notes = user.notes if user and user.notes else ""
+            employee_object = (
+                user.employee_object if user and user.employee_object else ""
+            )
 
             # Format timestamp - handle both string and datetime objects
             if isinstance(attendance_log.timestamp, str):
                 timestamp_str = attendance_log.timestamp
             else:
-                timestamp_str = attendance_log.timestamp.strftime('%Y-%m-%d %H:%M:%S')
+                timestamp_str = attendance_log.timestamp.strftime("%Y-%m-%d %H:%M:%S")
 
             # Create event payload (same format as pull device live capture)
             event_data = {
-                'type': 'attendance',
-                'device_id': device_id or 'unknown',
-                'device_name': device.name if device else f'Push Device {serial_number}',
-                'serial_number': serial_number,
-                'user_id': attendance_log.user_id,
-                'name': user_name,  # Device name (fallback)
-                'avatar_url': avatar_url,
-                'timestamp': timestamp_str,
-                'action': attendance_log.action,
-                'method': attendance_log.method,
-                'raw_data': attendance_log.raw_data,
+                "type": "attendance",
+                "device_id": device_id or "unknown",
+                "device_name": device.name
+                if device
+                else f"Push Device {serial_number}",
+                "serial_number": serial_number,
+                "user_id": attendance_log.user_id,
+                "name": user_name,  # Device name (fallback)
+                "avatar_url": avatar_url,
+                "timestamp": timestamp_str,
+                "action": attendance_log.action,
+                "method": attendance_log.method,
+                "raw_data": attendance_log.raw_data,
                 # New employee fields for realtime display
-                'full_name': full_name,
-                'employee_code': employee_code,
-                'position': position,
-                'department': department,
-                'notes': notes
+                "full_name": full_name,
+                "employee_code": employee_code,
+                "position": position,
+                "department": department,
+                "notes": notes,
+                "employee_object": employee_object,
             }
 
             # Broadcast to all SSE clients
@@ -666,9 +699,7 @@ class PushProtocolService:
     # ========================================================================
 
     def handle_user_data(
-        self,
-        raw_data: str,
-        query_params: Dict[str, Any]
+        self, raw_data: str, query_params: Dict[str, Any]
     ) -> Tuple[List[UserInfo], int]:
         """
         Process user information from OPERLOG table.
@@ -731,20 +762,20 @@ class PushProtocolService:
         """
         users = []
 
-        for line in raw_data.strip().split('\n'):
+        for line in raw_data.strip().split("\n"):
             line = line.strip()
             if not line:
                 continue
 
             try:
-                if line.startswith('USER'):
+                if line.startswith("USER"):
                     # Parse USER line
                     user = self._parse_user_line(line)
                     if user:
                         users.append(user)
                         app_logger.debug(f"[OPERLOG][USER] {user.to_dict()}")
 
-                elif line.startswith('OPLOG'):
+                elif line.startswith("OPLOG"):
                     # Operation log (user creation/deletion event)
                     app_logger.debug(f"[OPERLOG][OPLOG] {line}")
 
@@ -778,23 +809,23 @@ class PushProtocolService:
             # Parse key=value pairs
             fields = {}
             for part in parts:
-                if '=' in part:
-                    key, value = part.split('=', 1)
+                if "=" in part:
+                    key, value = part.split("=", 1)
                     fields[key] = value
 
             # Validate required field
-            if 'PIN' not in fields:
+            if "PIN" not in fields:
                 app_logger.warning(f"USER line missing PIN: {line}")
                 return None
 
             # Create UserInfo object
             user = UserInfo(
-                user_id=fields.get('PIN', ''),
-                name=fields.get('Name', ''),
-                group=fields.get('Grp', '0'),
-                privilege=fields.get('Pri', '0'),
-                verify=fields.get('Verify', '1'),
-                timezone=fields.get('TZ', '0')
+                user_id=fields.get("PIN", ""),
+                name=fields.get("Name", ""),
+                group=fields.get("Grp", "0"),
+                privilege=fields.get("Pri", "0"),
+                verify=fields.get("Verify", "1"),
+                timezone=fields.get("TZ", "0"),
             )
 
             return user
@@ -807,7 +838,7 @@ class PushProtocolService:
         self,
         users: List[UserInfo],
         device_id: Optional[str],
-        serial_number: Optional[str]
+        serial_number: Optional[str],
     ) -> int:
         """
         Save user records to database.
@@ -834,17 +865,24 @@ class PushProtocolService:
                 existing_user = None
 
                 for u in existing_users:
-                    if u.user_id == user_info.user_id and u.serial_number == serial_number:
+                    if (
+                        u.user_id == user_info.user_id
+                        and u.serial_number == serial_number
+                    ):
                         existing_user = u
                         break
 
                 if existing_user:
                     # Update existing user
                     updates = {
-                        'name': user_info.name,
-                        'privilege': int(user_info.privilege) if user_info.privilege.isdigit() else 0,
-                        'group_id': int(user_info.group) if user_info.group.isdigit() else 0,
-                        'updated_at': datetime.now()
+                        "name": user_info.name,
+                        "privilege": int(user_info.privilege)
+                        if user_info.privilege.isdigit()
+                        else 0,
+                        "group_id": int(user_info.group)
+                        if user_info.group.isdigit()
+                        else 0,
+                        "updated_at": datetime.now(),
                     }
 
                     user_repo.update(existing_user.id, updates)
@@ -857,8 +895,12 @@ class PushProtocolService:
                         name=user_info.name,
                         device_id=device_id,
                         serial_number=serial_number,
-                        privilege=int(user_info.privilege) if user_info.privilege.isdigit() else 0,
-                        group_id=int(user_info.group) if user_info.group.isdigit() else 0
+                        privilege=int(user_info.privilege)
+                        if user_info.privilege.isdigit()
+                        else 0,
+                        group_id=int(user_info.group)
+                        if user_info.group.isdigit()
+                        else 0,
                     )
 
                     user_repo.create(new_user)
@@ -875,9 +917,7 @@ class PushProtocolService:
     # ========================================================================
 
     def handle_biodata(
-        self,
-        raw_data: str,
-        query_params: Dict[str, Any]
+        self, raw_data: str, query_params: Dict[str, Any]
     ) -> Optional[str]:
         """
         Process biometric template data (face/fingerprint).
@@ -910,24 +950,26 @@ class PushProtocolService:
 
             # Try to extract Pin
             # Format can be: Pin=4\tNo=6\t... (tab-separated) or Pin=4&No=6&... (ampersand-separated)
-            if 'Pin=' in raw_data:
-                for line in raw_data.split('\n'):
-                    if 'Pin=' in line:
+            if "Pin=" in raw_data:
+                for line in raw_data.split("\n"):
+                    if "Pin=" in line:
                         # Extract Pin value - handle both tab and ampersand separators
-                        pin_part = line.split('Pin=')[1]
+                        pin_part = line.split("Pin=")[1]
                         # Split by tab first, then by ampersand
-                        user_id = pin_part.split('\t')[0].split('&')[0].strip()
+                        user_id = pin_part.split("\t")[0].split("&")[0].strip()
                         break
 
             # Try to extract Tmp
-            if 'Tmp=' in raw_data:
-                for line in raw_data.split('\n'):
-                    if 'Tmp=' in line:
-                        template_base64 = line.split('Tmp=')[1].strip()
+            if "Tmp=" in raw_data:
+                for line in raw_data.split("\n"):
+                    if "Tmp=" in line:
+                        template_base64 = line.split("Tmp=")[1].strip()
                         break
 
             if not user_id or not template_base64:
-                app_logger.warning(f"[BIODATA] Invalid data format (missing Pin or Tmp): {raw_data[:100]}")
+                app_logger.warning(
+                    f"[BIODATA] Invalid data format (missing Pin or Tmp): {raw_data[:100]}"
+                )
                 return None
 
             # Decode base64 template
@@ -941,7 +983,7 @@ class PushProtocolService:
             filename = f"face_pin{user_id}_{serial_number}.dat"
             filepath = os.path.join(self._biodata_dir, filename)
 
-            with open(filepath, 'wb') as f:
+            with open(filepath, "wb") as f:
                 f.write(template_bytes)
 
             app_logger.info(
@@ -958,7 +1000,9 @@ class PushProtocolService:
             app_logger.error(f"[BIODATA] Failed to process biometric data: {e}")
             return None
 
-    def _mark_user_has_biometric(self, user_id: str, serial_number: Optional[str]) -> None:
+    def _mark_user_has_biometric(
+        self, user_id: str, serial_number: Optional[str]
+    ) -> None:
         """
         Mark user as having biometric template.
 
@@ -975,7 +1019,9 @@ class PushProtocolService:
 
             for user in existing_users:
                 if user.user_id == user_id and user.serial_number == serial_number:
-                    app_logger.debug(f"Marked user {user_id} as having biometric template")
+                    app_logger.debug(
+                        f"Marked user {user_id} as having biometric template"
+                    )
                     # Note: In future, could add has_face field to User model
                     break
 
@@ -987,9 +1033,7 @@ class PushProtocolService:
     # ========================================================================
 
     def handle_file_data(
-        self,
-        file_data: bytes,
-        query_params: Dict[str, Any]
+        self, file_data: bytes, query_params: Dict[str, Any]
     ) -> Optional[str]:
         """
         Handle raw biometric file upload (POST /iclock/fdata).
@@ -1005,7 +1049,7 @@ class PushProtocolService:
             - Saves file to biodata directory
         """
         serial_number, _ = self._parse_device_info(query_params)
-        user_id = query_params.get('PIN', str(int(datetime.now().timestamp())))
+        user_id = query_params.get("PIN", str(int(datetime.now().timestamp())))
 
         app_logger.info(
             f"[PUSH] Processing FDATA from device {serial_number}, "
@@ -1014,10 +1058,12 @@ class PushProtocolService:
 
         try:
             # Save to file
-            filename = f"fdata_{user_id}_{serial_number}_{int(datetime.now().timestamp())}.dat"
+            filename = (
+                f"fdata_{user_id}_{serial_number}_{int(datetime.now().timestamp())}.dat"
+            )
             filepath = os.path.join(self._biodata_dir, filename)
 
-            with open(filepath, 'wb') as f:
+            with open(filepath, "wb") as f:
                 f.write(file_data)
 
             app_logger.info(f"[FDATA] ✓ Saved raw file → {filepath}")

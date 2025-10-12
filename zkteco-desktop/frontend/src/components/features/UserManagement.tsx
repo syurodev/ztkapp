@@ -20,7 +20,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useDevice } from "@/contexts/DeviceContext";
-import { deviceAPI, devicesAPI, User, userAPI, UsersResponse } from "@/lib/api";
+import { deviceAPI, User, userAPI, UsersResponse } from "@/lib/api";
 import { buildAvatarUrl, getResourceDomain } from "@/lib/utils";
 import {
   AlertCircle,
@@ -105,7 +105,7 @@ export function UserManagement() {
       setUsers(response.data || []);
     } catch (err) {
       setError(
-        "Không thể tải danh sách người dùng. Vui lòng kiểm tra dịch vụ backend."
+        "Không thể tải danh sách người dùng. Vui lòng kiểm tra dịch vụ backend.",
       );
       console.error("Error loading users:", err);
     } finally {
@@ -187,7 +187,7 @@ export function UserManagement() {
 
       if (result["success"]) {
         toast.success(
-          `Đã đồng bộ ${result.employees_count} nhân sự lên hệ thống ngoài`
+          `Đã đồng bộ ${result.employees_count} nhân sự lên hệ thống ngoài`,
         );
         // Reload users to get updated sync status
         await loadUsers();
@@ -248,14 +248,21 @@ export function UserManagement() {
       const result = await userAPI.syncUsersFromDevice();
 
       if (result.success) {
-        toast.success(`Đã đồng bộ ${result.synced_count} người dùng từ thiết bị`);
+        toast.success(
+          `Đã đồng bộ ${result.synced_count} người dùng từ thiết bị`,
+        );
         // Reload users to get updated data
         await loadUsers();
       } else {
-        toast.error(result.message || "Không thể đồng bộ người dùng từ thiết bị");
+        toast.error(
+          result.message || "Không thể đồng bộ người dùng từ thiết bị",
+        );
       }
     } catch (err: any) {
-      const errorMessage = err.response?.data?.error || err.message || "Không thể đồng bộ người dùng từ thiết bị";
+      const errorMessage =
+        err.response?.data?.error ||
+        err.message ||
+        "Không thể đồng bộ người dùng từ thiết bị";
       toast.error(errorMessage);
       console.error("Error syncing users from device:", err);
     } finally {
@@ -263,35 +270,35 @@ export function UserManagement() {
     }
   };
 
-  const handleSyncUsersFromPushDevice = async () => {
-    if (!activeDevice) {
-      toast.error("Vui lòng chọn thiết bị trước");
-      return;
-    }
+  // const handleSyncUsersFromPushDevice = async () => {
+  //   if (!activeDevice) {
+  //     toast.error("Vui lòng chọn thiết bị trước");
+  //     return;
+  //   }
 
-    setIsSyncingFromDevice(true);
-    try {
-      const result = await devicesAPI.syncUsersFromPushDevice(activeDevice.id);
+  //   setIsSyncingFromDevice(true);
+  //   try {
+  //     const result = await devicesAPI.syncUsersFromPushDevice(activeDevice.id);
 
-      toast.success(result.message || "Đã gửi lệnh đồng bộ người dùng thành công");
-      toast.info("Thiết bị sẽ đẩy dữ liệu người dùng ở lần ping tiếp theo. Vui lòng chờ...");
+  //     toast.success(result.message || "Đã gửi lệnh đồng bộ người dùng thành công");
+  //     toast.info("Thiết bị sẽ đẩy dữ liệu người dùng ở lần ping tiếp theo. Vui lòng chờ...");
 
-      // Wait a bit then reload users
-      setTimeout(() => {
-        loadUsers();
-      }, 3000);
-    } catch (err: any) {
-      const errorMessage = err.response?.data?.error || err.message || "Không thể đồng bộ người dùng từ thiết bị push";
-      toast.error(errorMessage);
-      console.error("Error syncing users from push device:", err);
-    } finally {
-      setIsSyncingFromDevice(false);
-    }
-  };
+  //     // Wait a bit then reload users
+  //     setTimeout(() => {
+  //       loadUsers();
+  //     }, 3000);
+  //   } catch (err: any) {
+  //     const errorMessage = err.response?.data?.error || err.message || "Không thể đồng bộ người dùng từ thiết bị push";
+  //     toast.error(errorMessage);
+  //     console.error("Error syncing users from push device:", err);
+  //   } finally {
+  //     setIsSyncingFromDevice(false);
+  //   }
+  // };
 
   // Filter users based on search query
   const filteredUsers = users.filter((user) =>
-    user.name.toLowerCase().includes(searchQuery.toLowerCase())
+    user.name.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
   const getSyncStatusBadge = (user: User) => {
@@ -394,7 +401,7 @@ export function UserManagement() {
         </div>
         <div className="flex items-center gap-2">
           {/* Sync from device button for pull devices */}
-          {activeDevice?.device_type === 'pull' && (
+          {activeDevice?.device_type === "pull" && (
             <Button
               variant="outline"
               onClick={handleSyncUsersFromDevice}
@@ -408,7 +415,7 @@ export function UserManagement() {
             </Button>
           )}
           {/* Refresh button for push devices - just reload data from DB */}
-          {activeDevice?.device_type === 'push' && (
+          {activeDevice?.device_type === "push" && (
             <Button
               variant="outline"
               onClick={loadUsers}
@@ -561,7 +568,8 @@ export function UserManagement() {
         <Alert>
           <Monitor className="h-4 w-4" />
           <AlertDescription>
-            Vui lòng chọn thiết bị để quản lý người dùng. Truy cập Quản lý thiết bị để cấu hình.
+            Vui lòng chọn thiết bị để quản lý người dùng. Truy cập Quản lý thiết
+            bị để cấu hình.
           </AlertDescription>
         </Alert>
       ) : error ? (
@@ -573,7 +581,8 @@ export function UserManagement() {
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            Đồng bộ với thiết bị thất bại: {syncStatus.error}. Đang hiển thị dữ liệu từ cơ sở dữ liệu.
+            Đồng bộ với thiết bị thất bại: {syncStatus.error}. Đang hiển thị dữ
+            liệu từ cơ sở dữ liệu.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -592,7 +601,9 @@ export function UserManagement() {
         <CardContent>
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
-              <div className="text-muted-foreground">Đang tải danh sách người dùng...</div>
+              <div className="text-muted-foreground">
+                Đang tải danh sách người dùng...
+              </div>
             </div>
           ) : filteredUsers.length === 0 ? (
             <div className="flex items-center justify-center py-8">
@@ -643,7 +654,10 @@ export function UserManagement() {
                           <Avatar className="h-8 w-8">
                             {user.avatar_url && (
                               <AvatarImage
-                                src={buildAvatarUrl(user.avatar_url, resourceDomain)}
+                                src={buildAvatarUrl(
+                                  user.avatar_url,
+                                  resourceDomain,
+                                )}
                                 alt={user.name}
                               />
                             )}
@@ -666,7 +680,9 @@ export function UserManagement() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleSyncSingleUser(user.id, user.name)}
+                          onClick={() =>
+                            handleSyncSingleUser(user.id, user.name)
+                          }
                           disabled={syncingUsers.has(user.id)}
                           className="h-8 w-8 p-0"
                           title="Đồng bộ người dùng này lên API ngoài"
@@ -693,7 +709,9 @@ export function UserManagement() {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold">{users.length}</div>
-            <p className="text-sm text-muted-foreground">Số người dùng đã đăng ký</p>
+            <p className="text-sm text-muted-foreground">
+              Số người dùng đã đăng ký
+            </p>
           </CardContent>
         </Card>
 
@@ -737,7 +755,9 @@ export function UserManagement() {
             <div className="text-3xl font-bold">
               {users.filter((user) => user.privilege >= 2).length}
             </div>
-            <p className="text-sm text-muted-foreground">Người dùng thuộc nhóm quản trị</p>
+            <p className="text-sm text-muted-foreground">
+              Người dùng thuộc nhóm quản trị
+            </p>
           </CardContent>
         </Card>
       </div>

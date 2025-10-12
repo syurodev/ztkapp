@@ -39,6 +39,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { CloudUpload } from "lucide-react";
 
 export function DeviceManagement() {
   // Use DeviceContext instead of local state
@@ -51,6 +52,7 @@ export function DeviceManagement() {
   } = useDevice();
 
   const [isLoading, setIsLoading] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -176,9 +178,30 @@ export function DeviceManagement() {
     } catch (error) {
       const errorMessage = getErrorMessage(error);
       toast.error(`Không thể kiểm tra kết nối thiết bị: ${errorMessage}`);
-      console.error("Error testing device:", error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSyncToExternal = async () => {
+    setIsSyncing(true);
+    try {
+      const result = await devicesAPI.syncToExternal();
+      if (result.status === 200) {
+        toast.success(
+          result.message || "Đồng bộ thiết bị lên cloud thành công!",
+        );
+      } else {
+        toast.error(
+          result.message || "Đồng bộ thất bại với lỗi không xác định.",
+        );
+      }
+    } catch (error) {
+      const errorMessage = getErrorMessage(error);
+      toast.error(`Không thể đồng bộ: ${errorMessage}`);
+      console.error("Error syncing devices to external API:", error);
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -269,11 +292,22 @@ export function DeviceManagement() {
           <Button
             variant="outline"
             onClick={refreshDevices}
-            disabled={loading}
+            disabled={loading || isSyncing}
             className="flex items-center gap-2"
           >
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             Tải lại
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleSyncToExternal}
+            disabled={loading || isSyncing}
+            className="flex items-center gap-2"
+          >
+            <CloudUpload
+              className={`h-4 w-4 ${isSyncing ? "animate-spin" : ""}`}
+            />
+            Đồng bộ lên hệ thống
           </Button>
           <Button onClick={openAddDialog} className="flex items-center gap-2">
             <Plus className="h-4 w-4" />

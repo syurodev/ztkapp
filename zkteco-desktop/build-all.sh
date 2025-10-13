@@ -159,6 +159,7 @@ else
                 --hidden-import=zkteco.controllers \
                 --hidden-import=sqlite3 \
                 --hidden-import=flask_cors \
+                --hidden-import=logging.handlers \
                 --hidden-import=sentry_sdk \
                 --hidden-import=psutil \
                 --hidden-import=requests \

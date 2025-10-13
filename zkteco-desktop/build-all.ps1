@@ -175,6 +175,7 @@ if (-not $SkipBackend) {
                     --hidden-import=requests `
                     --hidden-import=dotenv `
                     --hidden-import=apscheduler `
+                    --hidden-import=logging.handlers `
                     --add-data="zkteco;zkteco" `
                     service_app.py
     }

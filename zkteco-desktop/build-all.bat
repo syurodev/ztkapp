@@ -168,6 +168,7 @@ pyinstaller --name "zkteco-backend" ^
             --hidden-import=flask_cors ^
             --hidden-import=sentry_sdk ^
             --hidden-import=apscheduler ^
+            --hidden-import=logging.handlers ^
             --collect-all=flask ^
             --collect-all=zk ^
             --add-data="src/app;app" ^

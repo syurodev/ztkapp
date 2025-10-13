@@ -169,6 +169,7 @@ if (-not $SkipBackend) {
                     --hidden-import=zkteco.services `
                     --hidden-import=zkteco.controllers `
                     --hidden-import=sqlite3 `
+                    --hidden-import=flask_cors `
                     --add-data="zkteco;zkteco" `
                     service_app.py
     }

@@ -135,32 +135,41 @@ echo [INFO] Cleaning previous backend builds...
 if exist "build" rmdir /s /q build
 if exist "dist" rmdir /s /q dist
 
+REM Clean old spec file to ensure fresh build
+if exist "zkteco-backend.spec" (
+    echo [INFO] Removing old spec file...
+    del "zkteco-backend.spec"
+)
+
 REM Build with PyInstaller
 echo [INFO] Building backend executable...
-if exist "zkteco-backend.spec" (
-    echo [INFO] Using existing spec file...
-    pyinstaller --clean --noconfirm zkteco-backend.spec
-) else (
-    echo [INFO] Creating new spec file...
-    pyinstaller --name "zkteco-backend" --onefile --console --noconfirm ^
-                --paths="./src/pyzk" ^
-                --hidden-import=zkteco.config.settings ^
-                --hidden-import=zkteco.config.config_manager_sqlite ^
-                --hidden-import=zkteco.database.models ^
-                --hidden-import=zkteco.database.db_manager ^
-                --hidden-import=zkteco.services ^
-                --hidden-import=zkteco.controllers ^
-                --hidden-import=sqlite3 ^
-                --hidden-import=zk ^
-                --hidden-import=zk.base ^
-                --hidden-import=zk.const ^
-                --hidden-import=zk.exception ^
-                --hidden-import=zk.finger ^
-                --hidden-import=zk.attendance ^
-                --hidden-import=zk.user ^
-                --add-data="zkteco;zkteco" ^
-                service_app.py
-)
+pyinstaller --name "zkteco-backend" ^
+            --onefile ^
+            --console ^
+            --noconfirm ^
+            --clean ^
+            --hidden-import=flask ^
+            --hidden-import=flask.json ^
+            --hidden-import=flask.templating ^
+            --hidden-import=werkzeug ^
+            --hidden-import=werkzeug.security ^
+            --hidden-import=requests ^
+            --hidden-import=psutil ^
+            --hidden-import=zk ^
+            --hidden-import=zk.base ^
+            --hidden-import=zk.user ^
+            --hidden-import=zk.attendance ^
+            --hidden-import=zk.finger ^
+            --hidden-import=zk.const ^
+            --hidden-import=zk.exception ^
+            --hidden-import=sqlite3 ^
+            --hidden-import=dotenv ^
+            --hidden-import=chrono ^
+            --collect-all=flask ^
+            --collect-all=zk ^
+            --add-data="src/app;app" ^
+            --add-data="src/pyzk/zk;zk" ^
+            service_app.py
 
 if errorlevel 1 (
     echo [ERROR] Backend build failed

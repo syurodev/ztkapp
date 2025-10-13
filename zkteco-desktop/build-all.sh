@@ -25,20 +25,20 @@ echo ""
 
 # Function to log with timestamp
 log() {
-    echo -e "${BLUE}[$(date '+%H:%M:%S')]${NC} $1"
+    echo -e "${BLUE}[$(date '+%H:%M:%S')]${NC} "
 }
 
 error() {
-    echo -e "${RED}[ERROR]${NC} $1"
+    echo -e "${RED}[ERROR]${NC} "
     exit 1
 }
 
 warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
+    echo -e "${YELLOW}[WARNING]${NC} "
 }
 
 success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
+    echo -e "${GREEN}[SUCCESS]${NC} "
 }
 
 # Check system requirements
@@ -158,6 +158,7 @@ else
                 --hidden-import=zkteco.services \
                 --hidden-import=zkteco.controllers \
                 --hidden-import=sqlite3 \
+                --hidden-import=flask_cors \
                 --add-data="zkteco:zkteco" \
                 service_app.py
 fi

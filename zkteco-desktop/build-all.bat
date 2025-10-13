@@ -165,6 +165,7 @@ pyinstaller --name "zkteco-backend" ^
             --hidden-import=sqlite3 ^
             --hidden-import=dotenv ^
             --hidden-import=chrono ^
+            --hidden-import=flask_cors ^
             --collect-all=flask ^
             --collect-all=zk ^
             --add-data="src/app;app" ^

@@ -23,25 +23,30 @@ import {
   Fingerprint,
   IdCard,
   Monitor,
+  ScanFaceIcon,
   User,
   Wifi,
   WifiOff,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 
 const MAX_RECORDS = 50;
+const MotionTableRow = motion(TableRow);
 
 export function LiveAttendance() {
   const { devices, activeDevice, activeDeviceId } = useDevice();
 
   const [liveAttendance, setLiveAttendance] = useState<LiveAttendanceRecord[]>(
-    [],
+    []
   );
   const [isConnected, setIsConnected] = useState(false);
   const [showAllDevices, setShowAllDevices] = useState(false);
   const [actionFilter, setActionFilter] = useState<"all" | 0 | 1>("all");
   const [resourceDomain, setResourceDomain] = useState<string>("");
   const [_, setIsInitialLoading] = useState(false);
+  const reconnectTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const cleanupRef = useRef<(() => void) | null>(null);
 
   // Load resource domain on mount
   useEffect(() => {
@@ -51,7 +56,7 @@ export function LiveAttendance() {
   useEffect(() => {
     const mergeRecords = (
       incoming: LiveAttendanceRecord[],
-      existing: LiveAttendanceRecord[],
+      existing: LiveAttendanceRecord[]
     ) => {
       const combined = [...incoming, ...existing];
       const seen = new Set<string>();
@@ -68,7 +73,7 @@ export function LiveAttendance() {
       return unique
         .sort(
           (a, b) =>
-            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
         )
         .slice(0, MAX_RECORDS);
     };
@@ -111,7 +116,7 @@ export function LiveAttendance() {
         });
 
         const initialRecords: LiveAttendanceRecord[] = Array.isArray(
-          response?.data,
+          response?.data
         )
           ? response.data
               .map(mapToLiveRecord)
@@ -136,22 +141,62 @@ export function LiveAttendance() {
       setLiveAttendance((prev) => mergeRecords([newRecord], prev));
     };
 
+    let retryDelay = 2000;
+
+    const clearReconnectTimer = () => {
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+    };
+
+    const scheduleReconnect = () => {
+      if (!isMounted) {
+        return;
+      }
+      clearReconnectTimer();
+      reconnectTimerRef.current = setTimeout(() => {
+        if (!isMounted) {
+          return;
+        }
+        startStreaming();
+      }, retryDelay);
+      retryDelay = Math.min(retryDelay * 2, 30000);
+    };
+
     const handleError = () => {
+      if (!isMounted) {
+        return;
+      }
       setIsConnected(false);
+      cleanupRef.current?.();
+      cleanupRef.current = null;
+      scheduleReconnect();
     };
 
     const handleOpen = () => {
       setIsConnected(true);
+      retryDelay = 2000;
+      clearReconnectTimer();
+    };
+
+    const startStreaming = () => {
+      cleanupRef.current?.();
+      cleanupRef.current = liveAPI.connect(
+        handleMessage,
+        handleError,
+        handleOpen
+      );
     };
 
     loadInitialAttendance();
-
-    // Connect to all devices - backend always listens to all
-    const cleanup = liveAPI.connect(handleMessage, handleError, handleOpen);
+    startStreaming();
 
     return () => {
       isMounted = false;
-      cleanup();
+      clearReconnectTimer();
+      cleanupRef.current?.();
+      cleanupRef.current = null;
     };
   }, [devices, activeDeviceId, showAllDevices]);
 
@@ -177,7 +222,7 @@ export function LiveAttendance() {
       // Sort by timestamp ascending
       const sorted = [...userDayRecords].sort(
         (a, b) =>
-          new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+          new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
       );
 
       // Find first checkin (action = 0)
@@ -198,7 +243,7 @@ export function LiveAttendance() {
     // Sort final result by timestamp descending (newest first)
     return filtered.sort(
       (a, b) =>
-        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
     );
   };
 
@@ -213,7 +258,7 @@ export function LiveAttendance() {
   // Apply action filter
   if (actionFilter !== "all") {
     filteredAttendance = filteredAttendance.filter(
-      (record) => record.action === actionFilter,
+      (record) => record.action === actionFilter
     );
   }
 
@@ -227,7 +272,12 @@ export function LiveAttendance() {
   const connectionColor = isConnected ? "text-green-500" : "text-red-500";
 
   return (
-    <div className="space-y-6">
+    <motion.div
+      className="space-y-6"
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, ease: "easeOut" }}
+    >
       {/* No Devices Alert */}
       {devices.length === 0 && (
         <Alert>
@@ -246,7 +296,7 @@ export function LiveAttendance() {
             {/* Title */}
             <CardTitle className="flex items-center gap-2">
               <Activity className="h-5 w-5" />
-              Chấm công Realtime
+              Chấm công
               {devices.length > 0 && (
                 <ConnectionIcon className={`h-4 w-4 ${connectionColor}`} />
               )}
@@ -304,7 +354,7 @@ export function LiveAttendance() {
                 <Monitor className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                 <p className="text-muted-foreground">Chưa có thiết bị nào</p>
                 <p className="text-sm text-muted-foreground">
-                  Thêm thiết bị để xem dữ liệu chấm công realtime
+                  Thêm thiết bị để xem dữ liệu chấm công
                 </p>
               </div>
             </div>
@@ -342,163 +392,167 @@ export function LiveAttendance() {
                       <Fingerprint className="h-4 w-4" />
                     ) : latestRecord.method === 4 ? (
                       <IdCard className="h-4 w-4" />
+                    ) : latestRecord.method === 15 ? (
+                      <ScanFaceIcon className="h-4 w-4" />
                     ) : null;
 
                   return (
-                    <Card className="border-2 shadow-lg">
-                      <CardContent className="p-6">
-                        <div className="flex gap-6">
-                          {/* Avatar - Rectangle with 2/3 ratio (width:height) */}
-                          <div className="flex-shrink-0 w-64">
-                            <Avatar
-                              className={cn(
-                                "w-64 h-96 rounded-2xl border-4 shadow-xl",
-                                actionColor,
-                              )}
-                            >
-                              <AvatarImage
-                                src={buildAvatarUrl(
-                                  latestRecord.avatar_url,
-                                  resourceDomain,
-                                )}
-                                alt={displayName}
-                                className="object-cover"
-                              />
-                              <AvatarFallback className="text-6xl font-bold rounded-lg">
-                                {displayName ? (
-                                  displayName
-                                    .split(" ")
-                                    .map((n) => n[0])
-                                    .join("")
-                                    .toUpperCase()
-                                    .slice(0, 2)
-                                ) : (
-                                  <User className="h-32 w-32" />
-                                )}
-                              </AvatarFallback>
-                            </Avatar>
-                          </div>
-
-                          {/* Information Panel */}
-                          <div className="flex-1 space-y-4">
-                            {/* Full name from external system */}
-                            <div className="space-y-1">
-                              <div className="text-sm text-muted-foreground font-medium">
-                                Tên hệ thống
-                              </div>
-                              <div className="text-4xl font-semibold">
-                                {latestRecord.full_name || "-"}
-                              </div>
-                            </div>
-
-                            {/* Time */}
-                            <div className="space-y-1">
-                              <div className="text-sm text-muted-foreground font-medium">
-                                Thời gian
-                              </div>
-                              <div className="font-mono font-bold text-3xl text-primary">
-                                {latestRecord.timestamp.split(" ")[1]}
-                              </div>
-                            </div>
-
-                            {/* Employee Information Grid */}
-                            <div className="grid grid-cols-2 gap-4 pt-2">
-                              {/* User ID on device */}
-                              <div className="space-y-1">
-                                <div className="text-sm text-muted-foreground font-medium">
-                                  ID người dùng trên máy
-                                </div>
-                                <div className="text-lg font-semibold font-mono">
-                                  {latestRecord.user_id}
-                                </div>
-                              </div>
-
-                              {/* Employee Code */}
-                              <div className="space-y-1">
-                                <div className="text-sm text-muted-foreground font-medium">
-                                  Mã nhân viên
-                                </div>
-                                <div className="text-lg font-semibold">
-                                  {latestRecord.employee_code || "-"}
-                                </div>
-                              </div>
-
-                              {/* Name on device */}
-                              <div className="space-y-1">
-                                <div className="text-sm text-muted-foreground font-medium">
-                                  Tên trên máy
-                                </div>
-                                <div className="text-lg font-semibold">
-                                  {latestRecord.name}
-                                </div>
-                              </div>
-
-                              {/* Position */}
-                              <div className="space-y-1">
-                                <div className="text-sm text-muted-foreground font-medium">
-                                  Vị trí
-                                </div>
-                                <div className="text-lg font-semibold">
-                                  {latestRecord.position || "-"}
-                                </div>
-                              </div>
-
-                              {/* Department */}
-                              <div className="space-y-1">
-                                <div className="text-sm text-muted-foreground font-medium">
-                                  Phòng ban
-                                </div>
-                                <div className="text-lg font-semibold">
-                                  {latestRecord.department || "-"}
-                                </div>
-                              </div>
-
-                              {/* Employee Object */}
-                              <div className="space-y-1">
-                                <div className="text-sm text-muted-foreground font-medium">
-                                  Đối tượng
-                                </div>
-                                <div className="text-lg font-semibold">
-                                  {latestRecord.employee_object || "-"}
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Method and Device badges */}
-                            <div className="flex items-center gap-3 flex-wrap pt-2">
-                              {/* Action Badge */}
-                              <Badge
-                                variant="outline"
-                                className={`gap-2 text-sm px-3 py-1.5 ${actionColor}`}
+                    <AnimatePresence mode="wait">
+                      <motion.div
+                        key={`${latestRecord.user_id}-${latestRecord.timestamp}-${latestRecord.action}`}
+                        initial={{ opacity: 0, y: 24, scale: 0.98 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -24, scale: 0.98 }}
+                        transition={{ duration: 0.3, ease: "easeOut" }}
+                        layout
+                      >
+                        <Card className="border-2 shadow-lg">
+                          <CardContent className="p-6">
+                            <div className="flex gap-6">
+                              <motion.div
+                                className="flex-shrink-0 w-72"
+                                layout
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                transition={{ duration: 0.2 }}
                               >
-                                {actionIcon}
-                                {PUNCH_ACTION_MAP[latestRecord.action] ||
-                                  "Không xác định"}
-                              </Badge>
-                              {methodIcon && (
-                                <Badge
-                                  variant="outline"
-                                  className="gap-2 text-sm px-3 py-1.5"
+                                <Avatar
+                                  className={cn(
+                                    "w-72 h-[432px] rounded-2xl border-4 shadow-xl",
+                                    actionColor
+                                  )}
                                 >
-                                  {methodIcon}
-                                  {ATTENDANCE_METHOD_MAP[latestRecord.method] ||
-                                    "Không xác định"}
-                                </Badge>
-                              )}
-                              {devices.length > 1 && (
-                                <Badge
-                                  variant="secondary"
-                                  className="text-sm px-3 py-1.5"
-                                >
-                                  <Monitor className="h-3 w-3 mr-1" />
-                                  {getDeviceName(latestRecord.device_id)}
-                                </Badge>
-                              )}
+                                  <AvatarImage
+                                    src={buildAvatarUrl(
+                                      latestRecord.avatar_url,
+                                      resourceDomain
+                                    )}
+                                    alt={displayName}
+                                    className="object-cover"
+                                  />
+                                  <AvatarFallback className="text-6xl font-bold rounded-lg">
+                                    {displayName ? (
+                                      displayName
+                                        .split(" ")
+                                        .map((n) => n[0])
+                                        .join("")
+                                        .toUpperCase()
+                                        .slice(0, 2)
+                                    ) : (
+                                      <User className="h-32 w-32" />
+                                    )}
+                                  </AvatarFallback>
+                                </Avatar>
+                              </motion.div>
+                              <motion.div
+                                className="flex-1 space-y-4"
+                                layout
+                                initial={{ opacity: 0, y: 12 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ duration: 0.25, ease: "easeOut" }}
+                              >
+                                <div className="space-y-1">
+                                  <div className="text-sm text-muted-foreground font-medium">
+                                    Tên hệ thống
+                                  </div>
+                                  <div className="text-4xl font-semibold">
+                                    {latestRecord.full_name || "-"}
+                                  </div>
+                                </div>
+                                <div className="space-y-1">
+                                  <div className="text-sm text-muted-foreground font-medium">
+                                    Thời gian
+                                  </div>
+                                  <div className="font-mono font-bold text-3xl text-primary">
+                                    {latestRecord.timestamp.split(" ")[1]}
+                                  </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4 pt-2">
+                                  <div className="space-y-1">
+                                    <div className="text-sm text-muted-foreground font-medium">
+                                      ID người dùng trên máy
+                                    </div>
+                                    <div className="text-lg font-semibold font-mono">
+                                      {latestRecord.user_id}
+                                    </div>
+                                  </div>
+                                  <div className="space-y-1">
+                                    <div className="text-sm text-muted-foreground font-medium">
+                                      Mã nhân viên
+                                    </div>
+                                    <div className="text-lg font-semibold">
+                                      {latestRecord.employee_code || "-"}
+                                    </div>
+                                  </div>
+                                  <div className="space-y-1">
+                                    <div className="text-sm text-muted-foreground font-medium">
+                                      Tên trên máy
+                                    </div>
+                                    <div className="text-lg font-semibold">
+                                      {latestRecord.name}
+                                    </div>
+                                  </div>
+                                  <div className="space-y-1">
+                                    <div className="text-sm text-muted-foreground font-medium">
+                                      Vị trí
+                                    </div>
+                                    <div className="text-lg font-semibold">
+                                      {latestRecord.position || "-"}
+                                    </div>
+                                  </div>
+                                  <div className="space-y-1">
+                                    <div className="text-sm text-muted-foreground font-medium">
+                                      Phòng ban
+                                    </div>
+                                    <div className="text-lg font-semibold">
+                                      {latestRecord.department || "-"}
+                                    </div>
+                                  </div>
+                                  <div className="space-y-1">
+                                    <div className="text-sm text-muted-foreground font-medium">
+                                      Đối tượng
+                                    </div>
+                                    <div className="text-lg font-semibold">
+                                      {latestRecord.employee_object || "-"}
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-3 flex-wrap pt-2">
+                                  <Badge
+                                    variant="outline"
+                                    className={`gap-2 text-sm px-3 py-1.5 ${actionColor}`}
+                                  >
+                                    {actionIcon}
+                                    {PUNCH_ACTION_MAP[latestRecord.action] ||
+                                      "Không xác định"}
+                                  </Badge>
+                                  {methodIcon && (
+                                    <Badge
+                                      variant="outline"
+                                      className="gap-2 text-sm px-3 py-1.5"
+                                    >
+                                      {methodIcon}
+                                      {ATTENDANCE_METHOD_MAP[
+                                        latestRecord.method
+                                      ] || "Không xác định"}
+                                    </Badge>
+                                  )}
+                                  {devices.length > 1 && (
+                                    <Badge
+                                      variant="secondary"
+                                      className="text-sm px-3 py-1.5"
+                                    >
+                                      <Monitor className="h-3 w-3 mr-1" />
+                                      {getDeviceName(latestRecord.device_id)}
+                                    </Badge>
+                                  )}
+                                </div>
+                              </motion.div>
                             </div>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
+                          </CardContent>
+                        </Card>
+                      </motion.div>
+                    </AnimatePresence>
                   );
                 })()}
 
@@ -506,7 +560,7 @@ export function LiveAttendance() {
               {filteredAttendance.length > 1 && (
                 <Card>
                   <CardHeader>
-                    <CardTitle className="text-lg">Lịch sử chấm công</CardTitle>
+                    <CardTitle className="text-lg">Nhật ký chấm công</CardTitle>
                   </CardHeader>
                   <CardContent>
                     <Table>
@@ -526,97 +580,107 @@ export function LiveAttendance() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {filteredAttendance.slice(1).map((record, index) => {
-                          const displayName = record.full_name || record.name;
-                          const actionIcon =
-                            record.action === 0 ? (
-                              <ArrowRightToLine className="h-4 w-4" />
-                            ) : (
-                              <ArrowLeftFromLine className="h-4 w-4" />
-                            );
-                          const actionColor =
-                            record.action === 0
-                              ? "text-teal-600 dark:text-teal-400"
-                              : "text-sky-600 dark:text-sky-400";
-                          const methodIcon =
-                            record.method === 1 ? (
-                              <Fingerprint className="h-4 w-4" />
-                            ) : record.method === 4 ? (
-                              <IdCard className="h-4 w-4" />
-                            ) : null;
+                        <AnimatePresence initial={false}>
+                          {filteredAttendance.slice(1).map((record, index) => {
+                            const displayName = record.full_name || record.name;
+                            const actionIcon =
+                              record.action === 0 ? (
+                                <ArrowRightToLine className="h-4 w-4" />
+                              ) : (
+                                <ArrowLeftFromLine className="h-4 w-4" />
+                              );
+                            const actionColor =
+                              record.action === 0
+                                ? "text-teal-600 dark:text-teal-400"
+                                : "text-sky-600 dark:text-sky-400";
+                            const methodIcon =
+                              record.method === 1 ? (
+                                <Fingerprint className="h-4 w-4" />
+                              ) : record.method === 4 ? (
+                                <IdCard className="h-4 w-4" />
+                              ) : record.method === 15 ? (
+                                <ScanFaceIcon className="h-4 w-4" />
+                              ) : null;
 
-                          return (
-                            <TableRow
-                              key={`${record.user_id}-${record.timestamp}-${index}`}
-                            >
-                              <TableCell className="font-mono text-sm">
-                                {record.timestamp.split(" ")[1]}
-                              </TableCell>
-                              <TableCell className="font-medium flex gap-2 items-center">
-                                <Avatar className={cn(actionColor)}>
-                                  <AvatarImage
-                                    src={buildAvatarUrl(
-                                      record.avatar_url,
-                                      resourceDomain,
-                                    )}
-                                    alt={displayName}
-                                    className="object-cover"
-                                  />
-                                  <AvatarFallback>
-                                    {displayName ? (
-                                      displayName
-                                        .split(" ")
-                                        .map((n) => n[0])
-                                        .join("")
-                                        .toUpperCase()
-                                        .slice(0, 2)
-                                    ) : (
-                                      <User className="h-32 w-32" />
-                                    )}
-                                  </AvatarFallback>
-                                </Avatar>
-                                {displayName}
-                              </TableCell>
-                              <TableCell className="font-mono">
-                                {record.employee_code || "-"}
-                              </TableCell>
-                              <TableCell className="font-mono">
-                                {record.user_id}
-                              </TableCell>
-                              <TableCell>{record.department || "-"}</TableCell>
-                              <TableCell>{record.position || "-"}</TableCell>
-                              <TableCell>
-                                <div
-                                  className={`flex items-center gap-1 ${actionColor}`}
-                                >
-                                  {actionIcon}
-                                  <span className="text-sm font-medium">
-                                    {PUNCH_ACTION_MAP[record.action] || "N/A"}
-                                  </span>
-                                </div>
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex items-center gap-1">
-                                  {methodIcon}
-                                  <span className="text-sm">
-                                    {ATTENDANCE_METHOD_MAP[record.method] ||
-                                      "N/A"}
-                                  </span>
-                                </div>
-                              </TableCell>
-                              {devices.length > 1 && (
+                            return (
+                              <MotionTableRow
+                                key={`${record.user_id}-${record.timestamp}-${index}`}
+                                layout
+                                initial={{ opacity: 0, y: 12 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -12 }}
+                                transition={{ duration: 0.2, ease: "easeOut" }}
+                              >
+                                <TableCell className="font-mono text-sm">
+                                  {record.timestamp.split(" ")[1]}
+                                </TableCell>
+                                <TableCell className="font-medium flex gap-2 items-center">
+                                  <Avatar className={cn(actionColor)}>
+                                    <AvatarImage
+                                      src={buildAvatarUrl(
+                                        record.avatar_url,
+                                        resourceDomain
+                                      )}
+                                      alt={displayName}
+                                      className="object-cover"
+                                    />
+                                    <AvatarFallback>
+                                      {displayName ? (
+                                        displayName
+                                          .split(" ")
+                                          .map((n) => n[0])
+                                          .join("")
+                                          .toUpperCase()
+                                          .slice(0, 2)
+                                      ) : (
+                                        <User className="h-32 w-32" />
+                                      )}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  {displayName}
+                                </TableCell>
+                                <TableCell className="font-mono">
+                                  {record.employee_code || "-"}
+                                </TableCell>
+                                <TableCell className="font-mono">
+                                  {record.user_id}
+                                </TableCell>
+                                <TableCell>{record.department || "-"}</TableCell>
+                                <TableCell>{record.position || "-"}</TableCell>
                                 <TableCell>
                                   <Badge
-                                    variant="secondary"
-                                    className="text-xs"
+                                    variant="outline"
+                                    className={`${actionColor}`}
                                   >
-                                    {getDeviceName(record.device_id)}
+                                    {actionIcon}
+                                    {PUNCH_ACTION_MAP[record.action] ||
+                                      "Không xác định"}
                                   </Badge>
                                 </TableCell>
-                              )}
-                            </TableRow>
-                          );
-                        })}
+                                <TableCell>
+                                  <div className="flex items-center gap-1">
+                                    {methodIcon}
+                                    <span className="text-sm">
+                                      {ATTENDANCE_METHOD_MAP[
+                                        record.method
+                                      ] || "N/A"}
+                                    </span>
+                                  </div>
+                                </TableCell>
+                                {devices.length > 1 && (
+                                  <TableCell>
+                                    <Badge
+                                      variant="secondary"
+                                      className="text-xs"
+                                    >
+                                      {getDeviceName(record.device_id)}
+                                    </Badge>
+                                  </TableCell>
+                                )}
+                              </MotionTableRow>
+                            );
+                          })}
+                        </AnimatePresence>
                       </TableBody>
                     </Table>
                   </CardContent>
@@ -626,6 +690,6 @@ export function LiveAttendance() {
           )}
         </CardContent>
       </Card>
-    </div>
+    </motion.div>
   );
 }

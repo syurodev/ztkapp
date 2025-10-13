@@ -6,6 +6,7 @@ export const ATTENDANCE_METHOD_MAP: { [key: number]: string } = {
   2: "Khuôn mặt",
   3: "Thẻ",
   4: "Kết hợp",
+  15: "Khuôn mặt",
 };
 
 // Map for punch action (what the 'punch' field represents)

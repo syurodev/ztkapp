@@ -37,6 +37,7 @@ import { attendanceAPI } from "@/lib/api";
 import { buildAvatarUrl, getResourceDomain } from "@/lib/utils";
 import { ATTENDANCE_METHOD_MAP, PUNCH_ACTION_MAP } from "@/types/constant";
 import { format } from "date-fns";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   AlertCircle,
   Calendar as CalendarIcon,
@@ -61,6 +62,7 @@ import { AttendanceHistoryView } from "./AttendanceHistoryView";
 interface AttendanceRecord {
   user_id: string;
   name: string;
+  full_name: string;
   avatar_url?: string | null;
   timestamp: string;
   method: number;
@@ -72,6 +74,7 @@ interface AttendanceRecord {
 }
 
 const PAGE_SIZE = 20;
+const MotionTableRow = motion(TableRow);
 
 const getSyncStatusBadge = (record: AttendanceRecord) => {
   // Use new sync_status if available, fallback to is_synced for backward compatibility
@@ -241,7 +244,9 @@ export function Attendance() {
     try {
       const response = await attendanceAPI.syncAttendance();
       toast.success("Đồng bộ hoàn tất", {
-        description: `Đã đồng bộ thêm ${response.sync_stats?.new || 0} bản ghi mới.`,
+        description: `Đã đồng bộ thêm ${
+          response.sync_stats?.new || 0
+        } bản ghi mới.`,
       });
       await loadAttendance(); // Refresh data from DB after sync
     } catch (err) {
@@ -345,12 +350,18 @@ export function Attendance() {
     : "tất cả ngày đang chờ";
 
   return (
-    <div className="space-y-6">
+    <motion.div
+      className="space-y-6"
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, ease: "easeOut" }}
+    >
       {!activeDevice && (
         <Alert>
           <Monitor className="h-4 w-4" />
           <AlertDescription>
-            Vui lòng chọn thiết bị để xem dữ liệu chấm công. Truy cập mục Quản lý thiết bị để cấu hình thiết bị.
+            Vui lòng chọn thiết bị để xem dữ liệu chấm công. Truy cập mục Quản
+            lý thiết bị để cấu hình thiết bị.
           </AlertDescription>
         </Alert>
       )}
@@ -463,7 +474,7 @@ export function Attendance() {
                     </p>
                     <div className="flex gap-2">
                       {/* Only show sync button for pull devices, push devices send data automatically */}
-                      {activeDevice.device_type === 'pull' && (
+                      {activeDevice.device_type === "pull" && (
                         <Button
                           variant="outline"
                           size="sm"
@@ -538,7 +549,8 @@ export function Attendance() {
                         .
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        Hãy đồng bộ với thiết bị để lấy dữ liệu hoặc chọn ngày khác.
+                        Hãy đồng bộ với thiết bị để lấy dữ liệu hoặc chọn ngày
+                        khác.
                       </p>
                     </div>
                   ) : (
@@ -546,8 +558,7 @@ export function Attendance() {
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <TableHead>#</TableHead>
-                            <TableHead>ID người dùng</TableHead>
+                            <TableHead>ID</TableHead>
                             <TableHead>Họ tên</TableHead>
                             <TableHead>Thời điểm</TableHead>
                             <TableHead>Phương thức</TableHead>
@@ -556,64 +567,75 @@ export function Attendance() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {paginatedAttendance.map((record, index) => {
-                            const initials = record.name
-                              .split(" ")
-                              .map((n) => n[0])
-                              .join("")
-                              .toUpperCase()
-                              .slice(0, 2);
-                            return (
-                              <TableRow key={record.id}>
-                                <TableCell>
-                                  {(currentPage - 1) * PAGE_SIZE + index + 1}
-                                </TableCell>
-                                <TableCell>{record.user_id}</TableCell>
-                                <TableCell>
-                                  <div className="flex items-center gap-2">
-                                    <Avatar className="h-8 w-8">
-                                      {record.avatar_url && (
-                                        <AvatarImage
-                                          src={buildAvatarUrl(
-                                            record.avatar_url,
-                                            resourceDomain
-                                          )}
-                                          alt={record.name}
-                                        />
-                                      )}
-                                      <AvatarFallback className="text-xs">
-                                        {initials}
-                                      </AvatarFallback>
-                                    </Avatar>
-
-                                    {record.name}
-                                  </div>
-                                </TableCell>
-                                <TableCell>{record.timestamp}</TableCell>
-                                <TableCell>
-                                  {ATTENDANCE_METHOD_MAP[record.method] ||
-                                    "Không xác định"}
-                                </TableCell>
-                                <TableCell>
-                                  {PUNCH_ACTION_MAP[record.action] || "Không xác định"}
-                                </TableCell>
-                                <TableCell>
-                                  <Tooltip>
-                                    <TooltipTrigger>
-                                      {getSyncStatusBadge(record)}
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      <p>
-                                        {record.error_message
-                                          ? record.error_message
-                                          : ""}
-                                      </p>
-                                    </TooltipContent>
-                                  </Tooltip>
-                                </TableCell>
-                              </TableRow>
-                            );
-                          })}
+                          <AnimatePresence initial={false}>
+                            {paginatedAttendance.map((record) => {
+                              const initials = record.name
+                                .split(" ")
+                                .map((n) => n[0])
+                                .join("")
+                                .toUpperCase()
+                                .slice(0, 2);
+                              return (
+                                <MotionTableRow
+                                  key={record.id}
+                                  layout
+                                  initial={{ opacity: 0, y: 12 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, y: -12 }}
+                                  transition={{
+                                    duration: 0.2,
+                                    ease: "easeOut",
+                                  }}
+                                >
+                                  <TableCell>{record.user_id}</TableCell>
+                                  <TableCell>
+                                    <div className="flex items-center gap-2">
+                                      <Avatar className="h-8 w-8">
+                                        {record.avatar_url && (
+                                          <AvatarImage
+                                            src={buildAvatarUrl(
+                                              record.avatar_url,
+                                              resourceDomain
+                                            )}
+                                            alt={
+                                              record.full_name ?? record.name
+                                            }
+                                          />
+                                        )}
+                                        <AvatarFallback className="text-xs">
+                                          {initials}
+                                        </AvatarFallback>
+                                      </Avatar>
+                                      {record.full_name ?? record.name}
+                                    </div>
+                                  </TableCell>
+                                  <TableCell>{record.timestamp}</TableCell>
+                                  <TableCell>
+                                    {ATTENDANCE_METHOD_MAP[record.method] ||
+                                      "Không xác định"}
+                                  </TableCell>
+                                  <TableCell>
+                                    {PUNCH_ACTION_MAP[record.action] ||
+                                      "Không xác định"}
+                                  </TableCell>
+                                  <TableCell>
+                                    <Tooltip>
+                                      <TooltipTrigger>
+                                        {getSyncStatusBadge(record)}
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        <p>
+                                          {record.error_message
+                                            ? record.error_message
+                                            : ""}
+                                        </p>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </TableCell>
+                                </MotionTableRow>
+                              );
+                            })}
+                          </AnimatePresence>
                         </TableBody>
                       </Table>
                       {totalPages > 1 && (
@@ -743,18 +765,22 @@ export function Attendance() {
                   <div className="text-sm text-yellow-800">
                     <p className="font-medium">Lưu ý quan trọng:</p>
                     <p>
-                      Sau khi đồng bộ, dữ liệu chấm công (nếu có) sẽ được chốt theo logic sau:
+                      Sau khi đồng bộ, dữ liệu chấm công (nếu có) sẽ được chốt
+                      theo logic sau:
                     </p>
                     <ul className="mt-1 list-disc list-inside ml-2 space-y-1">
                       <li>
-                        <strong>Check-in đầu tiên:</strong> Lần vào ca đầu tiên trong ngày
+                        <strong>Check-in đầu tiên:</strong> Lần vào ca đầu tiên
+                        trong ngày
                       </li>
                       <li>
-                        <strong>Check-out cuối cùng:</strong> Lần ra ca cuối cùng trong ngày
+                        <strong>Check-out cuối cùng:</strong> Lần ra ca cuối
+                        cùng trong ngày
                       </li>
                     </ul>
                     <p className="mt-2">
-                      Dữ liệu sẽ được gửi lên hệ thống ngoài và không thể hoàn tác.
+                      Dữ liệu sẽ được gửi lên hệ thống ngoài và không thể hoàn
+                      tác.
                     </p>
                   </div>
                 </div>
@@ -789,6 +815,6 @@ export function Attendance() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </motion.div>
   );
 }

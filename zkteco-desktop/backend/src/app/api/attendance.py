@@ -358,7 +358,9 @@ def sync_daily_attendance():
             f"Manual daily attendance sync triggered for date: {target_date or 'today'}, device: {device_id or 'all'}"
         )
 
-        result = attendance_sync_service.sync_attendance_daily(target_date, device_id)
+        result = attendance_sync_service.sync_attendance_daily(
+            target_date, device_id, ignore_error_limit=True
+        )
 
         if result["success"]:
             dates_processed = result.get("dates_processed", [])

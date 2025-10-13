@@ -234,6 +234,7 @@ def get_all_users():
             serialized_users.append({
                 "id": user.user_id,
                 "name": user.name,
+                "full_name": user.full_name,
                 "groupId": user.group_id,
                 "privilege": user.privilege,
                 "card": user.card,

@@ -162,12 +162,22 @@ class AttendanceRepository:
         """Get attendance logs that haven't been synced (pending status)"""
         if device_id:
             rows = db_manager.fetch_all(
-                "SELECT * FROM attendance_logs WHERE sync_status = ? AND device_id = ? ORDER BY timestamp DESC LIMIT ?",
+                """
+                SELECT * FROM attendance_logs
+                WHERE sync_status = ? AND device_id = ?
+                  AND COALESCE(error_count, 0) < 5
+                ORDER BY timestamp DESC LIMIT ?
+                """,
                 (SyncStatus.PENDING, device_id, limit)
             )
         else:
             rows = db_manager.fetch_all(
-                "SELECT * FROM attendance_logs WHERE sync_status = ? ORDER BY timestamp DESC LIMIT ?",
+                """
+                SELECT * FROM attendance_logs
+                WHERE sync_status = ?
+                  AND COALESCE(error_count, 0) < 5
+                ORDER BY timestamp DESC LIMIT ?
+                """,
                 (SyncStatus.PENDING, limit)
             )
         return [self._row_to_log(row) for row in rows]
@@ -188,13 +198,23 @@ class AttendanceRepository:
     
     def mark_as_synced(self, log_id: int) -> bool:
         """Mark attendance log as synced"""
-        query = "UPDATE attendance_logs SET sync_status = ?, is_synced = TRUE, synced_at = ? WHERE id = ?"
+        query = """
+            UPDATE attendance_logs
+            SET sync_status = ?, is_synced = TRUE, synced_at = ?,
+                error_count = 0, error_code = NULL, error_message = NULL
+            WHERE id = ?
+        """
         cursor = db_manager.execute_query(query, (SyncStatus.SYNCED, datetime.now(), log_id))
         return cursor.rowcount > 0
 
     def mark_as_unsynced(self, log_id: int) -> bool:
         """Mark attendance log as not synced (for re-sync scenarios)"""
-        query = "UPDATE attendance_logs SET sync_status = ?, is_synced = FALSE, synced_at = NULL WHERE id = ?"
+        query = """
+            UPDATE attendance_logs
+            SET sync_status = ?, is_synced = FALSE, synced_at = NULL,
+                error_count = 0, error_code = NULL, error_message = NULL
+            WHERE id = ?
+        """
         cursor = db_manager.execute_query(query, (SyncStatus.PENDING, log_id))
         return cursor.rowcount > 0
 
@@ -202,15 +222,55 @@ class AttendanceRepository:
         """Update sync status of attendance log"""
         synced_at = datetime.now() if sync_status == SyncStatus.SYNCED else None
         is_synced = sync_status == SyncStatus.SYNCED
-
-        query = "UPDATE attendance_logs SET sync_status = ?, is_synced = ?, synced_at = ? WHERE id = ?"
-        cursor = db_manager.execute_query(query, (sync_status, is_synced, synced_at, log_id))
+        if sync_status in (SyncStatus.PENDING, SyncStatus.SYNCED):
+            query = """
+                UPDATE attendance_logs
+                SET sync_status = ?, is_synced = ?, synced_at = ?,
+                    error_count = 0, error_code = NULL, error_message = NULL
+                WHERE id = ?
+            """
+            params = (sync_status, is_synced, synced_at, log_id)
+        else:
+            query = """
+                UPDATE attendance_logs
+                SET sync_status = ?, is_synced = ?, synced_at = ?
+                WHERE id = ?
+            """
+            params = (sync_status, is_synced, synced_at, log_id)
+        cursor = db_manager.execute_query(query, params)
         return cursor.rowcount > 0
 
-    def update_sync_error(self, log_id: int, error_code: str, error_message: str) -> bool:
+    def update_sync_error(self, log_id: int, error_code: str, error_message: str, increment: bool = True) -> bool:
         """Update attendance log with error information"""
-        query = "UPDATE attendance_logs SET sync_status = ?, error_code = ?, error_message = ?, synced_at = ? WHERE id = ?"
-        cursor = db_manager.execute_query(query, (SyncStatus.ERROR, error_code, error_message, datetime.now(), log_id))
+        if increment:
+            query = """
+                UPDATE attendance_logs
+                SET sync_status = ?, error_code = ?, error_message = ?, synced_at = ?,
+                    error_count = COALESCE(error_count, 0) + 1
+                WHERE id = ?
+            """
+            params = (
+                SyncStatus.ERROR,
+                error_code,
+                error_message,
+                datetime.now(),
+                log_id,
+            )
+        else:
+            query = """
+                UPDATE attendance_logs
+                SET sync_status = ?, error_code = ?, error_message = ?, synced_at = ?
+                WHERE id = ?
+            """
+            params = (
+                SyncStatus.ERROR,
+                error_code,
+                error_message,
+                datetime.now(),
+                log_id,
+            )
+
+        cursor = db_manager.execute_query(query, params)
         return cursor.rowcount > 0
 
     def get_error_records(self, device_id: str = None, limit: int = 1000) -> List[AttendanceLog]:
@@ -463,6 +523,11 @@ class AttendanceRepository:
         except (KeyError, IndexError):
             original_status = 0
 
+        try:
+            error_count = row['error_count'] if 'error_count' in row.keys() else 0
+        except (KeyError, IndexError):
+            error_count = 0
+
         return AttendanceLog(
             id=row['id'],
             user_id=row['user_id'],
@@ -478,7 +543,8 @@ class AttendanceRepository:
             error_code=error_code,
             error_message=error_message,
             created_at=row['created_at'],
-            original_status=original_status  # Safe default to 0 for backward compatibility
+            original_status=original_status,  # Safe default to 0 for backward compatibility
+            error_count=error_count,
         )
 
     def get_smart_filtered_by_date(self, target_date, device_id: str = None) -> List[AttendanceLog]:

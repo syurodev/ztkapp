@@ -29,6 +29,8 @@ import { Device, devicesAPI } from "@/lib/api";
 import {
   AlertCircle,
   CheckCircle2,
+  CloudUpload,
+  Loader2,
   Monitor,
   Play,
   Plus,
@@ -38,8 +40,10 @@ import {
   Trash2,
 } from "lucide-react";
 import { useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
-import { CloudUpload } from "lucide-react";
+
+const MotionTableRow = motion(TableRow);
 
 export function DeviceManagement() {
   // Use DeviceContext instead of local state
@@ -189,11 +193,11 @@ export function DeviceManagement() {
       const result = await devicesAPI.syncToExternal();
       if (result.status === 200) {
         toast.success(
-          result.message || "Đồng bộ thiết bị lên cloud thành công!",
+          result.message || "Đồng bộ thiết bị lên cloud thành công!"
         );
       } else {
         toast.error(
-          result.message || "Đồng bộ thất bại với lỗi không xác định.",
+          result.message || "Đồng bộ thất bại với lỗi không xác định."
         );
       }
     } catch (error) {
@@ -285,7 +289,12 @@ export function DeviceManagement() {
   };
 
   return (
-    <div className="container mx-auto p-4 space-y-6">
+    <motion.div
+      className="container mx-auto p-4 space-y-6"
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, ease: "easeOut" }}
+    >
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold">Quản lý thiết bị</h1>
         <div className="flex items-center gap-2">
@@ -304,9 +313,10 @@ export function DeviceManagement() {
             disabled={loading || isSyncing}
             className="flex items-center gap-2"
           >
-            <CloudUpload
-              className={`h-4 w-4 ${isSyncing ? "animate-spin" : ""}`}
+            <Loader2
+              className={`h-4 w-4 ${isSyncing ? "animate-spin" : "hidden"}`}
             />
+            <CloudUpload className={`h-4 w-4 ${isSyncing ? "hidden" : ""}`} />
             Đồng bộ lên hệ thống
           </Button>
           <Button onClick={openAddDialog} className="flex items-center gap-2">
@@ -360,117 +370,128 @@ export function DeviceManagement() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {devices.map((device) => {
-                  const isPushDevice = device.device_type === "push";
+                <AnimatePresence initial={false}>
+                  {devices.map((device) => {
+                    const isPushDevice = device.device_type === "push";
 
-                  return (
-                    <TableRow key={device.id}>
-                      <TableCell className="font-medium">
-                        <div className="flex items-center gap-2">
-                          {device.name}
-                          {activeDeviceId === device.id && (
-                            <Badge variant="default" className="bg-teal-400">
-                              Đang dùng
-                            </Badge>
+                    return (
+                      <MotionTableRow
+                        key={device.id}
+                        layout
+                        initial={{ opacity: 0, y: 12 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -12 }}
+                        transition={{ duration: 0.2, ease: "easeOut" }}
+                      >
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-2">
+                            {device.name}
+                            {activeDeviceId === device.id && (
+                              <Badge variant="default" className="bg-teal-400">
+                                Đang dùng
+                              </Badge>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="font-medium">
+                          {device.device_info?.device_name || "Không rõ"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={isPushDevice ? "secondary" : "outline"}
+                          >
+                            {isPushDevice ? "Push" : "Pull"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {isPushDevice ? (
+                            <span className="text-muted-foreground">
+                              Không áp dụng
+                            </span>
+                          ) : (
+                            `${device.ip}:${device.port}`
                           )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="font-medium">
-                        {device.device_info?.device_name || "Không rõ"}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={isPushDevice ? "secondary" : "outline"}>
-                          {isPushDevice ? "Push" : "Pull"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {isPushDevice ? (
-                          <span className="text-muted-foreground">
-                            Không áp dụng
-                          </span>
-                        ) : (
-                          `${device.ip}:${device.port}`
-                        )}
-                      </TableCell>
-                      <TableCell>{renderStatusCell(device)}</TableCell>
-                      <TableCell>
-                        {device.device_info?.serial_number || "Không rõ"}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          {/* Test button only for Pull devices */}
-                          {!isPushDevice && (
+                        </TableCell>
+                        <TableCell>{renderStatusCell(device)}</TableCell>
+                        <TableCell>
+                          {device.device_info?.serial_number || "Không rõ"}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            {/* Test button only for Pull devices */}
+                            {!isPushDevice && (
+                              <Tooltip>
+                                <TooltipTrigger>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleTestDevice(device.id)}
+                                    disabled={loading}
+                                  >
+                                    <SearchCheck />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Kiểm tra</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+                            {activeDeviceId !== device.id && (
+                              <Tooltip>
+                                <TooltipTrigger>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() =>
+                                      handleActivateDevice(device.id)
+                                    }
+                                    disabled={loading}
+                                  >
+                                    <Play />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Kích hoạt</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
                             <Tooltip>
                               <TooltipTrigger>
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  onClick={() => handleTestDevice(device.id)}
+                                  onClick={() => openEditDialog(device)}
                                   disabled={loading}
                                 >
-                                  <SearchCheck />
+                                  <Settings className="h-4 w-4" />
                                 </Button>
                               </TooltipTrigger>
                               <TooltipContent>
-                                <p>Kiểm tra</p>
+                                <p>Cài đặt</p>
                               </TooltipContent>
                             </Tooltip>
-                          )}
-                          {activeDeviceId !== device.id && (
+
                             <Tooltip>
                               <TooltipTrigger>
                                 <Button
                                   size="sm"
-                                  variant="outline"
-                                  onClick={() =>
-                                    handleActivateDevice(device.id)
-                                  }
+                                  variant="destructive"
+                                  onClick={() => openDeleteDialog(device)}
                                   disabled={loading}
                                 >
-                                  <Play />
+                                  <Trash2 className="h-4 w-4" />
                                 </Button>
                               </TooltipTrigger>
                               <TooltipContent>
-                                <p>Kích hoạt</p>
+                                <p>Xoá</p>
                               </TooltipContent>
                             </Tooltip>
-                          )}
-                          <Tooltip>
-                            <TooltipTrigger>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => openEditDialog(device)}
-                                disabled={loading}
-                              >
-                                <Settings className="h-4 w-4" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>Cài đặt</p>
-                            </TooltipContent>
-                          </Tooltip>
-
-                          <Tooltip>
-                            <TooltipTrigger>
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                onClick={() => openDeleteDialog(device)}
-                                disabled={loading}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>Xoá</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
+                          </div>
+                        </TableCell>
+                      </MotionTableRow>
+                    );
+                  })}
+                </AnimatePresence>
               </TableBody>
             </Table>
           </CardContent>
@@ -523,6 +544,6 @@ export function DeviceManagement() {
         isLoading={loading}
         isActiveDevice={selectedDevice?.id === activeDeviceId}
       />
-    </div>
+    </motion.div>
   );
 }

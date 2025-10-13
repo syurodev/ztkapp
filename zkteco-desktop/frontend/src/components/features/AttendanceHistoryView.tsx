@@ -27,6 +27,7 @@ import { useEffect, useState } from "react";
 interface AttendanceRecord {
   user_id: string;
   name: string;
+  full_name: string;
   avatar_url?: string | null;
   timestamp: string;
   method: number;
@@ -164,7 +165,9 @@ export function AttendanceHistoryView({
         <div className="flex items-center justify-center py-12">
           <div className="text-center">
             <Loader2 className="h-12 w-12 text-muted-foreground mx-auto mb-4 animate-spin" />
-            <p className="text-muted-foreground">Đang tải dữ liệu chấm công...</p>
+            <p className="text-muted-foreground">
+              Đang tải dữ liệu chấm công...
+            </p>
           </div>
         </div>
       ) : filteredData.length === 0 ? (
@@ -211,7 +214,7 @@ export function AttendanceHistoryView({
                 <Avatar className="h-12 w-12">
                   <AvatarImage
                     src={buildAvatarUrl(record.avatar_url, resourceDomain)}
-                    alt={record.name}
+                    alt={record.full_name ?? record.name}
                   />
                   <AvatarFallback>
                     {record.name ? (
@@ -230,14 +233,15 @@ export function AttendanceHistoryView({
                 {/* Info */}
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold truncate text-base">
-                    {record.name}
+                    {record.full_name ?? record.name}
                   </div>
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <span>{record.timestamp}</span>
                     {methodIcon && (
                       <Badge variant={"outline"}>
                         {methodIcon}
-                        {ATTENDANCE_METHOD_MAP[record.method] || "Không xác định"}
+                        {ATTENDANCE_METHOD_MAP[record.method] ||
+                          "Không xác định"}
                       </Badge>
                     )}
                     {record.is_synced && (

@@ -27,13 +27,14 @@ import {
   CheckCircle2,
   Clock,
   Monitor,
+  RefreshCcw,
   RefreshCw,
   UserCheck,
   Users,
   XCircle,
-  RefreshCcw,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
 
 // Using User interface from API types
@@ -53,6 +54,8 @@ import { toast } from "sonner";
 //   group_id: 0,
 //   card: 0,
 // };
+
+const MotionTableRow = motion(TableRow);
 
 export function UserManagement() {
   const { activeDevice } = useDevice();
@@ -105,7 +108,7 @@ export function UserManagement() {
       setUsers(response.data || []);
     } catch (err) {
       setError(
-        "Không thể tải danh sách người dùng. Vui lòng kiểm tra dịch vụ backend.",
+        "Không thể tải danh sách người dùng. Vui lòng kiểm tra dịch vụ backend."
       );
       console.error("Error loading users:", err);
     } finally {
@@ -187,7 +190,7 @@ export function UserManagement() {
 
       if (result["success"]) {
         toast.success(
-          `Đã đồng bộ ${result.employees_count} nhân sự lên hệ thống ngoài`,
+          `Đã đồng bộ ${result.employees_count} nhân sự lên hệ thống ngoài`
         );
         // Reload users to get updated sync status
         await loadUsers();
@@ -249,13 +252,13 @@ export function UserManagement() {
 
       if (result.success) {
         toast.success(
-          `Đã đồng bộ ${result.synced_count} người dùng từ thiết bị`,
+          `Đã đồng bộ ${result.synced_count} người dùng từ thiết bị`
         );
         // Reload users to get updated data
         await loadUsers();
       } else {
         toast.error(
-          result.message || "Không thể đồng bộ người dùng từ thiết bị",
+          result.message || "Không thể đồng bộ người dùng từ thiết bị"
         );
       }
     } catch (err: any) {
@@ -298,7 +301,7 @@ export function UserManagement() {
 
   // Filter users based on search query
   const filteredUsers = users.filter((user) =>
-    user.name.toLowerCase().includes(searchQuery.toLowerCase()),
+    user.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const getSyncStatusBadge = (user: User) => {
@@ -356,7 +359,12 @@ export function UserManagement() {
   // };
 
   return (
-    <div className="space-y-6">
+    <motion.div
+      className="space-y-6"
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, ease: "easeOut" }}
+    >
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -409,7 +417,9 @@ export function UserManagement() {
               className="flex items-center gap-2"
             >
               <RefreshCw
-                className={`h-4 w-4 ${isSyncingFromDevice ? "animate-spin" : ""}`}
+                className={`h-4 w-4 ${
+                  isSyncingFromDevice ? "animate-spin" : ""
+                }`}
               />
               {isSyncingFromDevice ? "Đang đồng bộ..." : "Đồng bộ từ thiết bị"}
             </Button>
@@ -626,9 +636,9 @@ export function UserManagement() {
               </TableCaption>
               <TableHeader>
                 <TableRow>
-                  <TableHead>STT</TableHead>
-                  <TableHead>ID người dùng</TableHead>
+                  <TableHead>ID</TableHead>
                   <TableHead>Họ tên</TableHead>
+                  <TableHead>Họ tên hệ thống</TableHead>
                   <TableHead>Nhóm</TableHead>
                   <TableHead>Trạng thái đồng bộ</TableHead>
                   <TableHead>Đồng bộ lúc</TableHead>
@@ -637,64 +647,77 @@ export function UserManagement() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredUsers.map((user, index) => {
-                  const initials = user.name
-                    .split(" ")
-                    .map((n) => n[0])
-                    .join("")
-                    .toUpperCase()
-                    .slice(0, 2);
+                <AnimatePresence initial={false}>
+                  {filteredUsers.map((user) => {
+                    const initials = user.name
+                      .split(" ")
+                      .map((n) => n[0])
+                      .join("")
+                      .toUpperCase()
+                      .slice(0, 2);
 
-                  return (
-                    <TableRow key={user.id}>
-                      <TableCell className="font-medium">{index + 1}</TableCell>
-                      <TableCell className="font-medium">{user.id}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-3">
-                          <Avatar className="h-8 w-8">
-                            {user.avatar_url && (
-                              <AvatarImage
-                                src={buildAvatarUrl(
-                                  user.avatar_url,
-                                  resourceDomain,
-                                )}
-                                alt={user.name}
-                              />
-                            )}
-                            <AvatarFallback className="text-xs">
-                              {initials}
-                            </AvatarFallback>
-                          </Avatar>
-                          <span>{user.name}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>{user.groupId}</TableCell>
-                      <TableCell>{getSyncStatusBadge(user)}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {formatDate(user.synced_at)}
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {formatDate(user.created_at)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() =>
-                            handleSyncSingleUser(user.id, user.name)
-                          }
-                          disabled={syncingUsers.has(user.id)}
-                          className="h-8 w-8 p-0"
-                          title="Đồng bộ người dùng này lên API ngoài"
-                        >
-                          <RefreshCcw
-                            className={`h-4 w-4 ${syncingUsers.has(user.id) ? "animate-spin" : ""}`}
-                          />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
+                    return (
+                      <MotionTableRow
+                        key={user.id}
+                        layout
+                        initial={{ opacity: 0, y: 12 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -12 }}
+                        transition={{ duration: 0.2, ease: "easeOut" }}
+                      >
+                        <TableCell className="font-medium">{user.id}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-3">
+                            <Avatar className="h-8 w-8">
+                              {user.avatar_url && (
+                                <AvatarImage
+                                  src={buildAvatarUrl(
+                                    user.avatar_url,
+                                    resourceDomain
+                                  )}
+                                  alt={user.name}
+                                />
+                              )}
+                              <AvatarFallback className="text-xs">
+                                {initials}
+                              </AvatarFallback>
+                            </Avatar>
+                            <span>{user.name}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="font-medium">
+                          {user.full_name ?? "-"}
+                        </TableCell>
+                        <TableCell>{user.groupId}</TableCell>
+                        <TableCell>{getSyncStatusBadge(user)}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {formatDate(user.synced_at)}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {formatDate(user.created_at)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                              handleSyncSingleUser(user.id, user.name)
+                            }
+                            disabled={syncingUsers.has(user.id)}
+                            className="h-8 w-8 p-0"
+                            title="Đồng bộ người dùng này lên API ngoài"
+                          >
+                            <RefreshCcw
+                              className={`h-4 w-4 ${
+                                syncingUsers.has(user.id) ? "animate-spin" : ""
+                              }`}
+                            />
+                          </Button>
+                        </TableCell>
+                      </MotionTableRow>
+                    );
+                  })}
+                </AnimatePresence>
               </TableBody>
             </Table>
           )}
@@ -761,6 +784,6 @@ export function UserManagement() {
           </CardContent>
         </Card>
       </div>
-    </div>
+    </motion.div>
   );
 }

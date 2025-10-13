@@ -23,6 +23,7 @@ class User:
     position: Optional[str] = None  # Chức vụ
     department: Optional[str] = None  # Phòng ban
     notes: Optional[str] = None  # Ghi chú
+    employee_object: Optional[str] = None  # Đối tượng nhân viên (theo external API)
     id: Optional[int] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

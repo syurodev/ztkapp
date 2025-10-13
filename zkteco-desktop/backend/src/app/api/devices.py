@@ -271,13 +271,70 @@ def add_device():
             f"Device {data.get('name')} added successfully with ID: {device_id}"
         )
 
-        return jsonify(
-            {
-                "message": "Thêm thiết bị thành công",
-                "device_id": device_id,
-                "device_info": device_info,
-            }
-        )
+        external_sync_result = None
+
+        try:
+            serial_number = data.get("serial_number") or device_info.get(
+                "serial_number"
+            )
+            if serial_number:
+                external_api_domain = config_manager.get_external_api_url()
+                api_key = config_manager.get_external_api_key()
+
+                if external_api_domain and api_key:
+                    api_url = (
+                        external_api_domain.rstrip("/")
+                        + "/time-clock-employees/sync-device"
+                    )
+                    payload = [{"serial": serial_number, "name": data.get("name")}]
+                    headers = {
+                        "Content-Type": "application/json",
+                        "x-api-key": api_key,
+                    }
+
+                    response = requests.post(
+                        api_url,
+                        json=payload,
+                        headers=headers,
+                        timeout=30,
+                    )
+                    response.raise_for_status()
+
+                    try:
+                        external_sync_result = response.json()
+                    except ValueError:
+                        external_sync_result = {"message": response.text}
+
+                    current_app.logger.info(
+                        f"Synced new device {data.get('name')} to external API."
+                    )
+                else:
+                    current_app.logger.warning(
+                        "External API configuration missing; skipping sync for new device."
+                    )
+            else:
+                current_app.logger.warning(
+                    "Serial number not available for new device; skipping external sync."
+                )
+        except requests.exceptions.RequestException as e:
+            current_app.logger.error(
+                f"Failed to sync new device {data.get('name')} to external API: {e}"
+            )
+        except Exception as e:
+            current_app.logger.error(
+                f"Unexpected error during external sync for new device {data.get('name')}: {e}"
+            )
+
+        response_payload = {
+            "message": "Thêm thiết bị thành công",
+            "device_id": device_id,
+            "device_info": device_info,
+        }
+
+        if external_sync_result is not None:
+            response_payload["external_sync"] = external_sync_result
+
+        return jsonify(response_payload)
 
     except ValueError as e:
         # Handle specific validation errors (e.g. duplicate serial number)
@@ -366,7 +423,68 @@ def update_device(device_id):
 
         connection_manager.reset_device_connection(device_id)
 
-        return jsonify({"message": "Cập nhật thiết bị thành công"})
+        external_sync_result = None
+
+        try:
+            updated_device = config_manager.get_device(device_id) or {}
+            serial_number = data.get("serial_number") or updated_device.get(
+                "serial_number"
+            )
+            device_name = data.get("name") or updated_device.get("name")
+
+            if serial_number:
+                external_api_domain = config_manager.get_external_api_url()
+                api_key = config_manager.get_external_api_key()
+
+                if external_api_domain and api_key:
+                    api_url = (
+                        external_api_domain.rstrip("/")
+                        + "/time-clock-employees/sync-device"
+                    )
+                    payload = [{"serial": serial_number, "name": device_name}]
+                    headers = {
+                        "Content-Type": "application/json",
+                        "x-api-key": api_key,
+                    }
+
+                    response = requests.post(
+                        api_url,
+                        json=payload,
+                        headers=headers,
+                        timeout=30,
+                    )
+                    response.raise_for_status()
+
+                    try:
+                        external_sync_result = response.json()
+                    except ValueError:
+                        external_sync_result = {"message": response.text}
+
+                    current_app.logger.info(
+                        f"Synced updated device {device_id} to external API."
+                    )
+                else:
+                    current_app.logger.warning(
+                        "External API configuration missing; skipping sync for updated device."
+                    )
+            else:
+                current_app.logger.warning(
+                    f"Serial number not available for updated device {device_id}; skipping external sync."
+                )
+        except requests.exceptions.RequestException as e:
+            current_app.logger.error(
+                f"Failed to sync updated device {device_id} to external API: {e}"
+            )
+        except Exception as e:
+            current_app.logger.error(
+                f"Unexpected error during external sync for updated device {device_id}: {e}"
+            )
+
+        response_payload = {"message": "Cập nhật thiết bị thành công"}
+        if external_sync_result is not None:
+            response_payload["external_sync"] = external_sync_result
+
+        return jsonify(response_payload)
 
     except Exception as e:
         error_message = f"Failed to update device: {str(e)}"
@@ -555,10 +673,10 @@ def sync_devices_to_external_api():
                 return jsonify({"error": error_json.get("message", str(e))}), e.response.status_code
             except ValueError:
                 return jsonify({"error": e.response.text}), e.response.status_code
-        return jsonify({"error": str(e)}"), 500
+        return jsonify({"error": str(e)}), 500
     except Exception as e:
         current_app.logger.error(f"An unexpected error occurred during external device sync: {e}")
-        return jsonify({"error": str(e)}"), 500
+        return jsonify({"error": str(e)}), 500
 
 
 # Legacy device endpoints (uses active device)

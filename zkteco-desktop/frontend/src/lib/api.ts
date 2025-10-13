@@ -26,7 +26,7 @@ const detectApiHost = async (): Promise<string> => {
     } catch (error) {
       console.log(
         `Host ${host} not reachable:`,
-        error instanceof Error ? error.message : error,
+        error instanceof Error ? error.message : error
       );
     }
   }
@@ -52,14 +52,14 @@ export const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     console.log(
-      `Making ${config.method?.toUpperCase()} request to ${config.url}`,
+      `Making ${config.method?.toUpperCase()} request to ${config.url}`
     );
     return config;
   },
   (error) => {
     console.error("Request error:", error);
     return Promise.reject(error);
-  },
+  }
 );
 
 // Auto-restart backend function
@@ -72,7 +72,7 @@ const attemptBackendRestart = async (): Promise<boolean> => {
   try {
     backendStartupAttempts++;
     console.log(
-      `Attempting to start backend (attempt ${backendStartupAttempts}/${MAX_STARTUP_ATTEMPTS})`,
+      `Attempting to start backend (attempt ${backendStartupAttempts}/${MAX_STARTUP_ATTEMPTS})`
     );
 
     const result = await invoke<string>("start_backend");
@@ -159,7 +159,7 @@ api.interceptors.response.use(
     }
 
     return Promise.reject(error);
-  },
+  }
 );
 
 // Service Status API
@@ -222,7 +222,7 @@ export const userAPI = {
     try {
       const response = await api.post(
         "/users/sync",
-        deviceId ? { device_id: deviceId } : {},
+        deviceId ? { device_id: deviceId } : {}
       );
       return response.data;
     } catch (error) {
@@ -235,7 +235,7 @@ export const userAPI = {
     try {
       const response = await api.post(
         "/users/sync",
-        deviceId ? { device_id: deviceId } : {},
+        deviceId ? { device_id: deviceId } : {}
       );
       return response.data;
     } catch (error) {
@@ -307,7 +307,7 @@ export const fingerprintAPI = {
   deleteFingerprint: async (userId: number, tempId: number) => {
     try {
       const response = await api.delete(
-        `/user/${userId}/fingerprint/${tempId}`,
+        `/user/${userId}/fingerprint/${tempId}`
       );
       return response.data;
     } catch (error) {
@@ -604,7 +604,7 @@ export const attendanceAPI = {
       const response = await api.post(
         "/attendance/sync",
         {},
-        { timeout: 120000 },
+        { timeout: 120000 }
       );
       return response.data;
     } catch (error) {
@@ -622,7 +622,7 @@ export const attendanceAPI = {
           date: options?.date,
           device_id: options?.device_id,
         },
-        { timeout: 60000 },
+        { timeout: 60000 }
       );
       return response.data;
     } catch (error) {
@@ -806,6 +806,7 @@ export interface User {
   id: string;
   user_id: number;
   name: string;
+  full_name: string;
   groupId: number;
   privilege: number;
   card: number;
@@ -881,7 +882,7 @@ export const liveAPI = {
     onMessage: (data: LiveAttendanceRecord) => void,
     onError: (error: Event) => void,
     onOpen: () => void,
-    deviceFilter?: string | "all", // Optional device filter
+    deviceFilter?: string | "all" // Optional device filter
   ) => {
     const eventSource = new EventSource(`${API_BASE_URL}/live-events`);
 
@@ -975,7 +976,7 @@ export const liveAPI = {
     },
 
     getDeviceCaptureStatus: async (
-      deviceId: string,
+      deviceId: string
     ): Promise<DeviceCaptureStatus> => {
       try {
         const response = await api.get(`/devices/${deviceId}/capture/status`);
@@ -990,7 +991,7 @@ export const liveAPI = {
 // Health check with better error handling and retries
 export const healthCheck = async (
   retries = 3,
-  delay = 1000,
+  delay = 1000
 ): Promise<boolean> => {
   // First try to detect the correct API host
   console.log("Detecting API host...");
@@ -1013,7 +1014,7 @@ export const healthCheck = async (
         });
 
         console.log(
-          `Health check response status: ${response.status} for ${host}`,
+          `Health check response status: ${response.status} for ${host}`
         );
 
         if (response.ok) {
@@ -1026,7 +1027,7 @@ export const healthCheck = async (
           return true;
         } else {
           console.warn(
-            `Health check failed with status: ${response.status} for ${host}`,
+            `Health check failed with status: ${response.status} for ${host}`
           );
         }
       } catch (error) {

@@ -24,6 +24,7 @@ class AttendanceLog:
     synced_at: Optional[datetime] = None
     error_code: Optional[str] = None
     error_message: Optional[str] = None
+    error_count: int = 0
     id: Optional[int] = None
     created_at: Optional[datetime] = None
     original_status: int = 0  # Original STATUS from device (255=undefined for push, same as action for pull)

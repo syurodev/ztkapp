@@ -38,8 +38,8 @@ const navItems: NavItem[] = [
   { title: "Trạng thái dịch vụ", icon: Server, href: "/" },
   { title: "Quản lý thiết bị", icon: Monitor, href: "/devices" },
   { title: "Quản lý người dùng", icon: Users, href: "/users" },
-  { title: "Chấm công", icon: Clock, href: "/attendance" },
-  { title: "Chấm công realtime", icon: Activity, href: "/live-attendance" },
+  { title: "Nhật ký chấm công", icon: Clock, href: "/attendance" },
+  { title: "Chấm công", icon: Activity, href: "/live-attendance" },
   { title: "Nhật ký", icon: FileText, href: "/logs" },
   { title: "Cài đặt", icon: Settings, href: "/settings" },
 ];

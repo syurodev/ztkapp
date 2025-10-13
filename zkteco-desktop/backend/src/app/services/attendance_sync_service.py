@@ -19,7 +19,12 @@ class AttendanceSyncService:
     def __init__(self):
         self.logger = app_logger
 
-    def sync_attendance_daily(self, target_date: Optional[str] = None, device_id: Optional[str] = None) -> Dict[str, Any]:
+    def sync_attendance_daily(
+        self,
+        target_date: Optional[str] = None,
+        device_id: Optional[str] = None,
+        ignore_error_limit: bool = False,
+    ) -> Dict[str, Any]:
         """
         Sync daily attendance data with first checkin/last checkout logic and anti-duplicate protection
 
@@ -61,7 +66,11 @@ class AttendanceSyncService:
                 self.logger.info(f"Processing attendance for date: {sync_date}")
 
                 # Apply anti-duplicate logic and get attendance data
-                attendance_summary = self._calculate_daily_attendance_with_dedup(sync_date, device_id)
+                attendance_summary = self._calculate_daily_attendance_with_dedup(
+                    sync_date,
+                    device_id,
+                    ignore_error_limit=ignore_error_limit,
+                )
 
                 if attendance_summary:
                     # Add date and device info to each user summary
@@ -101,25 +110,61 @@ class AttendanceSyncService:
                             f"Sending attendance batch {batch_index}/{total_batches} for {sync_date} with {len(batch)} records"
                         )
 
-                        sync_result = self._send_to_external_api(batch, sync_date, external_api_domain, device_id)
+                        sync_result = self._send_to_external_api(
+                            batch,
+                            sync_date,
+                            external_api_domain,
+                            device_id,
+                        )
+
+                        response_data = sync_result.get('response_data') or {}
+                        status = response_data.get('status') if isinstance(response_data, dict) else None
 
                         if sync_result.get('error'):
+                            error_message = sync_result['error']
                             self.logger.warning(
-                                f"Skipping remaining batches due to error: {sync_result['error']}"
+                                f"Skipping remaining batches due to error: {error_message}"
                             )
-                            break
+                            self._write_attendance_debug(all_attendance_summaries)
+                            return {
+                                'success': False,
+                                'error': error_message,
+                                'dates_processed': processed_dates,
+                                'count': total_synced,
+                                'response_data': response_data,
+                            }
 
-                        self._process_api_response(sync_result.get('response_data', {}), batch)
+                        if status is not None and status not in (200, 201):
+                            error_message = response_data.get('message') or (
+                                f"External API returned status {status}"
+                            )
+                            self.logger.warning(
+                                f"External API returned failure status {status}: {error_message}"
+                            )
+                            self._process_api_response(
+                                response_data,
+                                batch,
+                                increment_error_count=not ignore_error_limit,
+                            )
+                            self._write_attendance_debug(all_attendance_summaries)
+                            return {
+                                'success': False,
+                                'error': error_message,
+                                'dates_processed': processed_dates,
+                                'count': total_synced,
+                                'response_data': response_data,
+                            }
+
+                        self._process_api_response(
+                            response_data,
+                            batch,
+                            increment_error_count=not ignore_error_limit,
+                        )
 
                 processed_dates.append(str(sync_date))
 
             # Save attendance summaries to JSON file for debugging
-            import json
-            import os
-            debug_file = os.path.join(os.path.dirname(__file__), '..', '..', 'attendance_debug.json')
-            with open(debug_file, 'w', encoding='utf-8') as f:
-                json.dump(all_attendance_summaries, f, indent=2, ensure_ascii=False, default=str)
-            app_logger.info(f"Saved {len(all_attendance_summaries)} attendance summaries to {debug_file}")
+            self._write_attendance_debug(all_attendance_summaries)
 
             self.logger.info(f"Attendance sync completed for {len(processed_dates)} dates: {total_synced} total records")
 
@@ -215,16 +260,49 @@ class AttendanceSyncService:
                     f"[First Checkin Sync] Sending batch {batch_index}/{total_batches} with {len(batch)} records"
                 )
 
-                sync_result = self._send_to_external_api(batch, sync_date, external_api_domain, device_id)
+                sync_result = self._send_to_external_api(
+                    batch,
+                    sync_date,
+                    external_api_domain,
+                    device_id,
+                )
+
+                response_data = sync_result.get('response_data') or {}
+                status = response_data.get('status') if isinstance(response_data, dict) else None
 
                 if sync_result.get('error'):
+                    error_message = sync_result['error']
                     self.logger.warning(
-                        f"[First Checkin Sync] Stopping due to error: {sync_result['error']}"
+                        f"[First Checkin Sync] Stopping due to error: {error_message}"
                     )
-                    break
+                    return {
+                        'success': False,
+                        'error': error_message,
+                        'date': str(sync_date),
+                        'count': len(valid_summaries),
+                        'synced_records': synced_records,
+                        'response_data': response_data,
+                    }
+
+                if status is not None and status not in (200, 201):
+                    error_message = response_data.get('message') or (
+                        f"External API returned status {status}"
+                    )
+                    self.logger.warning(
+                        f"[First Checkin Sync] External API failure status {status}: {error_message}"
+                    )
+                    self._process_api_response(response_data, batch)
+                    return {
+                        'success': False,
+                        'error': error_message,
+                        'date': str(sync_date),
+                        'count': len(valid_summaries),
+                        'synced_records': synced_records,
+                        'response_data': response_data,
+                    }
 
                 synced_records += sync_result.get('sent_count', len(batch))
-                self._process_api_response(sync_result.get('response_data', {}), batch)
+                self._process_api_response(response_data, batch)
 
             return {
                 'success': True,
@@ -241,7 +319,12 @@ class AttendanceSyncService:
                 'date': str(target_date or date.today())
             }
 
-    def _calculate_daily_attendance(self, target_date: date, device_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    def _calculate_daily_attendance(
+        self,
+        target_date: date,
+        device_id: Optional[str] = None,
+        ignore_error_limit: bool = False,
+    ) -> List[Dict[str, Any]]:
         """
         Calculate first checkin and last checkout for each user on target date
 
@@ -257,21 +340,41 @@ class AttendanceSyncService:
             start_datetime = datetime.combine(target_date, datetime.min.time())
             end_datetime = datetime.combine(target_date, datetime.max.time())
 
-            # Get pending attendance logs for the date range
+            # Get pending/error attendance logs for the date range
+            sync_status_filters = (SyncStatus.PENDING, SyncStatus.ERROR)
+            error_clause = "" if ignore_error_limit else " AND COALESCE(error_count, 0) < 5"
+
             if device_id:
-                query = """
+                query = f"""
                     SELECT * FROM attendance_logs
-                    WHERE device_id = ? AND timestamp BETWEEN ? AND ? AND sync_status = ?
+                    WHERE device_id = ? AND timestamp BETWEEN ? AND ?
+                      AND sync_status IN (?, ?){error_clause}
                     ORDER BY user_id, timestamp
                 """
-                logs = db_manager.fetch_all(query, (device_id, start_datetime, end_datetime, SyncStatus.PENDING))
+                logs = db_manager.fetch_all(
+                    query,
+                    (
+                        device_id,
+                        start_datetime,
+                        end_datetime,
+                        *sync_status_filters,
+                    ),
+                )
             else:
-                query = """
+                query = f"""
                     SELECT * FROM attendance_logs
-                    WHERE timestamp BETWEEN ? AND ? AND sync_status = ?
+                    WHERE timestamp BETWEEN ? AND ?
+                      AND sync_status IN (?, ?){error_clause}
                     ORDER BY user_id, timestamp
                 """
-                logs = db_manager.fetch_all(query, (start_datetime, end_datetime, SyncStatus.PENDING))
+                logs = db_manager.fetch_all(
+                    query,
+                    (
+                        start_datetime,
+                        end_datetime,
+                        *sync_status_filters,
+                    ),
+                )
 
             if not logs:
                 return []
@@ -339,7 +442,12 @@ class AttendanceSyncService:
             self.logger.error(f"Error calculating daily attendance: {e}")
             raise
 
-    def _calculate_daily_attendance_with_dedup(self, target_date: date, device_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    def _calculate_daily_attendance_with_dedup(
+        self,
+        target_date: date,
+        device_id: Optional[str] = None,
+        ignore_error_limit: bool = False,
+    ) -> List[Dict[str, Any]]:
         """
         Calculate first checkin and last checkout with anti-duplicate logic
 
@@ -352,7 +460,11 @@ class AttendanceSyncService:
         """
         try:
             # Get basic attendance summary with record IDs
-            attendance_summary = self._calculate_daily_attendance_with_ids(target_date, device_id)
+            attendance_summary = self._calculate_daily_attendance_with_ids(
+                target_date,
+                device_id,
+                ignore_error_limit=ignore_error_limit,
+            )
 
             if not attendance_summary:
                 return []
@@ -398,7 +510,12 @@ class AttendanceSyncService:
             self.logger.error(f"Error calculating daily attendance with dedup: {e}")
             raise
 
-    def _calculate_daily_attendance_with_ids(self, target_date: date, device_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    def _calculate_daily_attendance_with_ids(
+        self,
+        target_date: date,
+        device_id: Optional[str] = None,
+        ignore_error_limit: bool = False,
+    ) -> List[Dict[str, Any]]:
         """
         Calculate first checkin and last checkout for each user on target date with record IDs
 
@@ -414,21 +531,41 @@ class AttendanceSyncService:
             start_datetime = datetime.combine(target_date, datetime.min.time())
             end_datetime = datetime.combine(target_date, datetime.max.time())
 
-            # Get pending attendance logs for the date range
+            # Get pending/error attendance logs for the date range
+            sync_status_filters = (SyncStatus.PENDING, SyncStatus.ERROR)
+            error_clause = "" if ignore_error_limit else " AND COALESCE(error_count, 0) < 5"
+
             if device_id:
-                query = """
+                query = f"""
                     SELECT * FROM attendance_logs
-                    WHERE device_id = ? AND timestamp BETWEEN ? AND ? AND sync_status = ?
+                    WHERE device_id = ? AND timestamp BETWEEN ? AND ?
+                      AND sync_status IN (?, ?){error_clause}
                     ORDER BY user_id, timestamp
                 """
-                logs = db_manager.fetch_all(query, (device_id, start_datetime, end_datetime, SyncStatus.PENDING))
+                logs = db_manager.fetch_all(
+                    query,
+                    (
+                        device_id,
+                        start_datetime,
+                        end_datetime,
+                        *sync_status_filters,
+                    ),
+                )
             else:
-                query = """
+                query = f"""
                     SELECT * FROM attendance_logs
-                    WHERE timestamp BETWEEN ? AND ? AND sync_status = ?
+                    WHERE timestamp BETWEEN ? AND ?
+                      AND sync_status IN (?, ?){error_clause}
                     ORDER BY user_id, timestamp
                 """
-                logs = db_manager.fetch_all(query, (start_datetime, end_datetime, SyncStatus.PENDING))
+                logs = db_manager.fetch_all(
+                    query,
+                    (
+                        start_datetime,
+                        end_datetime,
+                        *sync_status_filters,
+                    ),
+                )
 
             if not logs:
                 return []
@@ -552,7 +689,12 @@ class AttendanceSyncService:
             self.logger.error(f"Error finalizing sync status: {e}")
             raise
 
-    def _process_api_response(self, response_data: Dict[str, Any], attendance_summaries: List[Dict[str, Any]]):
+    def _process_api_response(
+        self,
+        response_data: Dict[str, Any],
+        attendance_summaries: List[Dict[str, Any]],
+        increment_error_count: bool = True,
+    ):
         """
         Process API response and update record statuses based on success/error operations
 
@@ -603,7 +745,12 @@ class AttendanceSyncService:
 
                 # Update record with error status
                 if record_id and record_id != 0:  # 0 means no record ID provided
-                    attendance_repo.update_sync_error(record_id, error_code, error_message)
+                    attendance_repo.update_sync_error(
+                        record_id,
+                        error_code,
+                        error_message,
+                        increment=increment_error_count,
+                    )
                     self.logger.warning(f"Record {record_id} marked as error: {error_code} - {error_message}")
 
             # Mark other records as skipped for each user summary
@@ -625,6 +772,23 @@ class AttendanceSyncService:
         except Exception as e:
             self.logger.error(f"Error processing API response: {e}")
             raise
+
+    def _write_attendance_debug(self, attendance_summaries: List[Dict[str, Any]]) -> None:
+        """Persist attendance summary for debugging purposes."""
+        try:
+            import json
+            import os
+
+            debug_file = os.path.join(
+                os.path.dirname(__file__), '..', '..', 'attendance_debug.json'
+            )
+            with open(debug_file, 'w', encoding='utf-8') as f:
+                json.dump(attendance_summaries, f, indent=2, ensure_ascii=False, default=str)
+            app_logger.info(
+                f"Saved {len(attendance_summaries)} attendance summaries to {debug_file}"
+            )
+        except Exception as e:
+            self.logger.warning(f"Failed to write attendance debug file: {e}")
 
     def _finalize_sync_status_by_ids(self, attendance_summaries: List[Dict[str, Any]], synced_ids: List[int]):
         """
@@ -830,6 +994,7 @@ class AttendanceSyncService:
                 'checkin_data_list': filtered_summary
             }
 
+            app_logger.info("DEBUG SYNC DATA CHECKIN REQUEST")
             app_logger.info(sync_data)
 
 
@@ -860,11 +1025,12 @@ class AttendanceSyncService:
             response.raise_for_status()
             response_data = response.json()
 
-            app_logger.info(response)
+            app_logger.info("DEBUG SYNC DATA CHECKIN RESPONSE")
             app_logger.info(response_data)
 
             return {
                 'status_code': response.status_code,
+                'status': response_data.get('status') if isinstance(response_data, dict) else None,
                 'response_data': response_data,
                 'sent_count': len(filtered_summary),
                 'synced_ids': response_data.get('synced_ids') if response_data else None

@@ -10,6 +10,7 @@ def strtobool(val):
 
 
 import os
+import json
 import time
 import requests
 from typing import List, Type
@@ -622,8 +623,6 @@ class ZkService:
             # Prepare sync data
             sync_data = {"timestamp": int(time.time()), "employees": employees}
 
-            app_logger.info(sync_data)
-
             # Get API key from config
             api_key = config_manager.get_external_api_key()
             if not api_key:
@@ -640,9 +639,29 @@ class ZkService:
                 "ProjectId": "1055",
             }
 
+            redacted_headers = {
+                key: ("***" if key.lower() in {"x-api-key", "authorization"} else value)
+                for key, value in headers.items()
+            }
+            app_logger.info(
+                "User sync request -> url=%s headers=%s payload=%s",
+                external_api_url,
+                redacted_headers,
+                json.dumps(sync_data),
+            )
+
             # Make API request
             response = requests.post(
                 external_api_url, json=sync_data, headers=headers, timeout=30
+            )
+
+            response_preview = response.text.strip()
+            if len(response_preview) > 1000:
+                response_preview = response_preview[:1000] + "...[truncated]"
+            app_logger.info(
+                "User sync response <- status=%s body=%s",
+                response.status_code,
+                response_preview,
             )
 
             data = response.json()
@@ -797,8 +816,14 @@ class ZkService:
                 if lookup_key in employee_details:
                     details = employee_details[lookup_key]
                     updates = {
-                        'external_user_id': details.get('employee_id'),
-                        'avatar_url': details.get('employee_avatar')
+                        "external_user_id": details.get("employee_id"),
+                        "avatar_url": details.get("employee_avatar"),
+                        "full_name": details.get("full_name") or "",
+                        "employee_code": details.get("employee_code") or "",
+                        "position": details.get("position") or "",
+                        "employee_object": details.get("employee_object") or "",
+                        "department": details.get("department") or "",
+                        "notes": details.get("notes") or "",
                     }
 
                     try:
@@ -807,7 +832,15 @@ class ZkService:
                         app_logger.debug(
                             f"Updated user {user.user_id} ({user.name}) on device {user.serial_number}: "
                             f"employee_id={details.get('employee_id')}, "
-                            f"avatar={'present' if details.get('employee_avatar') else 'none'}"
+                            f"avatar={'present' if details.get('employee_avatar') else 'none'}, "
+                            f"full_name={details.get('full_name')}, "
+                            f"code={details.get('employee_code')}, "
+                            f"position={details.get('position')}, "
+                            f"object={details.get('employee_object')}"
+                        )
+                    except Exception as update_error:
+                        app_logger.warning(
+                            f"Failed to update user {user.user_id} ({user.name}) on device {user.serial_number}: {update_error}"
                         )
 
             app_logger.info(

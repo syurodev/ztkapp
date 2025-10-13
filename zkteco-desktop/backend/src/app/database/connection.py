@@ -137,6 +137,10 @@ class DatabaseManager:
                     sync_status TEXT DEFAULT 'pending', -- pending, synced, skipped
                     is_synced BOOLEAN DEFAULT FALSE, -- kept for backward compatibility
                     synced_at DATETIME NULL,
+                    error_code TEXT NULL,
+                    error_message TEXT NULL,
+                    original_status INTEGER DEFAULT 0,
+                    error_count INTEGER DEFAULT 0,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     CONSTRAINT unique_attendance UNIQUE(user_id, device_id, timestamp, method, action)
                 )
@@ -342,6 +346,15 @@ class DatabaseManager:
                 print("original_status column added to attendance_logs table successfully")
             except Exception as e:
                 print(f"Warning: Could not add original_status column to attendance_logs table: {e}")
+
+        if 'error_count' not in columns:
+            try:
+                print("Adding error_count column to attendance_logs table...")
+                cursor.execute('ALTER TABLE attendance_logs ADD COLUMN error_count INTEGER DEFAULT 0')
+                cursor.execute('UPDATE attendance_logs SET error_count = 0 WHERE error_count IS NULL')
+                print("error_count column added to attendance_logs table successfully")
+            except Exception as e:
+                print(f"Warning: Could not add error_count column to attendance_logs table: {e}")
 
         # Check if unique constraint already exists
         cursor.execute("PRAGMA index_list(attendance_logs)")

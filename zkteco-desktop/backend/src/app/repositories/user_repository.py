@@ -113,6 +113,7 @@ class UserRepository:
             # New fields
             full_name=get_column('full_name'),
             employee_code=get_column('employee_code'),
+            employee_object=get_column('employee_object'),
             position=get_column('position'),
             department=get_column('department'),
             notes=get_column('notes'),

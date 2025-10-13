@@ -38,7 +38,7 @@ class SchedulerService:
             # Add frequent first checkin sync job
             self._add_first_checkin_sync_job()
 
-            # Add periodic user sync job (every 5 minutes)
+            # Add periodic user sync job (every 30 seconds)
             self._add_periodic_user_sync_job()
 
             # Add monthly attendance cleanup job (runs on 1st day of month at 2 AM)
@@ -111,7 +111,7 @@ class SchedulerService:
         """Add periodic user sync job to scheduler (every 5 minutes)"""
         try:
             # Schedule job to run every 5 minutes
-            trigger = IntervalTrigger(minutes=5)
+            trigger = IntervalTrigger(seconds=30)
 
             self.scheduler.add_job(
                 func=self._run_periodic_user_sync,

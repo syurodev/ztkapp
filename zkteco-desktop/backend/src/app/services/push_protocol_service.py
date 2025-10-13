@@ -23,6 +23,8 @@ from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 from threading import Lock
 
+import requests
+
 from app.shared.logger import app_logger
 from app.repositories import attendance_repo, user_repo, device_repo
 from app.config.config_manager import config_manager
@@ -343,6 +345,56 @@ class PushProtocolService:
                 f"[PUSH] ✓ Auto-registered new push device: "
                 f"SN={serial_number}, ID={device_id}"
             )
+
+            try:
+                external_api_domain = config_manager.get_external_api_url()
+                api_key = config_manager.get_external_api_key()
+
+                if external_api_domain and api_key and serial_number:
+                    api_url = (
+                        external_api_domain.rstrip("/")
+                        + "/time-clock-employees/sync-device"
+                    )
+                    payload = [
+                        {"serial": serial_number, "name": device_data.get("name")}
+                    ]
+                    headers = {
+                        "Content-Type": "application/json",
+                        "x-api-key": api_key,
+                    }
+
+                    response = requests.post(
+                        api_url,
+                        json=payload,
+                        headers=headers,
+                        timeout=30,
+                    )
+                    response.raise_for_status()
+
+                    try:
+                        external_result = response.json()
+                    except ValueError:
+                        external_result = {"message": response.text}
+
+                    app_logger.info(
+                        f"[PUSH] Synced auto-registered device SN={serial_number} "
+                        f"to external API ({external_result})."
+                    )
+                else:
+                    app_logger.warning(
+                        "[PUSH] Skip external sync for auto-registered device "
+                        f"SN={serial_number}: missing config or serial."
+                    )
+            except requests.exceptions.RequestException as external_error:
+                app_logger.error(
+                    "[PUSH] Failed to sync auto-registered device "
+                    f"SN={serial_number} to external API: {external_error}"
+                )
+            except Exception as external_error:
+                app_logger.error(
+                    "[PUSH] Unexpected error during external sync for auto-registered "
+                    f"device SN={serial_number}: {external_error}"
+                )
 
         except Exception as e:
             app_logger.error(f"Failed to auto-register device {serial_number}: {e}")

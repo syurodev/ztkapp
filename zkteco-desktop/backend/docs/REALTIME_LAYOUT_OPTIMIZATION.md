@@ -18,35 +18,42 @@ This document describes the optimized layout design for the realtime attendance 
 The latest attendance record is displayed in a large, prominent card with:
 
 #### **Avatar Section**
+
 - **Size**: 192x192px (size-48)
 - **Border**: 4px colored border based on action (teal for check-in, sky for check-out)
 - **Shadow**: Extra large shadow for prominence
 - **Fallback**: Large initials (text-5xl) or user icon
 
 #### **Employee Information**
+
 Organized in a clean, hierarchical layout:
 
 **Header Section:**
+
 - **Full Name**: 5xl font size, bold, tracking tight
 - **Action Badge**: Large badge with icon (Check-in/Check-out)
 - **Time**: 4xl mono font, very prominent
 
 **Details Grid (2 columns):**
+
 - **Mã nhân viên** (Employee Code)
 - **Chức vụ** (Position)
 - **Phòng ban** (Department)
 - **ID người dùng** (User ID)
 
 Each field:
+
 - Label: Small, muted, font-medium
 - Value: xl font, semibold
 
 **Notes Section (Full Width):**
+
 - Only shown if notes exist
 - Separated by border-top
 - Muted text color
 
 **Meta Information:**
+
 - Method badge (Fingerprint/Card)
 - Device badge (if multiple devices)
 - Small, compact badges
@@ -56,20 +63,24 @@ Each field:
 Compact header design with inline controls:
 
 #### **Title Section**
-- "Chấm công Realtime" title
+
+- "Chấm công" title
 - Small activity icon (h-5 w-5)
 - Connection status indicator (h-4 w-4)
 
 #### **Filter Controls (Inline)**
+
 All controls in a single row, right-aligned:
 
 **Action Filter:**
+
 - 3 compact buttons: "Tất cả", "Check-in", "Check-out"
 - Height: 32px (h-8)
 - Small text (text-xs)
 - No labels, just buttons
 
 **Device Selector:**
+
 - Compact dropdown button (h-8)
 - Small monitor icon
 - Text: "Tất cả thiết bị" or device name
@@ -89,6 +100,7 @@ To maximize space for employee info:
 ### Backend to Frontend
 
 **SSE Event Structure:**
+
 ```json
 {
   "type": "attendance",
@@ -110,6 +122,7 @@ To maximize space for employee info:
 ```
 
 **Field Priority:**
+
 1. `full_name` is used for display if available
 2. Falls back to `name` (device name) if `full_name` is missing
 3. All employee fields are optional - conditionally rendered
@@ -121,6 +134,7 @@ To maximize space for employee info:
 **Key Functions:**
 
 1. **mapToLiveRecord()** - Maps SSE data to LiveAttendanceRecord interface
+
    - Extracts all 5 new employee fields
    - Handles optional fields gracefully
 
@@ -132,11 +146,13 @@ To maximize space for employee info:
 ## Color Scheme
 
 ### Check-in (Action = 0)
+
 - **Border**: `border-teal-500`
 - **Background**: `bg-teal-50 dark:bg-teal-950`
 - **Icon**: `ArrowRightToLine`
 
 ### Check-out (Action = 1)
+
 - **Border**: `border-sky-500`
 - **Background**: `bg-sky-50 dark:bg-sky-950`
 - **Icon**: `ArrowLeftFromLine`
@@ -144,15 +160,18 @@ To maximize space for employee info:
 ## Responsive Behavior
 
 ### Desktop (>1024px)
+
 - Full 2-column grid for employee details
 - All badges inline
 - Large avatar and text sizes
 
 ### Tablet (768px - 1024px)
+
 - 2-column grid maintained
 - Slightly smaller text sizes (handled by Tailwind)
 
 ### Mobile (<768px)
+
 - Grid converts to single column
 - Avatar size reduced
 - Text sizes reduced
@@ -161,6 +180,7 @@ To maximize space for employee info:
 ## TypeScript Interfaces
 
 ### LiveAttendanceRecord
+
 ```typescript
 export interface LiveAttendanceRecord {
   id?: number;
@@ -184,17 +204,20 @@ export interface LiveAttendanceRecord {
 ## Benefits
 
 ### User Experience
+
 - ✅ **Immediate Focus** - Latest employee shown prominently
 - ✅ **Rich Context** - All employee details visible at a glance
 - ✅ **Clean Interface** - No distractions from unnecessary elements
 - ✅ **Professional Display** - Large avatar and clear typography
 
 ### Performance
+
 - ✅ **Reduced Rendering** - Only renders latest record, not entire list
 - ✅ **Efficient Updates** - SSE updates trigger minimal re-renders
 - ✅ **Optimized Layout** - No complex grids or tables
 
 ### Maintainability
+
 - ✅ **Type Safe** - Full TypeScript typing for all fields
 - ✅ **Conditional Rendering** - Gracefully handles missing data
 - ✅ **Reusable Components** - Uses shadcn/ui components
@@ -203,7 +226,9 @@ export interface LiveAttendanceRecord {
 ## Files Modified
 
 ### Frontend
+
 1. **src/lib/api.ts**
+
    - Updated `LiveAttendanceRecord` interface with 5 new fields
 
 2. **src/components/features/LiveAttendance.tsx**
@@ -214,7 +239,9 @@ export interface LiveAttendanceRecord {
    - Added conditional rendering for optional fields
 
 ### Backend (Already Completed)
+
 1. **src/app/services/live_capture_service.py**
+
    - Updated `_queue_attendance_event()` to include new fields
 
 2. **src/app/services/push_protocol_service.py**
@@ -239,6 +266,7 @@ export interface LiveAttendanceRecord {
 ## Future Enhancements
 
 ### Potential Additions
+
 1. **Sound Notification** - Audio alert on new attendance
 2. **Photo Capture** - Show photo from device if available
 3. **Statistics Bar** - Daily check-in/out count
@@ -246,6 +274,7 @@ export interface LiveAttendanceRecord {
 5. **Attendance History Panel** - Collapsible panel showing recent 5-10 records
 
 ### Performance Optimizations
+
 1. **Virtual Scrolling** - If history panel is added
 2. **Image Lazy Loading** - For avatar images
 3. **WebSocket Compression** - For SSE data

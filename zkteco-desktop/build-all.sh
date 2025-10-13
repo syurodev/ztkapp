@@ -159,6 +159,11 @@ else
                 --hidden-import=zkteco.controllers \
                 --hidden-import=sqlite3 \
                 --hidden-import=flask_cors \
+                --hidden-import=sentry_sdk \
+                --hidden-import=psutil \
+                --hidden-import=requests \
+                --hidden-import=dotenv \
+                --hidden-import=apscheduler \
                 --add-data="zkteco:zkteco" \
                 service_app.py
 fi

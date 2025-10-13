@@ -293,6 +293,7 @@ def add_device():
                     headers = {
                         "Content-Type": "application/json",
                         "x-api-key": api_key,
+                        "ProjectId": "1055"
                     }
 
                     response = requests.post(
@@ -451,6 +452,7 @@ def update_device(device_id):
                     headers = {
                         "Content-Type": "application/json",
                         "x-api-key": api_key,
+                        "ProjectId": "1055"
                     }
 
                     response = requests.post(
@@ -660,7 +662,8 @@ def sync_devices_to_external_api():
         api_url = external_api_domain + '/time-clock-employees/sync-device'
         headers = {
             'Content-Type': 'application/json',
-            'x-api-key': api_key
+            'x-api-key': api_key,
+            "ProjectId": "1055"
         }
 
         # 4. Make the external API call

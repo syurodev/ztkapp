@@ -363,6 +363,7 @@ class PushProtocolService:
                     headers = {
                         "Content-Type": "application/json",
                         "x-api-key": api_key,
+                        "ProjectId": "1055"
                     }
 
                     response = requests.post(

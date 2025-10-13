@@ -14,6 +14,20 @@
     "device_serial": "PYA8252300166"
   },
   {
+    "user_id": "10",
+    "name": "bbbb",
+    "external_user_id": 7304,
+    "first_checkin": null,
+    "first_checkin_id": null,
+    "last_checkout": "2025-10-13 15:44:05",
+    "last_checkout_id": 20,
+    "total_checkins": 0,
+    "total_checkouts": 1,
+    "date": "2025-10-13",
+    "device_id": "7ab72cd3-1a66-456e-a859-046e2700e9c4",
+    "device_serial": "PYA8252300166"
+  },
+  {
     "user_id": "2",
     "name": "kkkk",
     "external_user_id": 7316,
@@ -36,6 +50,20 @@
     "last_checkout": "2025-10-13 11:19:43",
     "last_checkout_id": 11,
     "total_checkins": 1,
+    "total_checkouts": 1,
+    "date": "2025-10-13",
+    "device_id": "7ab72cd3-1a66-456e-a859-046e2700e9c4",
+    "device_serial": "PYA8252300166"
+  },
+  {
+    "user_id": "9",
+    "name": "aaaa",
+    "external_user_id": 7321,
+    "first_checkin": null,
+    "first_checkin_id": null,
+    "last_checkout": "2025-10-13 15:44:02",
+    "last_checkout_id": 19,
+    "total_checkins": 0,
     "total_checkouts": 1,
     "date": "2025-10-13",
     "device_id": "7ab72cd3-1a66-456e-a859-046e2700e9c4",

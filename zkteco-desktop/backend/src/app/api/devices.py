@@ -1,3 +1,4 @@
+from app.shared.logger import app_logger
 import queue
 import time
 import requests
@@ -286,7 +287,9 @@ def add_device():
                         external_api_domain.rstrip("/")
                         + "/time-clock-employees/sync-device"
                     )
-                    payload = [{"serial": serial_number, "name": data.get("name")}]
+                    payload = {
+                        "payload": [{"serial": serial_number, "name": data.get("name")}]
+                    }
                     headers = {
                         "Content-Type": "application/json",
                         "x-api-key": api_key,
@@ -441,7 +444,10 @@ def update_device(device_id):
                         external_api_domain.rstrip("/")
                         + "/time-clock-employees/sync-device"
                     )
-                    payload = [{"serial": serial_number, "name": device_name}]
+                    payload = {
+                        "payload": [{"serial": serial_number, "name": device_name}]
+                    }
+
                     headers = {
                         "Content-Type": "application/json",
                         "x-api-key": api_key,
@@ -628,7 +634,7 @@ def sync_devices_to_external_api():
             return jsonify({"message": "No devices configured to sync."}), 404
 
         # 2. Format the payload
-        devices_payload = [
+        devices_list = [
             {
                 "serial": device.get("serial_number"),
                 "name": device.get("name")
@@ -636,8 +642,13 @@ def sync_devices_to_external_api():
             for device in all_devices if device.get("serial_number")
         ]
 
-        if not devices_payload:
+        if not devices_list:
             return jsonify({"error": "No devices with serial numbers found to sync."}), 400
+
+        # Wrap in payload object
+        payload = {
+            "payload": devices_list
+        }
 
         # 3. Get external API config
         external_api_domain = config_manager.get_external_api_url()
@@ -655,7 +666,7 @@ def sync_devices_to_external_api():
         # 4. Make the external API call
         response = requests.post(
             api_url,
-            json=devices_payload,
+            json=payload,
             headers=headers,
             timeout=30
         )

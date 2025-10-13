@@ -355,9 +355,11 @@ class PushProtocolService:
                         external_api_domain.rstrip("/")
                         + "/time-clock-employees/sync-device"
                     )
-                    payload = [
-                        {"serial": serial_number, "name": device_data.get("name")}
-                    ]
+                    payload = {
+                        "payload": [
+                            {"serial": serial_number, "name": device_data.get("name")}
+                        ]
+                    }
                     headers = {
                         "Content-Type": "application/json",
                         "x-api-key": api_key,

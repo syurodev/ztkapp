@@ -277,6 +277,36 @@ export const userAPI = {
       throw newError;
     }
   },
+
+  // Export users to JSON
+  exportUsers: async () => {
+    try {
+      const response = await api.get("/users/export");
+      return response.data;
+    } catch (error: any) {
+      const message =
+        error.response?.data?.message || error.message || "Failed to export users";
+      throw new Error(message);
+    }
+  },
+
+  // Import users from JSON
+  importUsers: async (formData: FormData) => {
+    try {
+      const response = await api.post("/users/import", formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      });
+      return response.data;
+    } catch (error: any) {
+      const message =
+        error.response?.data?.message || error.message || "Failed to import users";
+      const newError = new Error(message);
+      (newError as any).response = error.response;
+      throw newError;
+    }
+  },
 };
 
 // Fingerprint API
@@ -571,6 +601,16 @@ export const devicesAPI = {
     } catch (error) {
       // Re-throw the original error to preserve response data
       throw error;
+    }
+  },
+
+  // Get all branches
+  getBranches: async () => {
+    try {
+      const response = await api.get("/branches");
+      return response.data;
+    } catch (error) {
+      throw new Error((error as any)?.["response"]?.["data"]?.["error"]);
     }
   },
 };
@@ -985,6 +1025,15 @@ export const liveAPI = {
         throw new Error((error as any)?.["response"]["data"]["error"]);
       }
     },
+  },
+
+  getBranches: async () => {
+    try {
+      const response = await api.get("/branches");
+      return response.data;
+    } catch (error) {
+      throw new Error((error as any)?.["response"]["data"]["error"]);
+    }
   },
 };
 

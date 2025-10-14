@@ -9,14 +9,19 @@ class UserRepository:
     def create(self, user: User) -> User:
         """Create new user"""
         query = '''
-            INSERT INTO users (
-                user_id, name, device_id, serial_number, privilege, group_id, card, password, is_synced
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        '''
+                INSERT INTO users (
+                    user_id, name, device_id, serial_number, privilege,
+                    group_id, card, password, is_synced, synced_at,
+                    full_name, employee_code, position, department,
+                    employee_object, notes, avatar_url, external_user_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+                '''
 
         cursor = db_manager.execute_query(query, (
             user.user_id, user.name, user.device_id, user.serial_number, user.privilege,
-            user.group_id, user.card, user.password, user.is_synced
+            user.group_id, user.card, user.password, user.is_synced, user.synced_at,
+            user.full_name, user.employee_code, user.position, user.department,
+            user.employee_object, user.notes, user.avatar_url, user.external_user_id,
         ))
 
         # Get the created user with auto-generated ID
@@ -35,7 +40,21 @@ class UserRepository:
                 (user_id, device_id)
             )
         else:
-            row = db_manager.fetch_one("SELECT * FROM users WHERE user_id = ?", (user_id,))
+            row = db_manager.fetch_one(
+                "SELECT * FROM users WHERE user_id = ?",
+                (user_id,),
+            )
+        return self._row_to_user(row) if row else None
+
+    def find_first_by_user_id(self, user_id: str, exclude_device_id: str = None) -> Optional[User]:
+        """Find the first user with a given user_id, optionally excluding one device."""
+        if exclude_device_id:
+            query = "SELECT * FROM users WHERE user_id = ? AND device_id != ? LIMIT 1"
+            row = db_manager.fetch_one(query, (user_id, exclude_device_id))
+        else:
+            query = "SELECT * FROM users WHERE user_id = ? LIMIT 1"
+            row = db_manager.fetch_one(query, (user_id,))
+        
         return self._row_to_user(row) if row else None
 
     def get_all(self, device_id: str = None) -> List[User]:

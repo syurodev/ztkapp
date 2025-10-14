@@ -8,6 +8,7 @@ from app.shared.logger import app_logger
 from app.repositories import attendance_repo, user_repo
 from app.models import SyncStatus
 from app.database.connection import db_manager
+from app.services.external_api_service import external_api_service
 from app.config.config_manager import config_manager
 
 
@@ -41,7 +42,10 @@ class AttendanceSyncService:
                 sync_dates = [datetime.strptime(target_date, '%Y-%m-%d').date()]
             else:
                 # Get all dates with pending records
-                pending_dates = attendance_repo.get_pending_sync_dates(device_id)
+                pending_dates = attendance_repo.get_pending_sync_dates(
+                    device_id,
+                    include_error=ignore_error_limit,
+                )
                 if not pending_dates:
                     return {
                         'success': True,
@@ -58,8 +62,6 @@ class AttendanceSyncService:
             total_synced = 0
             processed_dates = []
             all_attendance_summaries = []
-
-            external_api_domain = None
 
             # Process each date and collect all data
             for sync_date in sync_dates:
@@ -94,12 +96,6 @@ class AttendanceSyncService:
                     total_synced += len(attendance_summary)
                     all_attendance_summaries.extend(attendance_summary)
 
-                    # Lazy-load external API configuration
-                    if external_api_domain is None:
-                        external_api_domain = config_manager.get_external_api_url()
-                        if not external_api_domain:
-                            raise ValueError("API_GATEWAY_DOMAIN not configured")
-
                     total_batches = (len(attendance_summary) + self.MAX_RECORDS_PER_REQUEST - 1) // self.MAX_RECORDS_PER_REQUEST
 
                     for batch_index, batch in enumerate(
@@ -113,7 +109,6 @@ class AttendanceSyncService:
                         sync_result = self._send_to_external_api(
                             batch,
                             sync_date,
-                            external_api_domain,
                             device_id,
                         )
 
@@ -245,10 +240,6 @@ class AttendanceSyncService:
                     'message': 'No valid first checkins to sync'
                 }
 
-            external_api_domain = config_manager.get_external_api_url()
-            if not external_api_domain:
-                raise ValueError("API_GATEWAY_DOMAIN not configured")
-
             total_batches = (len(valid_summaries) + self.MAX_RECORDS_PER_REQUEST - 1) // self.MAX_RECORDS_PER_REQUEST
             synced_records = 0
 
@@ -263,7 +254,6 @@ class AttendanceSyncService:
                 sync_result = self._send_to_external_api(
                     batch,
                     sync_date,
-                    external_api_domain,
                     device_id,
                 )
 
@@ -342,7 +332,7 @@ class AttendanceSyncService:
 
             # Get pending/error attendance logs for the date range
             sync_status_filters = (SyncStatus.PENDING, SyncStatus.ERROR)
-            error_clause = "" if ignore_error_limit else " AND COALESCE(error_count, 0) < 5"
+            error_clause = "" if ignore_error_limit else " AND COALESCE(error_count, 0) < 100"
 
             if device_id:
                 query = f"""
@@ -533,7 +523,7 @@ class AttendanceSyncService:
 
             # Get pending/error attendance logs for the date range
             sync_status_filters = (SyncStatus.PENDING, SyncStatus.ERROR)
-            error_clause = "" if ignore_error_limit else " AND COALESCE(error_count, 0) < 5"
+            error_clause = "" if ignore_error_limit else " AND COALESCE(error_count, 0) < 100"
 
             if device_id:
                 query = f"""
@@ -932,15 +922,13 @@ class AttendanceSyncService:
         for index in range(0, len(records), batch_size):
             yield records[index:index + batch_size]
 
-    def _send_to_external_api(self, attendance_summary: List[Dict[str, Any]], sync_date: date,
-                             external_api_domain: str, device_id: Optional[str] = None) -> Dict[str, Any]:
+    def _send_to_external_api(self, attendance_summary: List[Dict[str, Any]], sync_date: date, device_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Send attendance summary to external API
 
         Args:
             attendance_summary: List of user attendance summaries
             sync_date: Date being synced
-            external_api_domain: External API domain URL
             device_id: Optional device ID
 
         Returns:
@@ -971,9 +959,6 @@ class AttendanceSyncService:
                     'sent_count': 0
                 }
 
-            # Construct API URL
-            external_api_url = external_api_domain + '/time-clock-employees/sync-checkin-data'
-
             # Get device info for serial number
             if device_id:
                 device = config_manager.get_device(device_id)
@@ -994,42 +979,14 @@ class AttendanceSyncService:
                 'checkin_data_list': filtered_summary
             }
 
-            app_logger.info("DEBUG SYNC DATA CHECKIN REQUEST")
-            app_logger.info(sync_data)
-
-
-            # Get API key from config
-            api_key = config_manager.get_external_api_key()
-            if not api_key:
-                self.logger.warning("EXTERNAL_API_KEY not configured, skipping daily attendance sync")
-                return {
-                    'error': 'EXTERNAL_API_KEY not configured'
-                }
-
-            # Prepare headers (similar to sync_employee)
-            headers = {
-                'Content-Type': 'application/json',
-                'x-api-key': api_key,
-                'x-device-sync': serial_number,
-                'ProjectId': '1055'
-            }
-
             # Make API request
-            response = requests.post(
-                external_api_url,
-                json=sync_data,
-                headers=headers,
-                timeout=30
-            )
-
-            response.raise_for_status()
-            response_data = response.json()
+            response_data = external_api_service.sync_checkin_data(sync_data, serial_number)
 
             app_logger.info("DEBUG SYNC DATA CHECKIN RESPONSE")
             app_logger.info(response_data)
 
             return {
-                'status_code': response.status_code,
+                'status_code': response_data.get('status', 500),
                 'status': response_data.get('status') if isinstance(response_data, dict) else None,
                 'response_data': response_data,
                 'sent_count': len(filtered_summary),

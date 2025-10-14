@@ -316,24 +316,35 @@ class AttendanceRepository:
         stats["total"] = sum(stats[key] for key in ['pending', 'synced', 'skipped', 'error'])
         return stats
 
-    def get_pending_sync_dates(self, device_id: str = None) -> List[str]:
-        """Get all dates that have pending attendance records"""
+    def get_pending_sync_dates(
+        self,
+        device_id: str = None,
+        include_error: bool = False,
+    ) -> List[str]:
+        """Get all dates that have pending (optionally error) attendance records"""
+        statuses = [SyncStatus.PENDING]
+        if include_error:
+            statuses.append(SyncStatus.ERROR)
+
+        placeholders = ", ".join("?" for _ in statuses)
+
         if device_id:
-            query = """
+            query = f"""
                 SELECT DISTINCT DATE(timestamp) as sync_date
                 FROM attendance_logs
-                WHERE sync_status = ? AND device_id = ?
+                WHERE sync_status IN ({placeholders}) AND device_id = ?
                 ORDER BY sync_date
             """
-            rows = db_manager.fetch_all(query, (SyncStatus.PENDING, device_id))
+            params = (*statuses, device_id)
+            rows = db_manager.fetch_all(query, params)
         else:
-            query = """
+            query = f"""
                 SELECT DISTINCT DATE(timestamp) as sync_date
                 FROM attendance_logs
-                WHERE sync_status = ?
+                WHERE sync_status IN ({placeholders})
                 ORDER BY sync_date
             """
-            rows = db_manager.fetch_all(query, (SyncStatus.PENDING,))
+            rows = db_manager.fetch_all(query, tuple(statuses))
 
         return [row['sync_date'] for row in rows]
 

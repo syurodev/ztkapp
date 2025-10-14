@@ -9,6 +9,7 @@ from flask import current_app
 from app.config.config_manager import config_manager
 from app.device.connection_manager import connection_manager
 from app.events.event_stream import device_event_stream
+from app.services.external_api_service import external_api_service
 
 # Try importing live capture service with error handling
 try:
@@ -279,43 +280,13 @@ def add_device():
                 "serial_number"
             )
             if serial_number:
-                external_api_domain = config_manager.get_external_api_url()
-                api_key = config_manager.get_external_api_key()
-
-                if external_api_domain and api_key:
-                    api_url = (
-                        external_api_domain.rstrip("/")
-                        + "/time-clock-employees/sync-device"
-                    )
-                    payload = {
-                        "payload": [{"serial": serial_number, "name": data.get("name")}]
-                    }
-                    headers = {
-                        "Content-Type": "application/json",
-                        "x-api-key": api_key,
-                        "ProjectId": "1055"
-                    }
-
-                    response = requests.post(
-                        api_url,
-                        json=payload,
-                        headers=headers,
-                        timeout=30,
-                    )
-                    response.raise_for_status()
-
-                    try:
-                        external_sync_result = response.json()
-                    except ValueError:
-                        external_sync_result = {"message": response.text}
-
-                    current_app.logger.info(
-                        f"Synced new device {data.get('name')} to external API."
-                    )
-                else:
-                    current_app.logger.warning(
-                        "External API configuration missing; skipping sync for new device."
-                    )
+                payload = {
+                    "payload": [{"serial": serial_number, "name": data.get("name")}]
+                }
+                external_sync_result = external_api_service.sync_device(payload, serial_number)
+                current_app.logger.info(
+                    f"Synced new device {data.get('name')} to external API."
+                )
             else:
                 current_app.logger.warning(
                     "Serial number not available for new device; skipping external sync."
@@ -437,44 +408,13 @@ def update_device(device_id):
             device_name = data.get("name") or updated_device.get("name")
 
             if serial_number:
-                external_api_domain = config_manager.get_external_api_url()
-                api_key = config_manager.get_external_api_key()
-
-                if external_api_domain and api_key:
-                    api_url = (
-                        external_api_domain.rstrip("/")
-                        + "/time-clock-employees/sync-device"
-                    )
-                    payload = {
-                        "payload": [{"serial": serial_number, "name": device_name}]
-                    }
-
-                    headers = {
-                        "Content-Type": "application/json",
-                        "x-api-key": api_key,
-                        "ProjectId": "1055"
-                    }
-
-                    response = requests.post(
-                        api_url,
-                        json=payload,
-                        headers=headers,
-                        timeout=30,
-                    )
-                    response.raise_for_status()
-
-                    try:
-                        external_sync_result = response.json()
-                    except ValueError:
-                        external_sync_result = {"message": response.text}
-
-                    current_app.logger.info(
-                        f"Synced updated device {device_id} to external API."
-                    )
-                else:
-                    current_app.logger.warning(
-                        "External API configuration missing; skipping sync for updated device."
-                    )
+                payload = {
+                    "payload": [{"serial": serial_number, "name": device_name}]
+                }
+                external_sync_result = external_api_service.sync_device(payload, serial_number)
+                current_app.logger.info(
+                    f"Synced updated device {device_id} to external API."
+                )
             else:
                 current_app.logger.warning(
                     f"Serial number not available for updated device {device_id}; skipping external sync."
@@ -653,31 +593,14 @@ def sync_devices_to_external_api():
         }
 
         # 3. Get external API config
-        external_api_domain = config_manager.get_external_api_url()
-        api_key = config_manager.get_external_api_key()
-
-        if not external_api_domain or not api_key:
+        if not config_manager.get_external_api_url() or not config_manager.get_external_api_key():
             return jsonify({"error": "External API domain or key is not configured."}), 500
 
-        api_url = external_api_domain + '/time-clock-employees/sync-device'
-        headers = {
-            'Content-Type': 'application/json',
-            'x-api-key': api_key,
-            "ProjectId": "1055"
-        }
-
         # 4. Make the external API call
-        response = requests.post(
-            api_url,
-            json=payload,
-            headers=headers,
-            timeout=30
-        )
-
-        response.raise_for_status()
+        response_data = external_api_service.sync_device(payload, serial_number=None)
 
         # 5. Return the response from the external API
-        return jsonify(response.json())
+        return jsonify(response_data)
 
     except requests.exceptions.RequestException as e:
         current_app.logger.error(f"Error syncing devices to external API: {e}")
@@ -688,8 +611,16 @@ def sync_devices_to_external_api():
             except ValueError:
                 return jsonify({"error": e.response.text}), e.response.status_code
         return jsonify({"error": str(e)}), 500
+
+
+@bp.route("/branches", methods=["GET"])
+def get_branches():
+    """Get all branches from external API."""
+    try:
+        branches = external_api_service.get_branches()
+        return jsonify(branches)
     except Exception as e:
-        current_app.logger.error(f"An unexpected error occurred during external device sync: {e}")
+        current_app.logger.error(f"An unexpected error occurred during get branches: {e}")
         return jsonify({"error": str(e)}), 500
 
 

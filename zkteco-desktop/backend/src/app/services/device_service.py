@@ -13,7 +13,7 @@ import os
 import json
 import time
 import requests
-from typing import List, Type
+from typing import Any, Dict, List, Optional, Type
 
 from dotenv import load_dotenv
 from zk import ZK, const
@@ -24,6 +24,7 @@ from app.device.connection_manager import connection_manager
 from app.config.config_manager import config_manager
 from app.repositories import user_repo, attendance_repo
 from app.models import AttendanceLog, SyncStatus
+from app.services.external_api_service import external_api_service
 
 load_dotenv()
 
@@ -31,6 +32,15 @@ load_dotenv()
 class ZkService:
     def __init__(self, device_id: str = None):
         self.device_id = device_id
+
+    def _normalize_user_id(self, user_id) -> Optional[str]:
+        """Chuẩn hoá user_id về chuỗi số để đồng bộ giữa các luồng."""
+        if user_id is None:
+            return None
+        try:
+            return str(int(str(user_id).strip()))
+        except (TypeError, ValueError):
+            return None
 
     def _check_pull_device(self, device_id: str) -> None:
         """Check if device is pull type, raise ValueError if not"""
@@ -456,65 +466,61 @@ class ZkService:
             )
             raise
 
-    def _fetch_employee_details(self, users: list, external_api_domain: str) -> dict:
+    def _fetch_employee_details(self, users: list) -> dict:
         """
         Fetch employee details from external API after sync
 
         Args:
             users: List of User objects or dict with user_id and serial_number
-            external_api_domain: External API base URL
 
         Returns:
             Dict mapping user_id -> {employee_id, employee_avatar}
         """
         try:
-            api_url = external_api_domain + "/time-clock-employees/get-by-user-ids"
-            api_key = config_manager.get_external_api_key()
-
-            if not api_key:
+            if not config_manager.get_external_api_key():
                 app_logger.warning(
                     "EXTERNAL_API_KEY not configured, skipping employee details fetch"
                 )
                 return {}
 
-            # Build users array with id and serial_number
-            users_array = []
+            # Build users array với user_id duy nhất (ưu tiên serial_number nếu có)
+            users_map: Dict[str, Dict[str, Any]] = {}
             for user in users:
+                raw_user_id = None
+                serial_value = ""
+
                 if hasattr(user, "user_id"):
                     # User object from database
-                    users_array.append(
-                        {"id": user.user_id, "serial_number": user.serial_number or ""}
-                    )
+                    raw_user_id = user.user_id
+                    serial_value = user.serial_number or ""
                 elif isinstance(user, dict):
                     # Dict with user_id and serial_number
-                    users_array.append(
-                        {
-                            "id": user.get("user_id", ""),
-                            "serial_number": user.get("serial_number", ""),
-                        }
-                    )
+                    raw_user_id = user.get("user_id", "") or ""
+                    serial_value = user.get("serial_number", "") or ""
                 else:
                     # Fallback: just user_id string
-                    users_array.append({"id": str(user), "serial_number": ""})
+                    raw_user_id = user
 
-            request_body = {"users": users_array}
-            headers = {
-                "Content-Type": "application/json",
-                "x-api-key": api_key,
-                "ProjectId": "1055",
-            }
+                normalized_id = self._normalize_user_id(raw_user_id)
+                if not normalized_id:
+                    continue
+
+                existing_entry = users_map.get(normalized_id)
+                if not existing_entry or (
+                    not existing_entry.get("serial_number") and serial_value
+                ):
+                    users_map[normalized_id] = {
+                        "id": int(normalized_id),
+                        "serial_number": serial_value or "",
+                    }
+
+            users_array = list(users_map.values())
 
             app_logger.info(
                 f"Fetching employee details for {len(users_array)} users from external API"
             )
-            app_logger.debug(f"Request body: {request_body}")
-
-            response = requests.post(
-                api_url, json=request_body, headers=headers, timeout=30
-            )
-            response.raise_for_status()
-
-            data = response.json()
+            
+            data = external_api_service.get_employees_by_user_ids(users_array)
 
             # Parse response: BaseResponse<List<TimeClockEmployeeInfoResponse>>
             if data.get("status") != 200:
@@ -528,14 +534,15 @@ class ZkService:
                 f"Received {len(employee_details)} employee details from external API"
             )
 
-            # Map (user_id, serial_number) -> details for unique identification
+            # Map user_id -> details (đã chuẩn hoá)
             result = {}
             for employee in employee_details:
-                time_clock_user_id = employee.get("time_clock_user_id")
-                serial_number = employee.get("serial_number")
+                normalized_id = self._normalize_user_id(
+                    employee.get("time_clock_user_id")
+                )
 
-                if time_clock_user_id and serial_number:
-                    result[(time_clock_user_id, serial_number)] = {
+                if normalized_id:
+                    result[normalized_id] = {
                         "employee_id": employee.get("employee_id"),
                         "employee_name": employee.get("employee_name"),
                         "employee_avatar": employee.get("employee_avatar"),
@@ -591,14 +598,6 @@ class ZkService:
                     "message": "No unsynced users found",
                 }
 
-            # Get external API URL from config (new dynamic approach)
-            external_api_domain = config_manager.get_external_api_url()
-
-            if not external_api_domain:
-                raise ValueError("API_GATEWAY_DOMAIN not configured")
-
-            external_api_url = external_api_domain + "/time-clock-employees/sync"
-
             # Get device info for serial number
             device_info = device.get("device_info", {})
             serial_number = device_info.get(
@@ -610,8 +609,10 @@ class ZkService:
             user_ids_to_sync = []  # Track user IDs that will be synced
 
             for user in db_users:
+                normalized_id = self._normalize_user_id(user.user_id)
+                user_id_payload = int(normalized_id) if normalized_id else user.user_id
                 employee = {
-                    "userId": user.user_id,
+                    "userId": user_id_payload,
                     "name": user.name,
                     "groupId": user.group_id,
                 }
@@ -620,56 +621,18 @@ class ZkService:
                     user.id
                 )  # Store the database ID for later update
 
-            # Prepare sync data
-            sync_data = {"timestamp": int(time.time()), "employees": employees}
-
             # Get API key from config
-            api_key = config_manager.get_external_api_key()
-            if not api_key:
+            if not config_manager.get_external_api_key():
                 app_logger.warning(
                     "EXTERNAL_API_KEY not configured, skipping employee sync"
                 )
                 return {"success": False, "message": "EXTERNAL_API_KEY not configured"}
 
-            # Prepare headers
-            headers = {
-                "Content-Type": "application/json",
-                "x-api-key": api_key,
-                "x-device-sync": serial_number,
-                "ProjectId": "1055",
-            }
-
-            redacted_headers = {
-                key: ("***" if key.lower() in {"x-api-key", "authorization"} else value)
-                for key, value in headers.items()
-            }
-            app_logger.info(
-                "User sync request -> url=%s headers=%s payload=%s",
-                external_api_url,
-                redacted_headers,
-                json.dumps(sync_data),
-            )
-
             # Make API request
-            response = requests.post(
-                external_api_url, json=sync_data, headers=headers, timeout=30
-            )
-
-            response_preview = response.text.strip()
-            if len(response_preview) > 1000:
-                response_preview = response_preview[:1000] + "...[truncated]"
-            app_logger.info(
-                "User sync response <- status=%s body=%s",
-                response.status_code,
-                response_preview,
-            )
-
-            data = response.json()
+            data = external_api_service.sync_employees(employees, serial_number)
 
             if data.get("status") != 200:
                 return {"success": False, "message": data.get("message")}
-
-            response.raise_for_status()
 
             # Sync successful - now try to fetch employee details (best effort)
             # IMPORTANT: Users will be marked as synced regardless of detail fetch success
@@ -678,9 +641,7 @@ class ZkService:
             app_logger.info(
                 "Sync successful, attempting to fetch employee details from external API..."
             )
-            employee_details = self._fetch_employee_details(
-                db_users, external_api_domain
-            )
+            employee_details = self._fetch_employee_details(db_users)
 
             # Log detail fetch result
             if employee_details:
@@ -701,9 +662,9 @@ class ZkService:
                     # Always mark as synced since main sync was successful
                     updates = {"is_synced": True, "synced_at": datetime.now()}
 
-                    # Add employee details if available (optional enhancement)
-                    lookup_key = (user.user_id, user.serial_number)
-                    if employee_details and lookup_key in employee_details:
+                    # Add employee details nếu có (chỉ theo user_id đã chuẩn hoá)
+                    lookup_key = self._normalize_user_id(user.user_id)
+                    if lookup_key and employee_details and lookup_key in employee_details:
                         details = employee_details[lookup_key]
                         updates["external_user_id"] = details.get("employee_id")
                         updates["avatar_url"] = details.get("employee_avatar")
@@ -747,8 +708,8 @@ class ZkService:
                 "employees_count": len(employees),
                 "synced_users_count": synced_count,
                 "updated_with_details_count": updated_with_details_count,
-                "timestamp": sync_data["timestamp"],
-                "response_status": response.status_code,
+                "timestamp": int(time.time()),
+                "response_status": 200,
                 "external_api_response": data,
             }
 
@@ -770,17 +731,6 @@ class ZkService:
         try:
             app_logger.info("Starting periodic user sync from external API")
 
-            # Get external API domain
-            external_api_domain = config_manager.get_external_api_domain()
-            if not external_api_domain:
-                app_logger.warning(
-                    "API_GATEWAY_DOMAIN not configured, skipping periodic user sync"
-                )
-                return {
-                    "success": False,
-                    "message": "API_GATEWAY_DOMAIN not configured",
-                }
-
             # Get all users from database
             all_users = user_repo.get_all()
             if not all_users:
@@ -797,9 +747,7 @@ class ZkService:
             app_logger.info(
                 f"Fetching employee details for {len(all_users)} users from external API"
             )
-            employee_details = self._fetch_employee_details(
-                all_users, external_api_domain
-            )
+            employee_details = self._fetch_employee_details(all_users)
 
             if not employee_details:
                 app_logger.warning("No employee details received from external API")
@@ -812,8 +760,8 @@ class ZkService:
             # Update users with employee details
             updated_count = 0
             for user in all_users:
-                lookup_key = (user.user_id, user.serial_number)
-                if lookup_key in employee_details:
+                lookup_key = self._normalize_user_id(user.user_id)
+                if lookup_key and lookup_key in employee_details:
                     details = employee_details[lookup_key]
                     updates = {
                         "external_user_id": details.get("employee_id"),

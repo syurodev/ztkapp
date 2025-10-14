@@ -9,7 +9,19 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -23,39 +35,30 @@ import { useDevice } from "@/contexts/DeviceContext";
 import { deviceAPI, User, userAPI, UsersResponse } from "@/lib/api";
 import { buildAvatarUrl, getResourceDomain } from "@/lib/utils";
 import {
-  AlertCircle,
-  CheckCircle2,
-  Clock,
-  Monitor,
-  RefreshCcw,
-  RefreshCw,
-  UserCheck,
-  Users,
-  XCircle,
+    AlertCircle,
+    CheckCircle2,
+    Clock,
+    Download,
+    FileJson, Minus,
+    Monitor,
+    RefreshCcw,
+    RefreshCw,
+    Upload,
+    UserCheck,
+    Users,
+    XCircle,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
 
-// Using User interface from API types
-
-// interface UserFormData {
-//   name: string;
-//   privilege: number;
-//   password: string;
-//   group_id: number;
-//   card: number;
-// }
-
-// const initialFormData: UserFormData = {
-//   name: "",
-//   privilege: 0,
-//   password: "",
-//   group_id: 0,
-//   card: 0,
-// };
-
 const MotionTableRow = motion(TableRow);
+
+interface UserToImport {
+  user_id: string;
+  name: string;
+  serial_number?: string;
+}
 
 export function UserManagement() {
   const { activeDevice } = useDevice();
@@ -68,18 +71,23 @@ export function UserManagement() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isSyncingFromDevice, setIsSyncingFromDevice] = useState(false);
   const [resourceDomain, setResourceDomain] = useState<string>("");
-
-  // Load resource domain on mount
-  useEffect(() => {
-    getResourceDomain().then(setResourceDomain);
-  }, []);
-  // const [isDialogOpen, setIsDialogOpen] = useState(false);
-  // const [formData, setFormData] = useState<UserFormData>(initialFormData);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [syncingUsers, setSyncingUsers] = useState<Set<string>>(new Set());
 
-  // Load users when activeDevice changes
+  // Import Dialog State
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [isExactImport, setIsExactImport] = useState(false);
+  const [usersToImportPreview, setUsersToImportPreview] = useState<
+    UserToImport[]
+  >([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    getResourceDomain().then(setResourceDomain);
+  }, []);
+
   useEffect(() => {
     if (activeDevice) {
       loadUsers();
@@ -90,21 +98,13 @@ export function UserManagement() {
   }, [activeDevice]);
 
   const loadUsers = async () => {
-    if (!activeDevice) {
-      return;
-    }
-
+    if (!activeDevice) return;
     setIsLoading(true);
     setError(null);
     try {
       const response: UsersResponse = await userAPI.getUsers();
-      console.log("Users response:", response);
-
-      // Set sync status and device connection info
       setSyncStatus(response.sync_status);
       setDeviceConnected(response.device_connected);
-
-      // Use the data directly from response as it's already properly formatted
       setUsers(response.data || []);
     } catch (err) {
       setError(
@@ -116,95 +116,25 @@ export function UserManagement() {
     }
   };
 
-  // const handleCreateUser = async () => {
-  //   if (!activeDevice) {
-  //     toast.error("Please select a device first");
-  //     return;
-  //   }
-
-  //   if (!formData.name.trim()) {
-  //     toast.error("User name is required");
-  //     return;
-  //   }
-
-  //   setIsLoading(true);
-  //   try {
-  //     // Generate unique user_id
-  //     const maxId = users.reduce(
-  //       (max, user: User) => Math.max(max, user.user_id),
-  //       0
-  //     );
-  //     const newUserId = maxId + 1;
-
-  //     const userData = {
-  //       user_id: newUserId,
-  //       user_data: {
-  //         name: formData.name,
-  //         privilege: formData.privilege,
-  //         password: formData.password || "123456", // Default password
-  //         group_id: formData.group_id,
-  //         card: formData.card || 0,
-  //       },
-  //     };
-
-  //     await userAPI.createUser(userData);
-  //     toast.success("User created successfully");
-  //     setIsDialogOpen(false);
-  //     setFormData(initialFormData);
-  //     await loadUsers(); // Reload users
-  //   } catch (err) {
-  //     toast.error("Failed to create user");
-  //     console.error("Error creating user:", err);
-  //   } finally {
-  //     setIsLoading(false);
-  //   }
-  // };
-
-  // const handleDeleteUser = async (userId: number, userName: string) => {
-  //   if (!confirm(`Are you sure you want to delete user "${userName}"?`)) {
-  //     return;
-  //   }
-
-  //   setIsLoading(true);
-  //   try {
-  //     await userAPI.deleteUser(userId);
-  //     toast.success("User deleted successfully");
-  //     await loadUsers(); // Reload users
-  //   } catch (err) {
-  //     toast.error("Failed to delete user");
-  //     console.error("Error deleting user:", err);
-  //   } finally {
-  //     setIsLoading(false);
-  //   }
-  // };
-
   const handleSyncEmployee = async () => {
     if (!activeDevice) {
       toast.error("Vui lòng chọn thiết bị trước");
       return;
     }
-
     setIsSyncing(true);
     try {
       const result = await deviceAPI.syncEmployee();
-
       if (result["success"]) {
         toast.success(
           `Đã đồng bộ ${result.employees_count} nhân sự lên hệ thống ngoài`
         );
-        // Reload users to get updated sync status
         await loadUsers();
       } else {
         toast.error(result.message);
       }
-
-      console.log("Sync result:", result);
     } catch (err: any) {
-      console.log(err);
-
       const errorMessage = err.message || "Không thể đồng bộ nhân sự";
       toast.error(errorMessage);
-      console.error("Error syncing employees:", err);
     } finally {
       setIsSyncing(false);
     }
@@ -215,14 +145,11 @@ export function UserManagement() {
       toast.error("Vui lòng chọn thiết bị trước");
       return;
     }
-
     setSyncingUsers((prev) => new Set(prev).add(userId));
     try {
       const result = await userAPI.syncUser(userId);
-
       if (result.success) {
         toast.success(`Đã đồng bộ ${userName} lên hệ thống ngoài`);
-        // Reload users to get updated sync status
         await loadUsers();
       } else {
         toast.error(result.message || "Không thể đồng bộ người dùng");
@@ -230,7 +157,6 @@ export function UserManagement() {
     } catch (err: any) {
       const errorMessage = err.message || "Không thể đồng bộ người dùng";
       toast.error(errorMessage);
-      console.error("Error syncing user:", err);
     } finally {
       setSyncingUsers((prev) => {
         const newSet = new Set(prev);
@@ -245,16 +171,13 @@ export function UserManagement() {
       toast.error("Vui lòng chọn thiết bị trước");
       return;
     }
-
     setIsSyncingFromDevice(true);
     try {
       const result = await userAPI.syncUsersFromDevice();
-
       if (result.success) {
         toast.success(
           `Đã đồng bộ ${result.synced_count} người dùng từ thiết bị`
         );
-        // Reload users to get updated data
         await loadUsers();
       } else {
         toast.error(
@@ -267,39 +190,113 @@ export function UserManagement() {
         err.message ||
         "Không thể đồng bộ người dùng từ thiết bị";
       toast.error(errorMessage);
-      console.error("Error syncing users from device:", err);
     } finally {
       setIsSyncingFromDevice(false);
     }
   };
 
-  // const handleSyncUsersFromPushDevice = async () => {
-  //   if (!activeDevice) {
-  //     toast.error("Vui lòng chọn thiết bị trước");
-  //     return;
-  //   }
+  const handleExport = async () => {
+    if (!activeDevice) {
+      toast.error("Vui lòng chọn thiết bị trước");
+      return;
+    }
+    const promise = userAPI.exportUsers();
+    toast.promise(promise, {
+      loading: "Đang xuất danh sách người dùng...",
+      success: (data) => {
+        const blob = new Blob([JSON.stringify(data, null, 2)], {
+          type: "application/json",
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `users_export_${activeDevice.name}_${new Date()
+          .toISOString()
+          .split("T")[0]}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        return "Xuất danh sách người dùng thành công!";
+      },
+      error: "Xuất danh sách người dùng thất bại",
+    });
+  };
 
-  //   setIsSyncingFromDevice(true);
-  //   try {
-  //     const result = await devicesAPI.syncUsersFromPushDevice(activeDevice.id);
+  const handleImportDialogFileSelect = (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
 
-  //     toast.success(result.message || "Đã gửi lệnh đồng bộ người dùng thành công");
-  //     toast.info("Thiết bị sẽ đẩy dữ liệu người dùng ở lần ping tiếp theo. Vui lòng chờ...");
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const text = e.target?.result;
+        if (typeof text === "string") {
+          const data = JSON.parse(text);
+          if (Array.isArray(data)) {
+            setUsersToImportPreview(data);
+          } else {
+            toast.error("File JSON không hợp lệ: phải là một mảng người dùng.");
+          }
+        }
+      } catch (err) {
+        toast.error("Không thể đọc file. File JSON có lỗi.");
+        console.error("Error parsing import file:", err);
+      }
+    };
+    reader.readAsText(file);
+  };
 
-  //     // Wait a bit then reload users
-  //     setTimeout(() => {
-  //       loadUsers();
-  //     }, 3000);
-  //   } catch (err: any) {
-  //     const errorMessage = err.response?.data?.error || err.message || "Không thể đồng bộ người dùng từ thiết bị push";
-  //     toast.error(errorMessage);
-  //     console.error("Error syncing users from push device:", err);
-  //   } finally {
-  //     setIsSyncingFromDevice(false);
-  //   }
-  // };
+  const handleRemoveUserFromPreview = (userIdToRemove: string) => {
+    setUsersToImportPreview((currentUsers) =>
+      currentUsers.filter((user) => user.user_id !== userIdToRemove)
+    );
+  };
 
-  // Filter users based on search query
+  const handleConfirmImport = async () => {
+    if (usersToImportPreview.length === 0) {
+        toast.error("Không có người dùng nào để nhập.");
+        return;
+    }
+
+    setIsImporting(true);
+
+    // Create a new File object from the potentially filtered preview data
+    const filteredDataStr = JSON.stringify(usersToImportPreview, null, 2);
+    const blob = new Blob([filteredDataStr], { type: "application/json" });
+    const filteredFile = new File([blob], "filtered_import.json", { type: "application/json" });
+
+    const formData = new FormData();
+    formData.append("file", filteredFile);
+    formData.append("exact_import", String(isExactImport));
+
+    const promise = userAPI.importUsers(formData);
+    toast.promise(promise, {
+      loading: "Đang nhập danh sách người dùng...",
+      success: (result) => {
+        loadUsers();
+        setIsImportDialogOpen(false);
+        return `Nhập thành công: ${result.created} mới, ${result.updated} cập nhật, ${result.failed} lỗi.`;
+      },
+      error: (err) => {
+        return err.response?.data?.error || "Nhập file thất bại";
+      },
+      finally: () => {
+        setIsImporting(false);
+      },
+    });
+  };
+
+  const resetImportDialog = () => {
+    setUsersToImportPreview([]);
+    setIsExactImport(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
   const filteredUsers = users.filter((user) =>
     user.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -343,21 +340,6 @@ export function UserManagement() {
     }
   };
 
-  // const getPrivilegeLabel = (privilege: number) => {
-  //   switch (privilege) {
-  //     case 0:
-  //       return { label: "User", variant: "secondary" as const };
-  //     case 1:
-  //       return { label: "Enroller", variant: "default" as const };
-  //     case 2:
-  //       return { label: "Administrator", variant: "destructive" as const };
-  //     case 3:
-  //       return { label: "Super Admin", variant: "destructive" as const };
-  //     default:
-  //       return { label: "Unknown", variant: "outline" as const };
-  //   }
-  // };
-
   return (
     <motion.div
       className="space-y-6"
@@ -365,7 +347,6 @@ export function UserManagement() {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25, ease: "easeOut" }}
     >
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
@@ -408,7 +389,6 @@ export function UserManagement() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {/* Sync from device button for pull devices */}
           {activeDevice?.device_type === "pull" && (
             <Button
               variant="outline"
@@ -424,7 +404,6 @@ export function UserManagement() {
               {isSyncingFromDevice ? "Đang đồng bộ..." : "Đồng bộ từ thiết bị"}
             </Button>
           )}
-          {/* Refresh button for push devices - just reload data from DB */}
           {activeDevice?.device_type === "push" && (
             <Button
               variant="outline"
@@ -449,119 +428,136 @@ export function UserManagement() {
             />
             {isSyncing ? "Đang đồng bộ..." : "Đồng bộ nhân sự"}
           </Button>
-          {/* <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+          <Button
+            variant="outline"
+            onClick={handleExport}
+            className="flex items-center gap-2"
+          >
+            <Download className="h-4 w-4" />
+            Xuất file
+          </Button>
+
+          <Dialog
+            open={isImportDialogOpen}
+            onOpenChange={(isOpen) => {
+              setIsImportDialogOpen(isOpen);
+              if (!isOpen) {
+                resetImportDialog();
+              }
+            }}
+          >
             <DialogTrigger asChild>
-              <Button className="flex items-center gap-2">
-                <Plus className="h-4 w-4" />
-                Add User
+              <Button variant="outline" className="flex items-center gap-2">
+                <Upload className="h-4 w-4" />
+                Nhập file
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-md">
+            <DialogContent className="sm:max-w-3xl">
               <DialogHeader>
-                <DialogTitle>Create New User</DialogTitle>
+                <DialogTitle>Nhập danh sách người dùng</DialogTitle>
                 <DialogDescription>
-                  Add a new user to the ZKTeco system.
+                  Chọn một file JSON để xem trước và nhập vào hệ thống.
                 </DialogDescription>
               </DialogHeader>
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Name *</Label>
-                  <Input
-                    id="name"
-                    value={formData.name}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, name: e.target.value }))
-                    }
-                    placeholder="Enter user name"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="privilege">Privilege Level</Label>
-                  <select
-                    id="privilege"
-                    value={formData.privilege}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        privilege: parseInt(e.target.value),
-                      }))
-                    }
-                    className="w-full p-2 border rounded-md"
-                  >
-                    <option value={0}>User</option>
-                    <option value={1}>Enroller</option>
-                    <option value={2}>Administrator</option>
-                    <option value={3}>Super Admin</option>
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="password">Password</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    value={formData.password}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        password: e.target.value,
-                      }))
-                    }
-                    placeholder="Leave empty for default (123456)"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="group_id">Group ID</Label>
-                    <Input
-                      id="group_id"
-                      type="number"
-                      value={formData.group_id}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          group_id: parseInt(e.target.value) || 0,
-                        }))
-                      }
-                      placeholder="0"
-                    />
+              <div className="space-y-4 py-4">
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <FileJson className="h-4 w-4 mr-2" />
+                  {usersToImportPreview.length > 0
+                    ? "Chọn file khác"
+                    : "Chọn file JSON"}
+                </Button>
+
+                {usersToImportPreview.length > 0 && (
+                  <div className="space-y-4">
+                    <div className="flex items-center space-x-2 mt-4">
+                      <Switch
+                        id="exact-import-switch"
+                        checked={isExactImport}
+                        onCheckedChange={setIsExactImport}
+                      />
+                      <Label htmlFor="exact-import-switch">
+                        Nhập chính xác theo Serial Number
+                      </Label>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Khi bật, hệ thống sẽ nhập người dùng vào thiết bị có `serial_number` trùng khớp trong file. Nếu không, người dùng sẽ được nhập vào thiết bị đang hoạt động.
+                    </p>
+
+                    <h4 className="font-semibold">
+                      Xem trước dữ liệu ({usersToImportPreview.length} người dùng)
+                    </h4>
+                    <ScrollArea className="h-64 w-full rounded-md border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>ID</TableHead>
+                            <TableHead>Tên</TableHead>
+                            <TableHead>Serial Number</TableHead>
+                            <TableHead className="text-right">Hành động</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {usersToImportPreview.map((user) => (
+                            <TableRow key={user.user_id}>
+                              <TableCell>{user.user_id}</TableCell>
+                              <TableCell>{user.name}</TableCell>
+                              <TableCell className="text-muted-foreground">
+                                {user.serial_number || "(trống)"}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                                  onClick={() =>
+                                    handleRemoveUserFromPreview(user.user_id)
+                                  }
+                                >
+                                  <Minus className="h-4 w-4" />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </ScrollArea>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="card">Card Number</Label>
-                    <Input
-                      id="card"
-                      type="number"
-                      value={formData.card}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          card: parseInt(e.target.value) || 0,
-                        }))
-                      }
-                      placeholder="0"
-                    />
-                  </div>
-                </div>
-                <div className="flex justify-end gap-2 pt-4">
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setIsDialogOpen(false);
-                      setFormData(initialFormData);
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                  <Button onClick={handleCreateUser} disabled={isLoading}>
-                    {isLoading ? "Creating..." : "Create User"}
-                  </Button>
-                </div>
+                )}
               </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setIsImportDialogOpen(false);
+                    resetImportDialog();
+                  }}
+                >
+                  Hủy
+                </Button>
+                <Button
+                  onClick={handleConfirmImport}
+                  disabled={usersToImportPreview.length === 0 || isImporting}
+                >
+                  {isImporting ? "Đang nhập..." : "Xác nhận nhập"}
+                </Button>
+              </DialogFooter>
             </DialogContent>
-          </Dialog> */}
+          </Dialog>
+
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleImportDialogFileSelect}
+            className="hidden"
+            accept=".json"
+          />
         </div>
       </div>
 
-      {/* Search Bar */}
       <div className="flex items-center space-x-2">
         <div className="flex-1">
           <Input
@@ -573,7 +569,6 @@ export function UserManagement() {
         </div>
       </div>
 
-      {/* No Device Selected Alert */}
       {!activeDevice ? (
         <Alert>
           <Monitor className="h-4 w-4" />
@@ -597,7 +592,6 @@ export function UserManagement() {
         </Alert>
       ) : null}
 
-      {/* Users Table */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -724,7 +718,6 @@ export function UserManagement() {
         </CardContent>
       </Card>
 
-      {/* Quick Actions */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardHeader>

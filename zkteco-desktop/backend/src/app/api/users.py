@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, Response
 from app.services.device_service import get_zk_service
 from app.schemas import create_user_schema, delete_user_schema, get_fingerprint_schema, delete_fingerprint_schema, validate_data
 from flask import current_app
@@ -8,13 +8,39 @@ from app.config.config_manager import config_manager
 from app.device.connection_manager import connection_manager
 import time
 import requests
+import json
 from datetime import datetime
+from app.services.external_api_service import external_api_service
+from typing import Optional
+
+PROFILE_COPY_FIELDS = ("full_name", "employee_code", "position", "department", "employee_object")
+OPTIONAL_PROFILE_COPY_FIELDS = ("avatar_url", "external_user_id", "synced_at")
 
 bp = Blueprint('user', __name__, url_prefix='/')
 # zk_service = get_zk_service()  # Lazy load to avoid blocking
 
 def get_service():
     return get_zk_service()
+
+def _collect_profile_fields(source_user, include_optional: bool = False):
+    if not source_user:
+        return {}
+
+    fields = PROFILE_COPY_FIELDS + OPTIONAL_PROFILE_COPY_FIELDS if include_optional else PROFILE_COPY_FIELDS
+    profile = {}
+    for field in fields:
+        value = getattr(source_user, field, None)
+        if value not in (None, ""):
+            profile[field] = value
+    return profile
+
+def _derive_external_user_id(user_id: str) -> Optional[int]:
+    if user_id is None:
+        return None
+    try:
+        return int(str(user_id).strip())
+    except (TypeError, ValueError):
+        return None
 
 def sync_users_from_device(device_id=None):
     """
@@ -80,6 +106,16 @@ def sync_users_from_device(device_id=None):
                 # Check if user already exists in database
                 existing_user = user_repo.get_by_user_id(str(device_user.user_id), target_device_id)
 
+                source_user = user_repo.find_first_by_user_id(
+                    str(device_user.user_id),
+                    exclude_device_id=target_device_id,
+                )
+                profile_payload = _collect_profile_fields(source_user, include_optional=True)
+                synced_at_copy = profile_payload.pop(
+                    "synced_at",
+                    getattr(source_user, "synced_at", None) if source_user else None,
+                )
+
                 if existing_user:
                     # Update existing user with latest info from device
                     updates = {
@@ -88,8 +124,19 @@ def sync_users_from_device(device_id=None):
                         'group_id': getattr(device_user, 'group_id', existing_user.group_id),
                         'card': getattr(device_user, 'card', existing_user.card),
                         'password': getattr(device_user, 'password', existing_user.password),
-                        'serial_number': device_serial
+                        'serial_number': device_serial,
                     }
+
+                    # Pull profile fields from reference device
+                    for field, value in profile_payload.items():
+                        if getattr(existing_user, field) != value:
+                            updates[field] = value
+
+                    if source_user:
+                        if not existing_user.is_synced:
+                            updates['is_synced'] = True
+                        if synced_at_copy and getattr(existing_user, 'synced_at', None) != synced_at_copy:
+                            updates['synced_at'] = synced_at_copy
 
                     # Check if any field changed
                     has_changes = any(
@@ -105,6 +152,17 @@ def sync_users_from_device(device_id=None):
                         current_app.logger.debug(f"User {device_user.user_id} already up-to-date, skipping...")
                     continue
 
+                # Logic to copy data from another device if user_id exists elsewhere
+                if source_user:
+                    current_app.logger.info(f"Found existing user with same ID on another device. Copying data from {source_user.device_id}.")
+
+                is_synced_flag = True if source_user else False
+
+                if not source_user:
+                    fallback_external_id = _derive_external_user_id(device_user.user_id)
+                    if fallback_external_id is not None:
+                        profile_payload.setdefault('external_user_id', fallback_external_id)
+
                 # Create new user in database
                 user = User(
                     user_id=str(device_user.user_id),
@@ -115,7 +173,9 @@ def sync_users_from_device(device_id=None):
                     group_id=getattr(device_user, 'group_id', 0),
                     card=getattr(device_user, 'card', 0),
                     password=getattr(device_user, 'password', ''),
-                    is_synced=False  # Not synced to external API yet
+                    is_synced=is_synced_flag,
+                    synced_at=synced_at_copy,
+                    **profile_payload
                 )
 
                 created_user = user_repo.create(user)
@@ -401,24 +461,14 @@ def sync_single_user(user_id):
                 "message": f"Không tìm thấy người dùng {user_id} trong cơ sở dữ liệu"
             }), 404
 
-        # Get external API configuration
-        external_api_domain = config_manager.get_external_api_url()
-        if not external_api_domain:
-            return jsonify({
-                "success": False,
-                "message": "Chưa cấu hình API_GATEWAY_DOMAIN"
-            }), 400
-
-        api_key = config_manager.get_external_api_key()
-        if not api_key:
-            return jsonify({
-                "success": False,
-                "message": "Chưa cấu hình EXTERNAL_API_KEY"
-            }), 400
+        normalized_user_id = _derive_external_user_id(db_user.user_id)
+        payload_user_id = (
+            normalized_user_id if normalized_user_id is not None else db_user.user_id
+        )
 
         # Prepare employee data
         employee = {
-            "userId": db_user.user_id,
+            "userId": payload_user_id,
             "name": db_user.name,
             "groupId": db_user.group_id
         }
@@ -427,49 +477,40 @@ def sync_single_user(user_id):
         device_info = active_device.get('device_info', {})
         serial_number = device_info.get('serial_number', device_id or 'unknown')
 
-        # Prepare sync data
-        sync_data = {
-            "timestamp": int(time.time()),
-            "employees": [employee]
-        }
+        # Make API request to sync employee
+        sync_response = external_api_service.sync_employees([employee], serial_number)
 
-        # Prepare headers
-        headers = {
-            'Content-Type': 'application/json',
-            'x-api-key': api_key,
-            'x-device-sync': serial_number,
-            'ProjectId': "1055"
-        }
-
-        # Make API request
-        external_api_url = external_api_domain + '/time-clock-employees/sync'
-        current_app.logger.info(f"Sending sync request to: {external_api_url}")
-        current_app.logger.info(f"Sync data: {sync_data}")
-        current_app.logger.info(f"Headers: {dict(headers)}")
-
-        response = requests.post(
-            external_api_url,
-            json=sync_data,
-            headers=headers,
-            timeout=30
-        )
-
-        current_app.logger.info(f"Response status code: {response.status_code}")
-        current_app.logger.info(f"Response text: {response.text}")
-
-        data = response.json()
-
-        if data.get('status') != 200:
-            current_app.logger.error(f"API returned non-200 status: {data.get('status')}, message: {data.get('message')}")
+        if sync_response.get('status') != 200:
+            current_app.logger.error(f"API returned non-200 status: {sync_response.get('status')}, message: {sync_response.get('message')}")
             return jsonify({
                 'success': False,
-                'message': data.get('message', 'Đồng bộ thất bại')
+                'message': sync_response.get('message', 'Đồng bộ thất bại')
             }), 400
 
-        response.raise_for_status()
-
         # Fetch employee details
-        employee_details = get_service()._fetch_employee_details([db_user], external_api_domain)
+        users_array = [{
+            "id": payload_user_id,
+            "serial_number": db_user.serial_number or ""
+        }]
+        details_response = external_api_service.get_employees_by_user_ids(users_array)
+        
+        employee_details_data = {}
+        if details_response.get("status") == 200:
+            employee_details_list = details_response.get("data", [])
+            for employee_detail in employee_details_list:
+                time_clock_user_id = employee_detail.get("time_clock_user_id")
+                normalized_lookup = _derive_external_user_id(time_clock_user_id)
+                lookup_key = None
+                if normalized_lookup is not None:
+                    lookup_key = str(normalized_lookup)
+                elif time_clock_user_id is not None:
+                    lookup_key = str(time_clock_user_id).strip()
+
+                if lookup_key:
+                    employee_details_data[lookup_key] = {
+                        "employee_id": employee_detail.get("employee_id"),
+                        "employee_avatar": employee_detail.get("employee_avatar"),
+                    }
 
         # Update user with sync status
         updates = {
@@ -478,8 +519,13 @@ def sync_single_user(user_id):
         }
 
         # Add employee details if available
-        if employee_details and db_user.user_id in employee_details:
-            details = employee_details[db_user.user_id]
+        user_lookup_key = (
+            str(normalized_user_id)
+            if normalized_user_id is not None
+            else (str(db_user.user_id).strip() if db_user.user_id is not None else None)
+        )
+        if employee_details_data and user_lookup_key in employee_details_data:
+            details = employee_details_data[user_lookup_key]
             updates['external_user_id'] = details.get('employee_id')
             updates['avatar_url'] = details.get('employee_avatar')
 
@@ -491,7 +537,7 @@ def sync_single_user(user_id):
             'success': True,
             'message': f'Đã đồng bộ người dùng {db_user.name} thành công',
             'user_id': user_id,
-            'employee_details': employee_details.get(db_user.user_id) if employee_details else None
+            'employee_details': employee_details_data.get(user_lookup_key) if (employee_details_data and user_lookup_key) else None
         })
 
     except requests.exceptions.RequestException as e:
@@ -508,3 +554,134 @@ def sync_single_user(user_id):
             "success": False,
             "message": error_message
         }), 500
+
+@bp.route('/users/export', methods=['GET'])
+def export_users():
+    """Export all users for the active device to a JSON file."""
+    try:
+        active_device = config_manager.get_active_device()
+        device_id = active_device['id'] if active_device else None
+
+        db_users = user_repo.get_all(device_id=device_id)
+
+        # Serialize users, excluding device_id
+        users_to_export = []
+        for user in db_users:
+            users_to_export.append({
+                "user_id": user.user_id,
+                "name": user.name,
+                "privilege": user.privilege,
+                "group_id": user.group_id,
+                "card": user.card,
+                "password": user.password,
+                "serial_number": user.serial_number, # Keep serial number for import matching
+                # Exclude other fields like id, device_id, created_at, etc.
+            })
+        
+        json_data = json.dumps(users_to_export, indent=4)
+
+        return Response(
+            json_data,
+            mimetype='application/json',
+            headers={"Content-Disposition": "attachment;filename=users_export.json"}
+        )
+
+    except Exception as e:
+        current_app.logger.error(f"Error exporting users: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@bp.route('/users/import', methods=['POST'])
+def import_users():
+    """Import users from a JSON file."""
+    try:
+        if 'file' not in request.files:
+            return jsonify({"error": "No file part"}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({"error": "No selected file"}), 400
+
+        # Get the exact_import flag from form data
+        exact_import = request.form.get('exact_import', 'false').lower() == 'true'
+
+        if file and file.filename.endswith('.json'):
+            users_to_import = json.load(file)
+            
+            active_device = None
+            if not exact_import:
+                active_device = config_manager.get_active_device()
+                if not active_device:
+                    return jsonify({"error": "No active device configured for import."}), 400
+
+            created_count = 0
+            updated_count = 0
+            failed_count = 0
+            errors = []
+
+            for user_data in users_to_import:
+                try:
+                    user_id = user_data.get('user_id')
+                    if not user_id:
+                        failed_count += 1
+                        errors.append({"reason": "Missing user_id", "data": user_data})
+                        continue
+
+                    device_id = None
+                    serial_number = user_data.get('serial_number')
+
+                    if exact_import:
+                        if not serial_number:
+                            raise ValueError("Missing serial_number for exact import")
+                        target_device = device_repo.get_by_serial_number(serial_number)
+                        if not target_device:
+                            raise ValueError(f"Device with serial_number '{serial_number}' not found")
+                        device_id = target_device.id
+                    else:
+                        device_id = active_device['id']
+                        # Use active device's serial if not present in data
+                        if not serial_number:
+                            serial_number = active_device.get('serial_number')
+
+                    existing_user = user_repo.get_by_user_id(user_id, device_id)
+
+                    if existing_user:
+                        updates = {
+                            'name': user_data.get('name', existing_user.name),
+                            'privilege': user_data.get('privilege', existing_user.privilege),
+                            'group_id': user_data.get('group_id', existing_user.group_id),
+                            'card': user_data.get('card', existing_user.card),
+                            'password': user_data.get('password', existing_user.password),
+                            'serial_number': serial_number
+                        }
+                        user_repo.update(existing_user.id, updates)
+                        updated_count += 1
+                    else:
+                        new_user = User(
+                            user_id=user_id,
+                            name=user_data.get('name'),
+                            privilege=user_data.get('privilege', 0),
+                            group_id=user_data.get('group_id', 0),
+                            card=user_data.get('card', 0),
+                            password=user_data.get('password', ''),
+                            device_id=device_id,
+                            serial_number=serial_number
+                        )
+                        user_repo.create(new_user)
+                        created_count += 1
+                except Exception as e:
+                    failed_count += 1
+                    errors.append({"user_id": user_data.get('user_id'), "error": str(e)})
+
+            return jsonify({
+                "message": "Import completed",
+                "created": created_count,
+                "updated": updated_count,
+                "failed": failed_count,
+                "errors": errors
+            })
+
+        return jsonify({"error": "Invalid file type, please upload a .json file"}), 400
+
+    except Exception as e:
+        current_app.logger.error(f"Error importing users: {e}")
+        return jsonify({"error": str(e)}), 500

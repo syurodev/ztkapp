@@ -30,7 +30,11 @@ from app.repositories import attendance_repo, user_repo, device_repo
 from app.config.config_manager import config_manager
 from app.models import AttendanceLog
 from app.events.event_stream import device_event_stream
+from app.services.external_api_service import external_api_service
 
+
+PROFILE_COPY_FIELDS = ("full_name", "employee_code", "position", "department", "employee_object")
+OPTIONAL_PROFILE_COPY_FIELDS = ("avatar_url", "external_user_id", "synced_at")
 
 # ============================================================================
 # TYPE DEFINITIONS
@@ -347,38 +351,13 @@ class PushProtocolService:
             )
 
             try:
-                external_api_domain = config_manager.get_external_api_url()
-                api_key = config_manager.get_external_api_key()
-
-                if external_api_domain and api_key and serial_number:
-                    api_url = (
-                        external_api_domain.rstrip("/")
-                        + "/time-clock-employees/sync-device"
-                    )
+                if serial_number:
                     payload = {
                         "payload": [
                             {"serial": serial_number, "name": device_data.get("name")}
                         ]
                     }
-                    headers = {
-                        "Content-Type": "application/json",
-                        "x-api-key": api_key,
-                        "ProjectId": "1055"
-                    }
-
-                    response = requests.post(
-                        api_url,
-                        json=payload,
-                        headers=headers,
-                        timeout=30,
-                    )
-                    response.raise_for_status()
-
-                    try:
-                        external_result = response.json()
-                    except ValueError:
-                        external_result = {"message": response.text}
-
+                    external_result = external_api_service.sync_device(payload, serial_number)
                     app_logger.info(
                         f"[PUSH] Synced auto-registered device SN={serial_number} "
                         f"to external API ({external_result})."
@@ -913,49 +892,73 @@ class PushProtocolService:
 
         for user_info in users:
             try:
-                # Check if user already exists
                 from app.models import User
 
                 existing_users = user_repo.get_all()
-                existing_user = None
+                existing_user = next(
+                    (
+                        u
+                        for u in existing_users
+                        if u.user_id == user_info.user_id and u.serial_number == serial_number
+                    ),
+                    None,
+                )
 
-                for u in existing_users:
-                    if (
-                        u.user_id == user_info.user_id
-                        and u.serial_number == serial_number
-                    ):
-                        existing_user = u
-                        break
+                source_user = user_repo.find_first_by_user_id(
+                    user_info.user_id,
+                    exclude_device_id=device_id if device_id else None,
+                )
+                if source_user and existing_user and source_user.id == existing_user.id:
+                    source_user = None
+
+                profile_payload = self._collect_profile_fields(source_user, include_optional=True)
+                synced_at_copy = profile_payload.pop(
+                    "synced_at",
+                    getattr(source_user, "synced_at", None) if source_user else None,
+                )
+
+                if not source_user:
+                    fallback_external_id = self._derive_external_user_id(user_info.user_id)
+                    if fallback_external_id is not None:
+                        profile_payload.setdefault("external_user_id", fallback_external_id)
 
                 if existing_user:
-                    # Update existing user
-                    updates = {
+                    updates: Dict[str, Any] = {
                         "name": user_info.name,
-                        "privilege": int(user_info.privilege)
-                        if user_info.privilege.isdigit()
-                        else 0,
-                        "group_id": int(user_info.group)
-                        if user_info.group.isdigit()
-                        else 0,
+                        "privilege": int(user_info.privilege) if user_info.privilege.isdigit() else 0,
+                        "group_id": int(user_info.group) if user_info.group.isdigit() else 0,
                         "updated_at": datetime.now(),
                     }
+
+                    # Bổ sung các trường profile từ thiết bị nguồn
+                    for field, value in profile_payload.items():
+                        if getattr(existing_user, field) != value:
+                            updates[field] = value
+
+                    # Sao chép trạng thái sync
+                    if source_user:
+                        if not existing_user.is_synced:
+                            updates["is_synced"] = True
+                        if synced_at_copy and getattr(existing_user, "synced_at", None) != synced_at_copy:
+                            updates["synced_at"] = synced_at_copy
 
                     user_repo.update(existing_user.id, updates)
                     saved_count += 1
                     app_logger.debug(f"Updated user: {user_info.user_id}")
+
                 else:
-                    # Create new user
+                    is_synced_flag = True if source_user else False
+
                     new_user = User(
                         user_id=user_info.user_id,
                         name=user_info.name,
                         device_id=device_id,
                         serial_number=serial_number,
-                        privilege=int(user_info.privilege)
-                        if user_info.privilege.isdigit()
-                        else 0,
-                        group_id=int(user_info.group)
-                        if user_info.group.isdigit()
-                        else 0,
+                        privilege=int(user_info.privilege) if user_info.privilege.isdigit() else 0,
+                        group_id=int(user_info.group) if user_info.group.isdigit() else 0,
+                        is_synced=is_synced_flag,
+                        synced_at=synced_at_copy,
+                        **profile_payload,
                     )
 
                     user_repo.create(new_user)
@@ -1127,6 +1130,25 @@ class PushProtocolService:
 
         except Exception as e:
             app_logger.error(f"[FDATA] Failed to save file data: {e}")
+            return None
+
+    def _collect_profile_fields(self, source_user, include_optional: bool = False) -> Dict[str, Any]:
+        if not source_user:
+            return {}
+        fields = PROFILE_COPY_FIELDS + OPTIONAL_PROFILE_COPY_FIELDS if include_optional else PROFILE_COPY_FIELDS
+        profile = {}
+        for field in fields:
+            value = getattr(source_user, field, None)
+            if value not in (None, ""):
+                profile[field] = value
+        return profile
+
+    def _derive_external_user_id(self, user_id: str) -> Optional[int]:
+        if user_id is None:
+            return None
+        try:
+            return int(str(user_id).strip())
+        except (TypeError, ValueError):
             return None
 
 

@@ -394,7 +394,9 @@ class SchedulerService:
             # Push devices: Attendance already in DB from push protocol
             # Pull devices: Attendance now in DB from Step 1
             self.logger.info("Step 2: Syncing attendance data from DB to external API")
-            result = attendance_sync_service.sync_attendance_daily()
+            result = attendance_sync_service.sync_attendance_daily(
+                ignore_error_limit=True
+            )
 
             if result['success']:
                 dates_processed = result.get('dates_processed', [])

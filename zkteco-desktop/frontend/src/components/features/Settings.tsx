@@ -7,23 +7,26 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { configAPI, settingsAPI, cleanupAPI } from "@/lib/api";
+import { configAPI, settingsAPI, cleanupAPI, devicesAPI } from "@/lib/api";
 import { clearResourceDomainCache } from "@/lib/utils";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useTray } from "../../contexts/TrayContext";
 import { AlertCircle, Database, Info, Trash2 } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export function Settings() {
   const [apiGatewayDomain, setApiGatewayDomain] = useState("");
   const [externalApiKey, setExternalApiKey] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const { minimizeToTray, toggleMinimizeToTray } = useTray();
-  const normalizedDisplayDomain = (apiGatewayDomain || "<domain>").replace(/\/$/, "");
+
+  // Branch settings
+  const [branches, setBranches] = useState<{id: number; name: string}[]>([]);
+  const [selectedBranchId, setSelectedBranchId] = useState<string>("");
 
   // Cleanup settings
   const [retentionDays, setRetentionDays] = useState(365);
@@ -35,6 +38,7 @@ export function Settings() {
   useEffect(() => {
     loadConfig();
     loadCleanupConfig();
+    loadBranchSettings();
   }, []);
 
   const loadConfig = async () => {
@@ -45,18 +49,44 @@ export function Settings() {
       setExternalApiKey(config.EXTERNAL_API_KEY || "");
     } catch (err: any) {
       console.error("Error loading settings:", err);
-
-      // Only show error toast for actual server errors (5xx) or network issues
       const status = err.status || err.response?.status;
-
       if (err.code === 'ECONNREFUSED' || err.message?.includes('Network Error')) {
         toast.error("Không thể kết nối tới máy chủ. Vui lòng kiểm tra dịch vụ backend.");
       } else if (status >= 500) {
         toast.error("Máy chủ gặp lỗi khi tải cấu hình. Vui lòng thử lại.");
       }
-      // For empty/default config, don't show toast error as it's a normal state
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const loadBranchSettings = async () => {
+    try {
+      const branchResponse = await devicesAPI.getBranches();
+      if (branchResponse.status === 200) {
+        setBranches(branchResponse.data || []);
+      } else {
+        // Even if mocked, there might be an issue. Log it.
+        console.error("Branch API did not return status 200:", branchResponse);
+        toast.error(`Lỗi tải danh sách chi nhánh: ${branchResponse.message || 'Unknown error'}`);
+      }
+    } catch (err) {
+      console.error("Error fetching branches:", err);
+      toast.error("Không thể gọi API lấy danh sách chi nhánh.");
+    }
+
+    try {
+      const settingResponse = await settingsAPI.getSetting("ACTIVE_BRANCH_ID");
+      if (settingResponse.success) {
+        setSelectedBranchId(settingResponse.data.value || "");
+      } else {
+        // Handle cases where success is false, even if it's a 200 OK
+        console.warn("Could not retrieve ACTIVE_BRANCH_ID setting:", settingResponse.error);
+        // This is not a critical error, so we don't show a toast.
+      }
+    } catch (err) {
+      console.error("Error fetching active branch setting:", err);
+      // This is also not critical for the initial load, so no toast.
     }
   };
 
@@ -79,7 +109,6 @@ export function Settings() {
         API_GATEWAY_DOMAIN: apiGatewayDomain,
         EXTERNAL_API_KEY: externalApiKey,
       });
-      // Clear resource domain cache to pick up new value
       clearResourceDomainCache();
       toast.success("Đã lưu cấu hình thành công");
     } catch (err) {
@@ -87,6 +116,17 @@ export function Settings() {
       console.error("Error saving settings:", err);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleBranchChange = async (newBranchId: string) => {
+    setSelectedBranchId(newBranchId);
+    try {
+      await settingsAPI.updateSetting("ACTIVE_BRANCH_ID", newBranchId, "Active Branch ID");
+      toast.success("Đã cập nhật chi nhánh hoạt động.");
+    } catch (err) {
+      toast.error("Không thể lưu cài đặt chi nhánh.");
+      console.error("Error saving branch setting:", err);
     }
   };
 
@@ -168,12 +208,6 @@ export function Settings() {
             <p className="text-sm text-muted-foreground mt-1">
               Sử dụng một tên miền chung cho cả API (`/api/v1`) và tài nguyên (`/short`).
             </p>
-            <p className="text-sm text-muted-foreground">
-              Ví dụ endpoint API: {normalizedDisplayDomain}/api/v1
-            </p>
-            <p className="text-sm text-muted-foreground">
-              Ví dụ endpoint tài nguyên: {normalizedDisplayDomain}/short
-            </p>
           </div>
 
           <div className="space-y-2">
@@ -185,16 +219,42 @@ export function Settings() {
               value={externalApiKey}
               onChange={(e) => setExternalApiKey(e.target.value)}
             />
-            <p className="text-sm text-muted-foreground mt-1">
-              Khóa xác thực để truy cập API bên ngoài
-            </p>
           </div>
 
           <div className="pt-4">
             <Button onClick={handleSave} disabled={isLoading}>
-              {isLoading ? "Đang lưu..." : "Lưu cấu hình"}
+              {isLoading ? "Đang lưu..." : "Lưu cấu hình API"}
             </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Cấu hình Chi nhánh</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Chọn chi nhánh mà ứng dụng này đang hoạt động
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+            <div className="space-y-2">
+                <Label>Chi nhánh hoạt động</Label>
+                <Select value={selectedBranchId} onValueChange={handleBranchChange}>
+                    <SelectTrigger>
+                        <SelectValue placeholder="Chọn một chi nhánh..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {branches.map(branch => (
+                            <SelectItem key={branch.id} value={String(branch.id)}>
+                                {branch.name}
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+                <p className="text-sm text-muted-foreground">
+                    Chi nhánh được chọn sẽ được sử dụng cho các hoạt động liên quan.
+                </p>
+            </div>
         </CardContent>
       </Card>
 
@@ -225,21 +285,12 @@ export function Settings() {
       <Card>
         <CardHeader>
           <CardTitle>Hướng dẫn khay hệ thống</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Cách sử dụng chức năng khay hệ thống
-          </p>
         </CardHeader>
         <CardContent>
           <div className="space-y-2 text-sm text-muted-foreground">
             <p>• Nhấp chuột phải vào biểu tượng khay để mở danh sách tùy chọn</p>
             <p>
               • Nhấp chuột trái vào biểu tượng khay để ẩn/hiện cửa sổ ứng dụng
-            </p>
-            <p>
-              • Ứng dụng vẫn chạy nền khi được thu nhỏ xuống khay
-            </p>
-            <p>
-              • Chọn "Thoát" trong menu khay để đóng ứng dụng hoàn toàn
             </p>
           </div>
         </CardContent>
@@ -251,9 +302,6 @@ export function Settings() {
             <Database className="h-5 w-5" />
             Dọn dẹp dữ liệu chấm công
           </CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Tự động xoá dữ liệu chấm công cũ đã đồng bộ để giữ database gọn nhẹ
-          </p>
         </CardHeader>
         <CardContent className="space-y-4">
           <Alert>
@@ -261,7 +309,6 @@ export function Settings() {
             <AlertTitle>Lưu ý an toàn</AlertTitle>
             <AlertDescription>
               Dọn dẹp CHỈ xoá dữ liệu đã đồng bộ (synced) và bỏ qua (skipped).
-              Dữ liệu chưa đồng bộ (pending) KHÔNG BAO GIỜ bị xoá.
             </AlertDescription>
           </Alert>
 
@@ -275,20 +322,11 @@ export function Settings() {
               value={retentionDays}
               onChange={(e) => setRetentionDays(parseInt(e.target.value) || 365)}
             />
-            <p className="text-sm text-muted-foreground">
-              Dữ liệu cũ hơn {retentionDays} ngày sẽ bị xoá. Tối thiểu 30 ngày.
-            </p>
-            <p className="text-sm text-muted-foreground">
-              Khuyến nghị: 365 ngày (1 năm) hoặc 730 ngày (2 năm)
-            </p>
           </div>
 
           <div className="flex items-center justify-between py-2">
             <div className="space-y-0.5">
               <Label htmlFor="cleanup-enabled">Tự động dọn dẹp hàng tháng</Label>
-              <p className="text-sm text-muted-foreground">
-                Chạy vào ngày 1 hàng tháng lúc 2:00 AM
-              </p>
             </div>
             <Switch
               id="cleanup-enabled"
@@ -303,7 +341,7 @@ export function Settings() {
               disabled={isCleanupLoading}
               variant="default"
             >
-              {isCleanupLoading ? "Đang lưu..." : "Lưu cấu hình"}
+              {isCleanupLoading ? "Đang lưu..." : "Lưu cấu hình dọn dẹp"}
             </Button>
             <Button
               onClick={handlePreviewCleanup}
@@ -311,29 +349,7 @@ export function Settings() {
               variant="outline"
             >
               <Trash2 className="h-4 w-4 mr-2" />
-              Xem trước dọn dẹp
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Quản lý thiết bị</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Quản lý thiết bị ZKTeco tại trang Quản lý thiết bị
-          </p>
-        </CardHeader>
-        <CardContent>
-          <div className="text-center py-4">
-            <p className="text-muted-foreground mb-4">
-              Các cài đặt riêng cho thiết bị được quản lý tại mục Quản lý thiết bị.
-            </p>
-            <Button
-              variant="outline"
-              onClick={() => (window.location.href = "/devices")}
-            >
-              Mở trang Quản lý thiết bị
+              Xem trước
             </Button>
           </div>
         </CardContent>
@@ -344,9 +360,6 @@ export function Settings() {
         <DialogContent className="sm:max-w-[600px]">
           <DialogHeader>
             <DialogTitle>Xem trước dọn dẹp dữ liệu</DialogTitle>
-            <DialogDescription>
-              Kiểm tra trước khi xoá dữ liệu
-            </DialogDescription>
           </DialogHeader>
 
           {cleanupPreview && (
@@ -354,9 +367,6 @@ export function Settings() {
               <Alert variant="default">
                 <AlertCircle className="h-4 w-4" />
                 <AlertTitle>Sẽ xoá {cleanupPreview.records_to_delete?.toLocaleString()} bản ghi</AlertTitle>
-                <AlertDescription>
-                  Giữ lại {cleanupPreview.records_to_keep?.toLocaleString()} bản ghi
-                </AlertDescription>
               </Alert>
 
               <div className="grid grid-cols-2 gap-4 p-4 bg-muted rounded-lg">
@@ -372,47 +382,11 @@ export function Settings() {
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <h4 className="font-semibold">Chi tiết xoá:</h4>
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div className="flex justify-between p-2 bg-muted rounded">
-                    <span>Đã đồng bộ (synced):</span>
-                    <span className="font-medium">{cleanupPreview.breakdown?.synced?.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between p-2 bg-muted rounded">
-                    <span>Bỏ qua (skipped):</span>
-                    <span className="font-medium">{cleanupPreview.breakdown?.skipped?.toLocaleString()}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <h4 className="font-semibold">Trạng thái hiện tại:</h4>
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div className="flex justify-between p-2 bg-muted rounded">
-                    <span>Tổng:</span>
-                    <span className="font-medium">{cleanupPreview.current_stats?.total_records?.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between p-2 bg-muted rounded">
-                    <span>Pending:</span>
-                    <span className="font-medium text-orange-600">{cleanupPreview.current_stats?.pending?.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between p-2 bg-muted rounded">
-                    <span>Synced:</span>
-                    <span className="font-medium">{cleanupPreview.current_stats?.synced?.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between p-2 bg-muted rounded">
-                    <span>Skipped:</span>
-                    <span className="font-medium">{cleanupPreview.current_stats?.skipped?.toLocaleString()}</span>
-                  </div>
-                </div>
-              </div>
-
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
                 <AlertTitle>Cảnh báo</AlertTitle>
                 <AlertDescription>
-                  Thao tác này KHÔNG THỂ hoàn tác. Dữ liệu đã xoá sẽ không thể khôi phục.
+                  Thao tác này KHÔNG THỂ hoàn tác.
                 </AlertDescription>
               </Alert>
 

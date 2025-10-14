@@ -39,11 +39,16 @@ def get_setting(key: str):
     try:
         setting = setting_repo.get(key)
 
+        # If not found, return success with a null value
         if not setting:
             return jsonify({
-                'success': False,
-                'error': f'Setting {key} not found'
-            }), 404
+                'success': True,
+                'data': {
+                    'key': key,
+                    'value': None,
+                    'description': None
+                }
+            })
 
         return jsonify({
             'success': True,

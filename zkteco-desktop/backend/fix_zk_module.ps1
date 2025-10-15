@@ -57,7 +57,7 @@ if ($LASTEXITCODE -ne 0) {
 
 # Test zk module import
 Write-Host "Testing zk module import..." -ForegroundColor Yellow
-python -c "from zk import ZK; print('✓ zk module imported successfully')"
+python -c "from zk import ZK; print('[OK] zk module imported successfully')"
 if ($LASTEXITCODE -eq 0) {
     Write-Host "=====================================" -ForegroundColor Green
     Write-Host "    SUCCESS: zk module fixed!" -ForegroundColor Green

@@ -218,7 +218,7 @@ def device_data_upload():
                 raw_data, query_params
             )
             app_logger.info(
-                f"[PUSH API] ✓ ATTLOG processed: {len(records)} records, {saved_count} saved"
+                f"[PUSH API] OK ATTLOG processed: {len(records)} records, {saved_count} saved"
             )
 
         elif table_type == 'OPERLOG':
@@ -227,7 +227,7 @@ def device_data_upload():
                 raw_data, query_params
             )
             app_logger.info(
-                f"[PUSH API] ✓ OPERLOG processed: {len(users)} users, {saved_count} saved"
+                f"[PUSH API] OK OPERLOG processed: {len(users)} users, {saved_count} saved"
             )
 
         elif table_type == 'BIODATA':
@@ -236,7 +236,7 @@ def device_data_upload():
                 raw_data, query_params
             )
             if filepath:
-                app_logger.info(f"[PUSH API] ✓ BIODATA saved: {filepath}")
+                app_logger.info(f"[PUSH API] OK BIODATA saved: {filepath}")
             else:
                 app_logger.warning("[PUSH API] ⚠ BIODATA processing failed")
 
@@ -294,7 +294,7 @@ def device_file_upload():
         filepath = push_protocol_service.handle_file_data(file_data, query_params)
 
         if filepath:
-            app_logger.info(f"[PUSH API] ✓ File saved: {filepath}")
+            app_logger.info(f"[PUSH API] OK File saved: {filepath}")
         else:
             app_logger.warning("[PUSH API] ⚠ File processing failed")
 

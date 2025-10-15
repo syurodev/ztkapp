@@ -27,11 +27,11 @@ def update_all_device_timeouts(new_timeout=30):
         success = device_repo.update(device.id, {'timeout': new_timeout})
 
         if success:
-            print(f"  ✓ Updated timeout to: {new_timeout}s")
+            print(f"  OK Updated timeout to: {new_timeout}s")
         else:
             print(f"  ✗ Failed to update timeout")
 
-    print("\n✓ All devices updated successfully")
+    print("\nOK All devices updated successfully")
 
 if __name__ == '__main__':
     update_all_device_timeouts(30)

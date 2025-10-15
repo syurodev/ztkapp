@@ -346,7 +346,7 @@ class PushProtocolService:
             device_id = config_manager.add_device(device_data)
 
             app_logger.info(
-                f"[PUSH] ✓ Auto-registered new push device: "
+                f"[PUSH] OK Auto-registered new push device: "
                 f"SN={serial_number}, ID={device_id}"
             )
 
@@ -457,7 +457,7 @@ class PushProtocolService:
         saved_count = self._save_attendance_records(records, device_id, serial_number)
 
         app_logger.info(
-            f"[PUSH] ✓ Processed {len(records)} attendance records from {serial_number}, "
+            f"[PUSH] OK Processed {len(records)} attendance records from {serial_number}, "
             f"saved {saved_count} new records"
         )
 
@@ -775,7 +775,7 @@ class PushProtocolService:
         saved_count = self._save_user_records(users, device_id, serial_number)
 
         app_logger.info(
-            f"[PUSH] ✓ Processed {len(users)} user records from {serial_number}, "
+            f"[PUSH] OK Processed {len(users)} user records from {serial_number}, "
             f"saved/updated {saved_count} users"
         )
 
@@ -1045,7 +1045,7 @@ class PushProtocolService:
                 f.write(template_bytes)
 
             app_logger.info(
-                f"[BIODATA] ✓ Saved face template for user {user_id} → {filepath} "
+                f"[BIODATA] OK Saved face template for user {user_id} → {filepath} "
                 f"({len(template_bytes)} bytes)"
             )
 
@@ -1124,7 +1124,7 @@ class PushProtocolService:
             with open(filepath, "wb") as f:
                 f.write(file_data)
 
-            app_logger.info(f"[FDATA] ✓ Saved raw file → {filepath}")
+            app_logger.info(f"[FDATA] OK Saved raw file → {filepath}")
 
             return filepath
 

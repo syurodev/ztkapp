@@ -28,7 +28,7 @@ export function ThemeToggle() {
         >
           <Sun className="h-4 w-4" />
           Light
-          {theme === "light" && <span className="ml-auto text-xs">✓</span>}
+          {theme === "light" && <span className="ml-auto text-xs">OK</span>}
         </DropdownMenuItem>
         <DropdownMenuItem
           onClick={() => setTheme("dark")}
@@ -36,7 +36,7 @@ export function ThemeToggle() {
         >
           <Moon className="h-4 w-4" />
           Dark
-          {theme === "dark" && <span className="ml-auto text-xs">✓</span>}
+          {theme === "dark" && <span className="ml-auto text-xs">OK</span>}
         </DropdownMenuItem>
         <DropdownMenuItem
           onClick={() => setTheme("system")}
@@ -44,7 +44,7 @@ export function ThemeToggle() {
         >
           <Monitor className="h-4 w-4" />
           System
-          {theme === "system" && <span className="ml-auto text-xs">✓</span>}
+          {theme === "system" && <span className="ml-auto text-xs">OK</span>}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

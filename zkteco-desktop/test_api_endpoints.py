@@ -15,7 +15,7 @@ def test_api_connection():
     try:
         response = requests.get(f"{API_BASE_URL}/service/status", timeout=5)
         if response.status_code == 200:
-            print("✓ API connection successful")
+            print("OK API connection successful")
             return True
         else:
             print(f"✗ API returned status code: {response.status_code}")
@@ -31,7 +31,7 @@ def test_get_devices():
         if response.status_code == 200:
             data = response.json()
             devices = data.get('devices', [])
-            print(f"✓ Retrieved {len(devices)} devices")
+            print(f"OK Retrieved {len(devices)} devices")
 
             for device in devices:
                 print(f"  - {device.get('name')} ({device.get('ip')}:{device.get('port')})")
@@ -50,7 +50,7 @@ def test_capture_status():
         response = requests.get(f"{API_BASE_URL}/devices/capture/status", timeout=10)
         if response.status_code == 200:
             data = response.json()
-            print("✓ Capture status retrieved successfully")
+            print("OK Capture status retrieved successfully")
 
             overall_status = data.get('overall_status', {})
             devices_status = data.get('devices', [])
@@ -77,7 +77,7 @@ def test_start_all_capture():
         response = requests.post(f"{API_BASE_URL}/devices/capture/start-all", timeout=30)
         if response.status_code == 200:
             data = response.json()
-            print("✓ Started all device capture successfully")
+            print("OK Started all device capture successfully")
             print(f"  Message: {data.get('message', 'No message')}")
             return True
         else:
@@ -99,7 +99,7 @@ def test_stop_all_capture():
         response = requests.post(f"{API_BASE_URL}/devices/capture/stop-all", timeout=30)
         if response.status_code == 200:
             data = response.json()
-            print("✓ Stopped all device capture successfully")
+            print("OK Stopped all device capture successfully")
             print(f"  Message: {data.get('message', 'No message')}")
             return True
         else:
@@ -117,7 +117,7 @@ def test_individual_device_capture(device_id, device_name):
     try:
         response = requests.post(f"{API_BASE_URL}/devices/{device_id}/capture/start", timeout=15)
         if response.status_code == 200:
-            print(f"✓ Started capture for {device_name}")
+            print(f"OK Started capture for {device_name}")
         else:
             print(f"✗ Failed to start capture for {device_name}: {response.status_code}")
             return False
@@ -132,7 +132,7 @@ def test_individual_device_capture(device_id, device_name):
     try:
         response = requests.post(f"{API_BASE_URL}/devices/{device_id}/capture/stop", timeout=15)
         if response.status_code == 200:
-            print(f"✓ Stopped capture for {device_name}")
+            print(f"OK Stopped capture for {device_name}")
             return True
         else:
             print(f"✗ Failed to stop capture for {device_name}: {response.status_code}")

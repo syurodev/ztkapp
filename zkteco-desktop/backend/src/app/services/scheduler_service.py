@@ -101,7 +101,7 @@ class SchedulerService:
                 misfire_grace_time=15
             )
 
-            self.logger.info("✓ First checkin sync job scheduled to run every 30 seconds")
+            self.logger.info("OK First checkin sync job scheduled to run every 30 seconds")
 
         except Exception as e:
             self.logger.error(f"Failed to add first checkin sync job: {e}")
@@ -123,7 +123,7 @@ class SchedulerService:
                 misfire_grace_time=60  # 1 minute grace period
             )
 
-            self.logger.info("✓ Periodic user sync job scheduled to run every 5 minutes")
+            self.logger.info("OK Periodic user sync job scheduled to run every 5 minutes")
 
         except Exception as e:
             self.logger.error(f"Failed to add periodic user sync job: {e}")
@@ -145,7 +145,7 @@ class SchedulerService:
                 misfire_grace_time=3600  # 1 hour grace period
             )
 
-            self.logger.info("✓ Monthly attendance cleanup job scheduled for 1st day of month at 2:00 AM")
+            self.logger.info("OK Monthly attendance cleanup job scheduled for 1st day of month at 2:00 AM")
 
         except Exception as e:
             self.logger.error(f"Failed to add monthly cleanup job: {e}")

@@ -45,7 +45,7 @@ def setup_test_environment():
     # Apply testing settings
     apply_settings('testing')
     
-    print("✓ Test environment configured")
+    print("OK Test environment configured")
 
 def create_test_devices() -> List[str]:
     """Create test devices in the database"""
@@ -95,7 +95,7 @@ def create_test_devices() -> List[str]:
                 
             device_id = config_manager.add_device(device_data)
             device_ids.append(device_id)
-            print(f"✓ Created device: {device_data['name']} (ID: {device_id})")
+            print(f"OK Created device: {device_data['name']} (ID: {device_id})")
         except Exception as e:
             print(f"✗ Failed to create device {device_data['name']}: {e}")
     
@@ -125,7 +125,7 @@ def test_single_device_capture():
     print(f"Capture status: {status}")
     
     if status['active_captures'] == 1 and device_id in status['devices']:
-        print("✓ Single device capture working correctly")
+        print("OK Single device capture working correctly")
         result = True
     else:
         print("✗ Single device capture not working")
@@ -137,7 +137,7 @@ def test_single_device_capture():
     
     status = get_capture_status()
     if status['active_captures'] == 0:
-        print("✓ Device capture stopped correctly")
+        print("OK Device capture stopped correctly")
     else:
         print("✗ Device capture not stopped properly")
         result = False
@@ -164,7 +164,7 @@ def test_multi_device_capture():
     
     expected_devices = len(device_ids)
     if status['active_captures'] == expected_devices:
-        print(f"✓ Multi-device capture started correctly ({expected_devices} devices)")
+        print(f"OK Multi-device capture started correctly ({expected_devices} devices)")
         result = True
     else:
         print(f"✗ Expected {expected_devices} active captures, got {status['active_captures']}")
@@ -179,7 +179,7 @@ def test_multi_device_capture():
     
     status = get_capture_status()
     if status['active_captures'] == expected_devices - 1:
-        print(f"✓ Individual device stop working (devices: {status['active_captures']})")
+        print(f"OK Individual device stop working (devices: {status['active_captures']})")
     else:
         print(f"✗ Individual device stop failed (devices: {status['active_captures']})")
         result = False
@@ -189,7 +189,7 @@ def test_multi_device_capture():
     
     status = get_capture_status()
     if status['active_captures'] == expected_devices:
-        print(f"✓ Individual device start working (devices: {status['active_captures']})")
+        print(f"OK Individual device start working (devices: {status['active_captures']})")
     else:
         print(f"✗ Individual device start failed (devices: {status['active_captures']})")
         result = False
@@ -201,7 +201,7 @@ def test_multi_device_capture():
     
     status = get_capture_status()
     if status['active_captures'] == 0:
-        print("✓ All captures stopped correctly")
+        print("OK All captures stopped correctly")
     else:
         print(f"✗ Some captures still active: {status['active_captures']}")
         result = False
@@ -231,7 +231,7 @@ def test_safety_limits():
     status = get_capture_status()
     
     if success1 and success2 and status['active_captures'] == 2:
-        print("✓ First 2 devices started successfully")
+        print("OK First 2 devices started successfully")
         result = True
     else:
         print("✗ Failed to start first 2 devices")
@@ -243,7 +243,7 @@ def test_safety_limits():
     status = get_capture_status()
     
     if not success3 and status['active_captures'] == 2:
-        print("✓ Safety limit working - 3rd device correctly rejected")
+        print("OK Safety limit working - 3rd device correctly rejected")
     else:
         print("✗ Safety limit not working - 3rd device was allowed")
         result = False
@@ -277,7 +277,7 @@ def test_health_monitoring():
     if (stats['connections'] >= 1 and 
         stats['errors'] >= 1 and 
         stats['disconnections'] >= 1):
-        print("✓ Health monitoring recording events correctly")
+        print("OK Health monitoring recording events correctly")
         return True
     else:
         print("✗ Health monitoring not working")
@@ -290,7 +290,7 @@ def cleanup_test_devices(device_ids: List[str]):
     for device_id in device_ids:
         try:
             config_manager.delete_device(device_id)
-            print(f"✓ Deleted device: {device_id}")
+            print(f"OK Deleted device: {device_id}")
         except Exception as e:
             print(f"✗ Failed to delete device {device_id}: {e}")
 
@@ -344,7 +344,7 @@ def main():
     print(f"Total: {passed}/{total} tests passed")
     
     if passed == total:
-        print("✓ All tests passed!")
+        print("OK All tests passed!")
         return 0
     else:
         print("✗ Some tests failed!")

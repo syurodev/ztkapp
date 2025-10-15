@@ -22,7 +22,7 @@ def test_import(module_name, display_name=None):
 
     try:
         __import__(module_name)
-        print(f"✓ {display_name}")
+        print(f"OK {display_name}")
         return True
     except ImportError as e:
         print(f"✗ {display_name}: {e}")
@@ -79,6 +79,6 @@ if failed > 0:
     sys.exit(1)
 else:
     print()
-    print("✓ All imports successful!")
+    print("OK All imports successful!")
     print("Ready to build with PyInstaller")
     sys.exit(0)

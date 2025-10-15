@@ -30,10 +30,11 @@ class ExternalAPIService:
             headers["x-device-sync"] = serial_number
 
         # Add branch ID to all requests except for the branches list itself
+        # If no branch ID is configured, default to "0"
         if endpoint != "/time-clock-employees/branchs":
             branch_id_setting = setting_repo.get("ACTIVE_BRANCH_ID")
-            if branch_id_setting and branch_id_setting.value:
-                headers["x-branch-id"] = branch_id_setting.value
+            branch_id = branch_id_setting.value if (branch_id_setting and branch_id_setting.value) else "0"
+            headers["x-branch-id"] = branch_id
 
         redacted_headers = {
             key: ("***" if key.lower() in {"x-api-key", "authorization", "x-branch-id"} else value)

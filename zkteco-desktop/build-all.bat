@@ -124,7 +124,7 @@ if errorlevel 1 (
 
 REM Verify zk module can be imported
 echo [INFO] Verifying zk module installation...
-python -c "from zk import ZK; print('✓ zk module imported successfully')"
+python -c "from zk import ZK; print('[OK] zk module imported successfully')"
 if errorlevel 1 (
     echo [ERROR] zk module cannot be imported. Installation failed.
     goto :error

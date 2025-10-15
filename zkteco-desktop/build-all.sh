@@ -138,7 +138,7 @@ $VENV_PIP install -r requirements.txt || error "Failed to install Python depende
 
 # Verify zk module can be imported
 log "Verifying zk module installation..."
-$VENV_PYTHON -c "from zk import ZK; print('✓ zk module imported successfully')" || error "zk module cannot be imported"
+$VENV_PYTHON -c "from zk import ZK; print('[OK] zk module imported successfully')" || error "zk module cannot be imported"
 
 # Clean previous builds
 log "Cleaning previous backend builds..."

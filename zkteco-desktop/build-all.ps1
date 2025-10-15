@@ -145,7 +145,7 @@ if (-not $SkipBackend) {
 
     # Verify zk module can be imported
     Write-Log "Verifying zk module installation..." "Yellow"
-    python -c "from zk import ZK; print('✓ zk module imported successfully')"
+    python -c "from zk import ZK; print('[OK] zk module imported successfully')"
     if ($LASTEXITCODE -ne 0) {
         Write-Error-Custom "zk module cannot be imported"
     }

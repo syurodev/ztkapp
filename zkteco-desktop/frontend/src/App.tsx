@@ -9,6 +9,7 @@ import "./App.css";
 import { AppInitializer } from "./components/features/AppInitializer";
 import { Attendance } from "./components/features/Attendance";
 import { DeviceManagement } from "./components/features/DeviceManagement";
+import { DoorManagement } from "./components/features/DoorManagement";
 import { LiveAttendance } from "./components/features/LiveAttendance";
 import { Logs } from "./components/features/Logs";
 import { ServiceStatus } from "./components/features/ServiceStatus";
@@ -32,6 +33,7 @@ function App() {
                   <Route path="/" element={<ServiceStatus />} />
                   <Route path="/devices" element={<DeviceManagement />} />
                   <Route path="/users" element={<UserManagement />} />
+                  <Route path="/doors" element={<DoorManagement />} />
                   <Route path="/attendance" element={<Attendance />} />
                   <Route path="/live-attendance" element={<LiveAttendance />} />
                   <Route path="/door-history" element={<DoorAccessHistory />} />

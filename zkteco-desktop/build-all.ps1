@@ -168,7 +168,7 @@ if (-not $SkipBackend) {
         pyinstaller --clean --noconfirm zkteco-backend.spec
     } else {
         Write-Log "Creating new spec file..." "Blue"
-        pyinstaller --name "zkteco-backend" --onefile --console --noconfirm --clean --exclude-module=multiprocessing.forkserver `
+        pyinstaller --name "zkteco-backend" --onefile --console --noconfirm --clean -p src -p src/pyzatt `
                     --hidden-import=flask `
                     --hidden-import=flask.json `
                     --hidden-import=werkzeug `

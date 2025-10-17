@@ -153,7 +153,7 @@ pyinstaller --name "zkteco-backend" ^
             --onefile ^
             --console ^
             --noconfirm ^
-            --clean --exclude-module=multiprocessing.forkserver ^
+            --clean -p src -p src/pyzatt ^
             --hidden-import=flask ^
             --hidden-import=flask.json ^
             --hidden-import=werkzeug ^

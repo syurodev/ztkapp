@@ -156,7 +156,7 @@ if [ -f "zkteco-backend.spec" ]; then
     pyinstaller --clean --noconfirm zkteco-backend.spec
 else
     log "Creating new spec file..."
-    pyinstaller --name "zkteco-backend" --onefile --console --noconfirm --clean --exclude-module=multiprocessing.forkserver \
+    pyinstaller --name "zkteco-backend" --onefile --console --noconfirm --clean -p src -p src/pyzatt \
                 --hidden-import=flask \
                 --hidden-import=flask.json \
                 --hidden-import=werkzeug \

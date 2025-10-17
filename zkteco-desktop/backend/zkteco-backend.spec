@@ -14,14 +14,14 @@ datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 a = Analysis(
     ['service_app.py'],
-    pathex=[],
+    pathex=['src', 'src/pyzatt'],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['multiprocessing.forkserver'],
+    excludes=[],
     noarchive=False,
     optimize=0,
 )

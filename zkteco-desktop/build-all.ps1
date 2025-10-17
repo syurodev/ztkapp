@@ -17,7 +17,7 @@ $PROJECT_ROOT = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $PROJECT_ROOT
 
 Write-Host "======================================" -ForegroundColor Green
-Write-Host " ZKTeco Desktop - Full Build Script" -ForegroundColor Green  
+Write-Host " ZKTeco Desktop - Full Build Script" -ForegroundColor Green
 Write-Host "======================================" -ForegroundColor Green
 Write-Host "Project root: $PROJECT_ROOT" -ForegroundColor Blue
 Write-Host ""
@@ -155,6 +155,12 @@ if (-not $SkipBackend) {
     if (Test-Path "build") { Remove-Item -Recurse -Force "build" }
     if (Test-Path "dist") { Remove-Item -Recurse -Force "dist" }
 
+    # Force remove old spec file to ensure a fresh build from command args
+    if (Test-Path "zkteco-backend.spec") {
+        Write-Log "Removing outdated zkteco-backend.spec file..." "Yellow"
+        Remove-Item -Force "zkteco-backend.spec"
+    }
+
     # Build with PyInstaller
     Write-Log "Building backend executable..." "Yellow"
     if (Test-Path "zkteco-backend.spec") {
@@ -162,21 +168,29 @@ if (-not $SkipBackend) {
         pyinstaller --clean --noconfirm zkteco-backend.spec
     } else {
         Write-Log "Creating new spec file..." "Blue"
-        pyinstaller --name "zkteco-backend" --onefile --console --noconfirm `
-                    --hidden-import=zkteco.config.settings `
-                    --hidden-import=zkteco.config.config_manager_sqlite `
-                    --hidden-import=zkteco.database.models `
-                    --hidden-import=zkteco.services `
-                    --hidden-import=zkteco.controllers `
+        pyinstaller --name "zkteco-backend" --onefile --console --noconfirm --clean --exclude-module=multiprocessing.forkserver `
+                    --hidden-import=flask `
+                    --hidden-import=flask.json `
+                    --hidden-import=werkzeug `
+                    --hidden-import=requests `
+                    --hidden-import=psutil `
+                    --hidden-import=zk `
+                    --hidden-import=pyzatt `
                     --hidden-import=sqlite3 `
+                    --hidden-import=dotenv `
+                    --hidden-import=chrono `
                     --hidden-import=flask_cors `
                     --hidden-import=sentry_sdk `
-                    --hidden-import=psutil `
-                    --hidden-import=requests `
-                    --hidden-import=dotenv `
                     --hidden-import=apscheduler `
                     --hidden-import=logging.handlers `
-                    --add-data="zkteco;zkteco" `
+                    --hidden-import=app.models.door `
+                    --hidden-import=app.models.door_access_log `
+                    --hidden-import=app.repositories.door_repository `
+                    --hidden-import=app.repositories.door_access_repository `
+                    --collect-all=flask `
+                    --collect-all=zk `
+                    --collect-all=pyzatt `
+                    --add-data="src/app;app" `
                     service_app.py
     }
 
@@ -201,7 +215,7 @@ if (-not $SkipBackend) {
 }
 
 # ===================
-# Frontend Build  
+# Frontend Build
 # ===================
 if (-not $SkipFrontend) {
     Write-Log "Building Frontend..." "Cyan"
@@ -270,7 +284,7 @@ if (-not $SkipFrontend) {
     if (Test-Path $bundleDir) {
         $msiFiles = Get-ChildItem "$bundleDir\msi\*.msi" -ErrorAction SilentlyContinue
         $exeFiles = Get-ChildItem "$bundleDir\exe\*.exe" -ErrorAction SilentlyContinue
-        
+
         if ($msiFiles) {
             foreach ($file in $msiFiles) {
                 Write-Host "  💿 Installer: $($file.Name)"

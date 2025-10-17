@@ -33,7 +33,13 @@ from app.events.event_stream import device_event_stream
 from app.services.external_api_service import external_api_service
 
 
-PROFILE_COPY_FIELDS = ("full_name", "employee_code", "position", "department", "employee_object")
+PROFILE_COPY_FIELDS = (
+    "full_name",
+    "employee_code",
+    "position",
+    "department",
+    "employee_object",
+)
 OPTIONAL_PROFILE_COPY_FIELDS = ("avatar_url", "external_user_id", "synced_at")
 
 # ============================================================================
@@ -357,7 +363,9 @@ class PushProtocolService:
                             {"serial": serial_number, "name": device_data.get("name")}
                         ]
                     }
-                    external_result = external_api_service.sync_device(payload, serial_number)
+                    external_result = external_api_service.sync_device(
+                        payload, serial_number
+                    )
                     app_logger.info(
                         f"[PUSH] Synced auto-registered device SN={serial_number} "
                         f"to external API ({external_result})."
@@ -564,6 +572,96 @@ class PushProtocolService:
         )
         return new_action
 
+    def _ensure_user_exists(
+        self, user_id: str, device_id: Optional[str], serial_number: Optional[str]
+    ) -> None:
+        """
+        Ensure user exists in database. If not, create with default values.
+
+        This prevents attendance records from being orphaned when device sends
+        attendance data before user sync (OPERLOG).
+
+        Args:
+            user_id: User ID from device
+            device_id: Device ID (if registered)
+            serial_number: Device serial number
+
+        Side effects:
+            - Creates user in database if not exists
+        """
+        try:
+            # Check if user exists for this device
+            user = user_repo.get_by_user_id(user_id, device_id)
+
+            if user:
+                # User already exists
+                return
+
+            # User doesn't exist - auto-create with default values
+            from app.models import User
+
+            app_logger.info(
+                f"[PUSH AUTO-CREATE] User {user_id} not found, creating with default values "
+                f"(device={device_id}, serial={serial_number})"
+            )
+
+            # Try to find source user from other devices with same user_id
+            source_user = user_repo.find_first_by_user_id(
+                user_id, exclude_device_id=device_id if device_id else None
+            )
+
+            # Prepare profile data
+            profile_payload = {}
+            synced_at_copy = None
+
+            if source_user:
+                # Copy profile from existing user on another device
+                profile_payload = self._collect_profile_fields(
+                    source_user, include_optional=True
+                )
+                synced_at_copy = profile_payload.pop(
+                    "synced_at", getattr(source_user, "synced_at", None)
+                )
+                app_logger.debug(
+                    f"[PUSH AUTO-CREATE] Copying profile from source user: {source_user.id}"
+                )
+            else:
+                # No source user - derive external_user_id from user_id
+                fallback_external_id = self._derive_external_user_id(user_id)
+                if fallback_external_id is not None:
+                    profile_payload["external_user_id"] = fallback_external_id
+
+            # Create new user
+            new_user = User(
+                user_id=user_id,
+                name=f"User {user_id}",  # Default name
+                device_id=device_id,
+                serial_number=serial_number,
+                privilege=0,  # Default to regular user
+                group_id=0,  # Default group
+                is_synced=True if source_user else False,
+                synced_at=synced_at_copy,
+                **profile_payload,
+            )
+
+            created_user = user_repo.create(new_user)
+
+            if created_user:
+                app_logger.info(
+                    f"[PUSH AUTO-CREATE] OK Created user {user_id} "
+                    f"(name='{new_user.name}', device={device_id})"
+                )
+            else:
+                app_logger.warning(
+                    f"[PUSH AUTO-CREATE] Failed to create user {user_id}"
+                )
+
+        except Exception as e:
+            # Don't fail attendance save if user creation fails
+            app_logger.error(
+                f"[PUSH AUTO-CREATE] Error ensuring user {user_id} exists: {e}"
+            )
+
     def _save_attendance_records(
         self,
         records: List[AttendanceRecord],
@@ -583,6 +681,7 @@ class PushProtocolService:
 
         Side effects:
             - Inserts records into attendance_logs table
+            - Auto-creates users if they don't exist
             - Handles duplicates (based on unique constraint)
         """
         saved_count = 0
@@ -599,6 +698,10 @@ class PushProtocolService:
                     timestamp_dt = datetime.strptime(
                         record.timestamp, "%Y/%m/%d %H:%M:%S"
                     )
+
+                # Auto-create user if doesn't exist
+                # This prevents orphaned attendance records
+                self._ensure_user_exists(record.user_id, device_id, serial_number)
 
                 # Determine smart action from STATUS (handles STATUS=255 for push devices)
                 action = self._determine_action(
@@ -899,7 +1002,8 @@ class PushProtocolService:
                     (
                         u
                         for u in existing_users
-                        if u.user_id == user_info.user_id and u.serial_number == serial_number
+                        if u.user_id == user_info.user_id
+                        and u.serial_number == serial_number
                     ),
                     None,
                 )
@@ -911,22 +1015,32 @@ class PushProtocolService:
                 if source_user and existing_user and source_user.id == existing_user.id:
                     source_user = None
 
-                profile_payload = self._collect_profile_fields(source_user, include_optional=True)
+                profile_payload = self._collect_profile_fields(
+                    source_user, include_optional=True
+                )
                 synced_at_copy = profile_payload.pop(
                     "synced_at",
                     getattr(source_user, "synced_at", None) if source_user else None,
                 )
 
                 if not source_user:
-                    fallback_external_id = self._derive_external_user_id(user_info.user_id)
+                    fallback_external_id = self._derive_external_user_id(
+                        user_info.user_id
+                    )
                     if fallback_external_id is not None:
-                        profile_payload.setdefault("external_user_id", fallback_external_id)
+                        profile_payload.setdefault(
+                            "external_user_id", fallback_external_id
+                        )
 
                 if existing_user:
                     updates: Dict[str, Any] = {
                         "name": user_info.name,
-                        "privilege": int(user_info.privilege) if user_info.privilege.isdigit() else 0,
-                        "group_id": int(user_info.group) if user_info.group.isdigit() else 0,
+                        "privilege": int(user_info.privilege)
+                        if user_info.privilege.isdigit()
+                        else 0,
+                        "group_id": int(user_info.group)
+                        if user_info.group.isdigit()
+                        else 0,
                         "updated_at": datetime.now(),
                     }
 
@@ -939,7 +1053,11 @@ class PushProtocolService:
                     if source_user:
                         if not existing_user.is_synced:
                             updates["is_synced"] = True
-                        if synced_at_copy and getattr(existing_user, "synced_at", None) != synced_at_copy:
+                        if (
+                            synced_at_copy
+                            and getattr(existing_user, "synced_at", None)
+                            != synced_at_copy
+                        ):
                             updates["synced_at"] = synced_at_copy
 
                     user_repo.update(existing_user.id, updates)
@@ -954,8 +1072,12 @@ class PushProtocolService:
                         name=user_info.name,
                         device_id=device_id,
                         serial_number=serial_number,
-                        privilege=int(user_info.privilege) if user_info.privilege.isdigit() else 0,
-                        group_id=int(user_info.group) if user_info.group.isdigit() else 0,
+                        privilege=int(user_info.privilege)
+                        if user_info.privilege.isdigit()
+                        else 0,
+                        group_id=int(user_info.group)
+                        if user_info.group.isdigit()
+                        else 0,
                         is_synced=is_synced_flag,
                         synced_at=synced_at_copy,
                         **profile_payload,
@@ -1132,10 +1254,16 @@ class PushProtocolService:
             app_logger.error(f"[FDATA] Failed to save file data: {e}")
             return None
 
-    def _collect_profile_fields(self, source_user, include_optional: bool = False) -> Dict[str, Any]:
+    def _collect_profile_fields(
+        self, source_user, include_optional: bool = False
+    ) -> Dict[str, Any]:
         if not source_user:
             return {}
-        fields = PROFILE_COPY_FIELDS + OPTIONAL_PROFILE_COPY_FIELDS if include_optional else PROFILE_COPY_FIELDS
+        fields = (
+            PROFILE_COPY_FIELDS + OPTIONAL_PROFILE_COPY_FIELDS
+            if include_optional
+            else PROFILE_COPY_FIELDS
+        )
         profile = {}
         for field in fields:
             value = getattr(source_user, field, None)

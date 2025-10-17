@@ -6,6 +6,7 @@ import logging
 import sentry_sdk
 import atexit
 from logging.handlers import RotatingFileHandler
+
 # from app.services.device_service import get_zk_service  # Lazy load to avoid blocking
 from app.api.users import bp as user_blueprint
 from app.api.devices import bp as device_blueprint
@@ -13,6 +14,7 @@ from app.api.attendance import bp as attendance_blueprint
 from app.api.events import bp as event_blueprint
 from app.api.push_devices import push_devices_bp
 from app.api.settings import bp as settings_blueprint
+from app.api.doors import bp as doors_blueprint
 from app.shared.logger import create_log_handler
 from app.services.scheduler_service import scheduler_service
 from app.services.live_capture_service import (
@@ -32,7 +34,9 @@ class EndpointFilter(logging.Filter):
         message = record.getMessage()
         return not any(path in message for path in self.paths)
 
+
 load_dotenv()
+
 
 def create_app():
     init_sentry()
@@ -40,11 +44,13 @@ def create_app():
     app = Flask(__name__)
 
     # Enable CORS for all origins including Tauri
-    CORS(app,
-         origins=["*"],
-         allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
-         methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-         supports_credentials=True)
+    CORS(
+        app,
+        origins=["*"],
+        allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
+        methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        supports_credentials=True,
+    )
 
     app.config.from_object("app.config.settings")
 
@@ -55,8 +61,8 @@ def create_app():
     app.logger.setLevel(logging.INFO)
 
     # Remove health check noise from werkzeug request logs
-    werkzeug_logger = logging.getLogger('werkzeug')
-    werkzeug_logger.addFilter(EndpointFilter('/service/status', '/devices/events'))
+    werkzeug_logger = logging.getLogger("werkzeug")
+    werkzeug_logger.addFilter(EndpointFilter("/service/status", "/devices/events"))
 
     # Register the blueprints
     app.register_blueprint(user_blueprint)
@@ -64,6 +70,7 @@ def create_app():
     app.register_blueprint(attendance_blueprint)
     app.register_blueprint(event_blueprint)
     app.register_blueprint(settings_blueprint)
+    app.register_blueprint(doors_blueprint)
 
     # Register push protocol blueprint (for SenseFace 4 and other push devices)
     app.register_blueprint(push_devices_bp)
@@ -75,6 +82,7 @@ def create_app():
         """Close database connection at the end of each request"""
         try:
             from app.database.connection import db_manager
+
             db_manager.close_connection()
         except Exception as e:
             app.logger.debug(f"Error during database teardown: {e}")
@@ -82,6 +90,7 @@ def create_app():
     # Initialize default settings
     try:
         from app.repositories.setting_repository import setting_repo
+
         setting_repo.initialize_defaults()
         app.logger.info("Default settings initialized")
     except Exception as e:
@@ -90,8 +99,8 @@ def create_app():
     # Initialize and start the scheduler
     # When Flask reloader is disabled, WERKZEUG_RUN_MAIN is not set.
     # When reloader is enabled, only the reloader child (== "true") should start the scheduler.
-    run_main_flag = os.environ.get('WERKZEUG_RUN_MAIN')
-    if run_main_flag == 'true' or run_main_flag is None:
+    run_main_flag = os.environ.get("WERKZEUG_RUN_MAIN")
+    if run_main_flag == "true" or run_main_flag is None:
         try:
             scheduler_service.start()
             app.logger.info("Scheduler service started successfully")
@@ -120,6 +129,7 @@ def create_app():
                 try:
                     # Cleanup database connections
                     from app.database.connection import db_manager
+
                     db_manager.close_all_connections()
                 except Exception as e:
                     app.logger.error(f"Error closing database connections: {e}")

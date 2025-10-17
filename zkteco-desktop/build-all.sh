@@ -95,7 +95,7 @@ fi
 log "Activating virtual environment..."
 if [ -f "venv/bin/activate" ]; then
     source venv/bin/activate
-    
+
     # Verify activation by checking Python path
     PYTHON_PATH=$(which python)
     if [[ "$PYTHON_PATH" == *"venv"* ]]; then
@@ -143,6 +143,11 @@ $VENV_PYTHON -c "from zk import ZK; print('[OK] zk module imported successfully'
 # Clean previous builds
 log "Cleaning previous backend builds..."
 rm -rf build dist
+# Force remove old spec file to ensure a fresh build from command args
+if [ -f "zkteco-backend.spec" ]; then
+    log "Removing outdated zkteco-backend.spec file..."
+    rm -f zkteco-backend.spec
+fi
 
 # Build with PyInstaller
 log "Building backend executable..."
@@ -151,21 +156,28 @@ if [ -f "zkteco-backend.spec" ]; then
     pyinstaller --clean --noconfirm zkteco-backend.spec
 else
     log "Creating new spec file..."
-    pyinstaller --name "zkteco-backend" --onefile --console --noconfirm \
-                --hidden-import=zkteco.config.settings \
-                --hidden-import=zkteco.config.config_manager_sqlite \
-                --hidden-import=zkteco.database.models \
-                --hidden-import=zkteco.services \
-                --hidden-import=zkteco.controllers \
-                --hidden-import=sqlite3 \
-                --hidden-import=flask_cors \
-                --hidden-import=logging.handlers \
-                --hidden-import=sentry_sdk \
-                --hidden-import=psutil \
+    pyinstaller --name "zkteco-backend" --onefile --console --noconfirm --clean --exclude-module=multiprocessing.forkserver \
+                --hidden-import=flask \
+                --hidden-import=flask.json \
+                --hidden-import=werkzeug \
                 --hidden-import=requests \
+                --hidden-import=psutil \
+                --hidden-import=zk \
+                --hidden-import=pyzatt \
+                --hidden-import=sqlite3 \
                 --hidden-import=dotenv \
+                --hidden-import=flask_cors \
+                --hidden-import=sentry_sdk \
                 --hidden-import=apscheduler \
-                --add-data="zkteco:zkteco" \
+                --hidden-import=logging.handlers \
+                --hidden-import=app.models.door \
+                --hidden-import=app.models.door_access_log \
+                --hidden-import=app.repositories.door_repository \
+                --hidden-import=app.repositories.door_access_repository \
+                --collect-all=flask \
+                --collect-all=zk \
+                --collect-all=pyzatt \
+                --add-data="src/app:app" \
                 service_app.py
 fi
 
@@ -196,7 +208,7 @@ success "Created architecture-specific copy: $TARGET_PATH"
 echo ""
 
 # ===================
-# Frontend Build  
+# Frontend Build
 # ===================
 log "Building Frontend..."
 cd "${PROJECT_ROOT}/frontend"

@@ -1,4 +1,21 @@
 #!/usr/bin/env python3
+import multiprocessing
+import sys
+
+# This is required for PyInstaller to work correctly with multiprocessing.
+# It must be at the top of the script, before any other imports that
+# might implicitly use multiprocessing.
+multiprocessing.freeze_support()
+
+# Set start method to 'spawn' for macOS compatibility in bundled app.
+# This helps prevent hangs during initialization of multiprocessing.
+if sys.platform == "darwin":
+    # set_start_method can only be called once.
+    try:
+        multiprocessing.set_start_method("spawn")
+    except RuntimeError:
+        # It's possible it was already set, which is fine.
+        pass
 """
 ZKTeco Service - Standalone service wrapper for the ZKTeco API
 """
@@ -6,8 +23,17 @@ ZKTeco Service - Standalone service wrapper for the ZKTeco API
 import os
 import sys
 
-# Add src directory to Python path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+# To use the local pyzatt library instead of the one from venv, we need to
+# prepend the correct paths to sys.path. The local pyzatt library is a git
+# repository cloned into src/pyzatt, and the actual package is in src/pyzatt/pyzatt.
+# We add 'src/pyzatt' to the path for the 'pyzatt' import and 'src' for the 'app' import.
+# The path for pyzatt must come first to have priority.
+backend_dir = os.path.dirname(__file__)
+src_path = os.path.join(backend_dir, "src")
+pyzatt_path = os.path.join(src_path, "pyzatt")
+
+sys.path.insert(0, src_path)
+sys.path.insert(0, pyzatt_path)
 
 import signal
 import threading
@@ -24,6 +50,7 @@ import socket
 # Load environment variables
 load_dotenv()
 
+
 class ZKTecoService:
     def __init__(self):
         self.app = None
@@ -35,21 +62,18 @@ class ZKTecoService:
 
     def setup_logging(self):
         """Setup service logging"""
-        log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
-        
+        log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+
         # Get user-writable log directory
         log_dir = get_user_log_dir()
-        log_file_path = os.path.join(log_dir, 'zkteco-service.log')
-        
+        log_file_path = os.path.join(log_dir, "zkteco-service.log")
+
         logging.basicConfig(
             level=getattr(logging, log_level),
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler(log_file_path),
-                logging.StreamHandler()
-            ]
+            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            handlers=[logging.FileHandler(log_file_path), logging.StreamHandler()],
         )
-        self.logger = logging.getLogger('ZKTecoService')
+        self.logger = logging.getLogger("ZKTecoService")
         self.log_file_path = log_file_path  # Store for use in service endpoints
 
     def fetch_local_ip(self):
@@ -65,78 +89,82 @@ class ZKTecoService:
             self.logger.info(f"Local IP fetched successfully: {self.local_ip}")
         except Exception as e:
             self.logger.warning(f"Could not fetch local IP: {e}")
-            self.local_ip = '127.0.0.1'
+            self.local_ip = "127.0.0.1"
 
     def fetch_public_ip(self):
         """Fetch public IP once at startup and cache in memory until backend restarts"""
         try:
             self.logger.info("Fetching public IP address...")
-            response = requests.get('https://api.ipify.org?format=json', timeout=5)
+            response = requests.get("https://api.ipify.org?format=json", timeout=5)
             response.raise_for_status()
-            self.public_ip = response.json().get('ip', 'N/A')
+            self.public_ip = response.json().get("ip", "N/A")
             self.logger.info(f"Public IP fetched successfully: {self.public_ip}")
         except requests.exceptions.RequestException as e:
             self.logger.warning(f"Could not fetch public IP (network error): {e}")
-            self.public_ip = 'N/A'
+            self.public_ip = "N/A"
         except Exception as e:
             self.logger.warning(f"Could not fetch public IP: {e}")
-            self.public_ip = 'N/A'
+            self.public_ip = "N/A"
 
     def create_service_app(self):
         """Create Flask app with additional service endpoints"""
         app = create_app()
 
-        @app.route('/service/status', methods=['GET'])
+        @app.route("/service/status", methods=["GET"])
         def service_status():
             """Get service status"""
             try:
                 pid = os.getpid()
                 process = psutil.Process(pid)
 
-                return jsonify({
-                    'status': 'running',
-                    'pid': pid,
-                    'memory_usage': process.memory_info().rss / 1024 / 1024,  # MB
-                    'cpu_percent': process.cpu_percent(),
-                    'uptime': time.time() - process.create_time(),
-                    'threads': process.num_threads(),
-                    'public_ip': self.public_ip,  # Cached public IP
-                    'local_ip': self.local_ip  # Cached local IP
-                })
+                return jsonify(
+                    {
+                        "status": "running",
+                        "pid": pid,
+                        "memory_usage": process.memory_info().rss / 1024 / 1024,  # MB
+                        "cpu_percent": process.cpu_percent(),
+                        "uptime": time.time() - process.create_time(),
+                        "threads": process.num_threads(),
+                        "public_ip": self.public_ip,  # Cached public IP
+                        "local_ip": self.local_ip,  # Cached local IP
+                    }
+                )
             except Exception as e:
-                return jsonify({'error': str(e)}), 500
+                return jsonify({"error": str(e)}), 500
 
-        @app.route('/service/stop', methods=['POST'])
+        @app.route("/service/stop", methods=["POST"])
         def service_stop():
             """Stop the service"""
+
             def shutdown_server():
                 time.sleep(1)
                 os.kill(os.getpid(), signal.SIGTERM)
 
             threading.Thread(target=shutdown_server).start()
-            return jsonify({'message': 'Service stopping...'})
+            return jsonify({"message": "Service stopping..."})
 
-        @app.route('/service/restart', methods=['POST'])
+        @app.route("/service/restart", methods=["POST"])
         def service_restart():
             """Restart the service"""
+
             def restart_server():
                 time.sleep(1)
-                os.execv(sys.executable, ['python'] + sys.argv)
+                os.execv(sys.executable, ["python"] + sys.argv)
 
             threading.Thread(target=restart_server).start()
-            return jsonify({'message': 'Service restarting...'})
+            return jsonify({"message": "Service restarting..."})
 
-        @app.route('/service/logs', methods=['GET'])
+        @app.route("/service/logs", methods=["GET"])
         def service_logs():
             """Get recent service logs"""
             try:
-                with open(self.log_file_path, 'r') as f:
+                with open(self.log_file_path, "r") as f:
                     lines = f.readlines()
                     # Return last 100 lines
                     recent_logs = lines[-100:] if len(lines) > 100 else lines
-                    return jsonify({'logs': recent_logs})
+                    return jsonify({"logs": recent_logs})
             except Exception as e:
-                return jsonify({'error': str(e)}), 500
+                return jsonify({"error": str(e)}), 500
 
         return app
 
@@ -156,8 +184,8 @@ class ZKTecoService:
         signal.signal(signal.SIGINT, self.signal_handler)
 
         try:
-            host = os.getenv('HOST', '0.0.0.0')
-            port = int(os.getenv('PORT', 57575))
+            host = os.getenv("HOST", "0.0.0.0")
+            port = int(os.getenv("PORT", 57575))
 
             self.logger.info(f"Service starting on {host}:{port}")
             self.app.run(host=host, port=port, debug=False, use_reloader=False)
@@ -181,7 +209,7 @@ class ZKTecoService:
 def main():
     """Main entry point with Windows terminal persistence"""
     import platform
-    
+
     try:
         service = ZKTecoService()
         service.start()
@@ -189,21 +217,23 @@ def main():
         print("\n⏹️  Service stopped by user")
     except Exception as e:
         print(f"\n❌ Service crashed: {e}")
-        
+
         # Print full traceback for debugging
         import traceback
-        print("\n" + "="*50)
+
+        print("\n" + "=" * 50)
         print("ERROR DETAILS:")
-        print("="*50)
+        print("=" * 50)
         traceback.print_exc()
-        print("="*50)
-        
+        print("=" * 50)
+
         # Try to log the error if possible
         try:
             from app.shared.logger import get_user_log_dir
+
             log_dir = get_user_log_dir()
-            error_log_path = os.path.join(log_dir, 'startup_error.log')
-            with open(error_log_path, 'a') as f:
+            error_log_path = os.path.join(log_dir, "startup_error.log")
+            with open(error_log_path, "a") as f:
                 f.write(f"\n--- Startup Error at {time.ctime()} ---\n")
                 f.write(f"Error: {e}\n")
                 f.write(f"Traceback:\n{traceback.format_exc()}\n")
@@ -211,11 +241,11 @@ def main():
             print(f"\n📋 Error logged to: {error_log_path}")
         except Exception:
             print("📋 Could not save error log")
-        
+
         # Keep terminal open on Windows when running as executable
-        if platform.system() == "Windows" and getattr(sys, 'frozen', False):
+        if platform.system() == "Windows" and getattr(sys, "frozen", False):
             input("\nPress Enter to close...")
-        
+
         # Exit with error code
         sys.exit(1)
 

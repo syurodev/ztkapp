@@ -10,7 +10,9 @@ import {
   CheckCircle,
   Circle,
   Clock,
+  DoorOpen,
   FileText,
+  History,
   Loader2,
   Menu,
   Monitor,
@@ -38,6 +40,8 @@ const navItems: NavItem[] = [
   { title: "Trạng thái dịch vụ", icon: Server, href: "/" },
   { title: "Quản lý thiết bị", icon: Monitor, href: "/devices" },
   { title: "Quản lý người dùng", icon: Users, href: "/users" },
+  { title: "Quản lý cửa", icon: DoorOpen, href: "/doors" },
+  { title: "Lịch sử mở cửa", icon: History, href: "/door-history" },
   { title: "Nhật ký chấm công", icon: Clock, href: "/attendance" },
   { title: "Chấm công", icon: Activity, href: "/live-attendance" },
   { title: "Nhật ký", icon: FileText, href: "/logs" },
@@ -55,10 +59,10 @@ export function AppLayout({ children }: AppLayoutProps) {
   const serviceStatus = isStarting
     ? "starting"
     : error
-    ? "error"
-    : isBackendRunning
-    ? "running"
-    : "stopped";
+      ? "error"
+      : isBackendRunning
+        ? "running"
+        : "stopped";
 
   const getStatusIcon = () => {
     if (isStarting) {
@@ -106,7 +110,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       <div
         className={cn(
           "bg-card border-r border-border transition-all duration-300 ease-in-out",
-          sidebarOpen ? "w-64" : "w-16"
+          sidebarOpen ? "w-64" : "w-16",
         )}
       >
         {/* Header */}
@@ -156,7 +160,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                   variant={isActive ? "secondary" : "ghost"}
                   className={cn(
                     "w-full justify-start h-10",
-                    !sidebarOpen && "justify-center px-2"
+                    !sidebarOpen && "justify-center px-2",
                   )}
                   onClick={() => navigate(item.href)}
                 >
@@ -193,7 +197,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                   "flex items-center gap-1 cursor-pointer transition-colors",
                   !isBackendRunning &&
                     !isStarting &&
-                    "hover:bg-red-50 hover:border-red-300"
+                    "hover:bg-red-50 hover:border-red-300",
                 )}
                 onClick={
                   !isBackendRunning && !isStarting ? startBackend : undefined

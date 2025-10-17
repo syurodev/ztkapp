@@ -18,6 +18,7 @@ import { AppLayout } from "./components/layout/AppLayout";
 import { DeviceProvider } from "./contexts/DeviceContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { TrayProvider } from "./contexts/TrayContext";
+import { DoorAccessHistory } from "./components/features/DoorAccessHistory";
 
 function App() {
   return (
@@ -33,6 +34,7 @@ function App() {
                   <Route path="/users" element={<UserManagement />} />
                   <Route path="/attendance" element={<Attendance />} />
                   <Route path="/live-attendance" element={<LiveAttendance />} />
+                  <Route path="/door-history" element={<DoorAccessHistory />} />
                   <Route path="/logs" element={<Logs />} />
                   <Route path="/settings" element={<Settings />} />
                   <Route path="*" element={<Navigate to="/" replace />} />

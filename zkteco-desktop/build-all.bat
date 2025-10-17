@@ -135,6 +135,12 @@ echo [INFO] Cleaning previous backend builds...
 if exist "build" rmdir /s /q build
 if exist "dist" rmdir /s /q dist
 
+REM Force remove old spec file to ensure a fresh build from command args
+if exist "zkteco-backend.spec" (
+    echo [INFO] Removing outdated zkteco-backend.spec file...
+    del "zkteco-backend.spec"
+)
+
 REM Clean old spec file to ensure fresh build
 if exist "zkteco-backend.spec" (
     echo [INFO] Removing old spec file...
@@ -147,21 +153,14 @@ pyinstaller --name "zkteco-backend" ^
             --onefile ^
             --console ^
             --noconfirm ^
-            --clean ^
+            --clean --exclude-module=multiprocessing.forkserver ^
             --hidden-import=flask ^
             --hidden-import=flask.json ^
-            --hidden-import=flask.templating ^
             --hidden-import=werkzeug ^
-            --hidden-import=werkzeug.security ^
             --hidden-import=requests ^
             --hidden-import=psutil ^
             --hidden-import=zk ^
-            --hidden-import=zk.base ^
-            --hidden-import=zk.user ^
-            --hidden-import=zk.attendance ^
-            --hidden-import=zk.finger ^
-            --hidden-import=zk.const ^
-            --hidden-import=zk.exception ^
+            --hidden-import=pyzatt ^
             --hidden-import=sqlite3 ^
             --hidden-import=dotenv ^
             --hidden-import=chrono ^
@@ -169,10 +168,14 @@ pyinstaller --name "zkteco-backend" ^
             --hidden-import=sentry_sdk ^
             --hidden-import=apscheduler ^
             --hidden-import=logging.handlers ^
+            --hidden-import=app.models.door ^
+            --hidden-import=app.models.door_access_log ^
+            --hidden-import=app.repositories.door_repository ^
+            --hidden-import=app.repositories.door_access_repository ^
             --collect-all=flask ^
             --collect-all=zk ^
+            --collect-all=pyzatt ^
             --add-data="src/app;app" ^
-            --add-data="src/pyzk/zk;zk" ^
             service_app.py
 
 if errorlevel 1 (

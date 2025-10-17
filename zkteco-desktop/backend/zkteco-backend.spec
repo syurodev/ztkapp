@@ -1,31 +1,27 @@
 # -*- mode: python ; coding: utf-8 -*-
+from PyInstaller.utils.hooks import collect_all
+
+datas = [('src/app', 'app')]
+binaries = []
+hiddenimports = ['flask', 'flask.json', 'werkzeug', 'requests', 'psutil', 'zk', 'pyzatt', 'sqlite3', 'dotenv', 'flask_cors', 'sentry_sdk', 'apscheduler', 'logging.handlers', 'app.models.door', 'app.models.door_access_log', 'app.repositories.door_repository', 'app.repositories.door_access_repository']
+tmp_ret = collect_all('flask')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('zk')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('pyzatt')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
 a = Analysis(
     ['service_app.py'],
-    pathex=['./src/pyzk'],
-    binaries=[],
-    datas=[],
-    hiddenimports=[
-        'zkteco.config.settings', 
-        'zkteco.config.config_manager_sqlite', 
-        'zkteco.database.models', 
-        'zkteco.database.db_manager',
-        'zkteco.logger',
-        'sqlite3',
-        'zk',
-        'zk.base',
-        'zk.const', 
-        'zk.exception', 
-        'zk.finger', 
-        'zk.attendance', 
-        'zk.user',
-        'logging.handlers'
-    ],
+    pathex=[],
+    binaries=binaries,
+    datas=datas,
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['multiprocessing.forkserver'],
     noarchive=False,
     optimize=0,
 )

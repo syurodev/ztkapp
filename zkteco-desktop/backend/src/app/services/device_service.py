@@ -43,6 +43,21 @@ class ZkService:
 
         require_pull_device(device_id)
 
+    def _normalize_user_id(self, user_id) -> Optional[str]:
+        """Chuẩn hoá user_id về chuỗi số để đồng bộ giữa các luồng."""
+        if user_id is None:
+            return None
+        try:
+            return str(int(str(user_id).strip()))
+        except (TypeError, ValueError):
+            return None
+
+    def _check_pull_device(self, device_id: str) -> None:
+        """Check if device is pull type, raise ValueError if not"""
+        from app.utils.device_helpers import require_pull_device
+
+        require_pull_device(device_id)
+
     def _get_z_instance(self):
         """Helper to get a configured ZKSS instance."""
         target_device_id = self.device_id
@@ -268,6 +283,43 @@ class ZkService:
                 f"Fetching employee details for {len(users_array)} users from external API"
             )
 
+            # Build users array với user_id duy nhất (ưu tiên serial_number nếu có)
+            users_map: Dict[str, Dict[str, Any]] = {}
+            for user in users:
+                raw_user_id = None
+                serial_value = ""
+
+                if hasattr(user, "user_id"):
+                    # User object from database
+                    raw_user_id = user.user_id
+                    serial_value = user.serial_number or ""
+                elif isinstance(user, dict):
+                    # Dict with user_id and serial_number
+                    raw_user_id = user.get("user_id", "") or ""
+                    serial_value = user.get("serial_number", "") or ""
+                else:
+                    # Fallback: just user_id string
+                    raw_user_id = user
+
+                normalized_id = self._normalize_user_id(raw_user_id)
+                if not normalized_id:
+                    continue
+
+                existing_entry = users_map.get(normalized_id)
+                if not existing_entry or (
+                    not existing_entry.get("serial_number") and serial_value
+                ):
+                    users_map[normalized_id] = {
+                        "id": int(normalized_id),
+                        "serial_number": serial_value or "",
+                    }
+
+            users_array = list(users_map.values())
+
+            app_logger.info(
+                f"Fetching employee details for {len(users_array)} users from external API"
+            )
+
             data = external_api_service.get_employees_by_user_ids(users_array)
 
     def get_device_info(self, *args, **kwargs):
@@ -275,6 +327,18 @@ class ZkService:
 
     def save_device_info_to_config(self, *args, **kwargs):
         self._not_implemented()
+
+            # Map user_id -> details (đã chuẩn hoá)
+            result = {}
+            for employee in employee_details:
+                normalized_id = self._normalize_user_id(
+                    employee.get("time_clock_user_id")
+                )
+
+            employee_details = data.get("data", [])
+            app_logger.info(
+                f"Received {len(employee_details)} employee details from external API"
+            )
 
             # Map user_id -> details (đã chuẩn hoá)
             result = {}

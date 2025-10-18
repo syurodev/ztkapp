@@ -108,9 +108,9 @@ class SchedulerService:
             raise
 
     def _add_periodic_user_sync_job(self):
-        """Add periodic user sync job to scheduler (every 5 minutes)"""
+        """Add periodic user sync job to scheduler (every 30 seconds)"""
         try:
-            # Schedule job to run every 5 minutes
+            # Schedule job to run every 30 seconds
             trigger = IntervalTrigger(seconds=30)
 
             self.scheduler.add_job(
@@ -123,7 +123,7 @@ class SchedulerService:
                 misfire_grace_time=60  # 1 minute grace period
             )
 
-            self.logger.info("OK Periodic user sync job scheduled to run every 5 minutes")
+            self.logger.info("OK Periodic user sync job scheduled to run every 30 seconds")
 
         except Exception as e:
             self.logger.error(f"Failed to add periodic user sync job: {e}")

@@ -178,6 +178,7 @@ else
                 --collect-all=flask \
                 --collect-all=zk \
                 --collect-all=pyzatt \
+                --collect-all=prettytable \
                 --add-data="src/app:app" \
                 service_app.py
 fi

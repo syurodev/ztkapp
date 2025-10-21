@@ -203,9 +203,42 @@ class ZKTecoService:
             sys.exit(1)
 
     def stop(self):
-        """Stop the service"""
+        """Stop the service with proper cleanup"""
         self.logger.info("Stopping ZKTeco Service...")
         self.running = False
+
+        # Perform graceful shutdown
+        try:
+            # Stop scheduler service
+            try:
+                from app.services.scheduler_service import scheduler_service
+
+                scheduler_service.stop()
+                self.logger.info("Scheduler service stopped")
+            except Exception as e:
+                self.logger.error(f"Error stopping scheduler: {e}")
+
+            # Stop live capture service
+            try:
+                from app.services.live_capture_service import stop_multi_device_capture
+
+                stop_multi_device_capture()
+                self.logger.info("Live capture service stopped")
+            except Exception as e:
+                self.logger.error(f"Error stopping live capture: {e}")
+
+            # Close all database connections and checkpoint WAL
+            try:
+                from app.database.connection import db_manager
+
+                db_manager.close_all_connections()
+                self.logger.info("Database connections closed and WAL checkpointed")
+            except Exception as e:
+                self.logger.error(f"Error closing database connections: {e}")
+
+        except Exception as e:
+            self.logger.error(f"Error during graceful shutdown: {e}")
+
         sys.exit(0)
 
     def signal_handler(self, signum, frame):

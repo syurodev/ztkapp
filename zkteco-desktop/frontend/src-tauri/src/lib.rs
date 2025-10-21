@@ -16,9 +16,9 @@ use tauri_plugin_shell::process::CommandChild;
 use tauri_plugin_shell::ShellExt;
 
 #[cfg(target_os = "windows")]
-use std::os::windows::fs::OpenOptionsExt;
-#[cfg(target_os = "windows")]
 use std::io::Read;
+#[cfg(target_os = "windows")]
+use std::os::windows::fs::OpenOptionsExt;
 
 // Global state for backend process management
 type BackendProcess = Arc<Mutex<Option<CommandChild>>>;
@@ -69,10 +69,7 @@ fn append_app_log(message: &str) {
         Ok(mut file) => {
             let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S");
             if let Err(err) = writeln!(file, "[{}] {}", timestamp, message) {
-                eprintln!(
-                    "Failed to write to app log at {:?}: {}",
-                    log_path, err
-                );
+                eprintln!("Failed to write to app log at {:?}: {}", log_path, err);
             }
         }
         Err(err) => {
@@ -89,13 +86,13 @@ fn set_minimize_to_tray(
     match minimize_setting.lock() {
         Ok(mut guard) => {
             *guard = enable;
-            append_app_log(&format!(
-                "Minimize-to-tray preference updated: {}",
-                enable
-            ));
+            append_app_log(&format!("Minimize-to-tray preference updated: {}", enable));
             Ok(())
         }
-        Err(err) => Err(format!("Failed to update minimize_to_tray setting: {}", err)),
+        Err(err) => Err(format!(
+            "Failed to update minimize_to_tray setting: {}",
+            err
+        )),
     }
 }
 
@@ -117,19 +114,25 @@ impl BackendStartupGuard {
             .unwrap_or(false)
         {
             drop(status_map);
-            return Ok((BackendStartupGuard {
-                status: status_clone,
-                acquired: false,
-            }, false));
+            return Ok((
+                BackendStartupGuard {
+                    status: status_clone,
+                    acquired: false,
+                },
+                false,
+            ));
         }
 
         status_map.insert(BACKEND_STARTING_KEY.to_string(), "true".to_string());
         drop(status_map);
 
-        Ok((BackendStartupGuard {
-            status: status_clone,
-            acquired: true,
-        }, true))
+        Ok((
+            BackendStartupGuard {
+                status: status_clone,
+                acquired: true,
+            },
+            true,
+        ))
     }
 }
 
@@ -208,6 +211,40 @@ async fn detect_existing_backend(backend_process: &BackendProcess) -> bool {
     is_http_healthy
 }
 
+// Helper function to wait for backend shutdown (called after kill signal sent)
+async fn wait_for_backend_shutdown(timeout_secs: u64) -> Result<(), String> {
+    use std::time::Instant;
+
+    println!("Waiting for backend graceful shutdown...");
+    append_app_log("Waiting for backend graceful shutdown");
+
+    // Wait for process to exit gracefully with timeout
+    let start = Instant::now();
+    let timeout = Duration::from_secs(timeout_secs);
+
+    loop {
+        // Check if we've exceeded timeout
+        if start.elapsed() > timeout {
+            println!("Backend did not exit within {}s timeout", timeout_secs);
+            append_app_log(&format!(
+                "Backend did not exit gracefully within {}s timeout",
+                timeout_secs
+            ));
+            return Err(format!("Backend shutdown timeout after {}s", timeout_secs));
+        }
+
+        // Wait a bit before next check
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Check if backend is still responding
+        if !check_backend_health().await {
+            println!("Backend has stopped responding - shutdown successful");
+            append_app_log("Backend shutdown verified - no longer responding");
+            return Ok(());
+        }
+    }
+}
+
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -238,9 +275,9 @@ fn cleanup_backend(backend_process: State<BackendProcess>) -> Result<String, Str
             if let Some(child) = process_guard.take() {
                 match child.kill() {
                     Ok(()) => {
-                        println!("Backend process terminated successfully");
-                        append_app_log("cleanup_backend terminated backend process successfully");
-                        Ok("Backend process terminated successfully".to_string())
+                        println!("Backend process termination signal sent");
+                        append_app_log("cleanup_backend sent termination signal successfully");
+                        Ok("Backend process termination signal sent".to_string())
                     }
                     Err(e) => {
                         eprintln!("Failed to kill backend process: {}", e);
@@ -319,7 +356,10 @@ async fn start_backend(
         }
     }
     println!("Using backend database at: {}", db_path_str);
-    append_app_log(&format!("start_backend proceeding - DB path {}", db_path_str));
+    append_app_log(&format!(
+        "start_backend proceeding - DB path {}",
+        db_path_str
+    ));
 
     // Clear any previous status
     if let Ok(mut status_guard) = process_status.lock() {
@@ -330,7 +370,10 @@ async fn start_backend(
     match app.shell().sidecar("zkteco-backend") {
         Ok(sidecar_command) => {
             let sidecar_with_env = sidecar_command
-                .env("SECRET_KEY", "b7ad3ec8a8262756372175c8d4f83cdce82d9bc85878ff0b4258ca91a3a1e641")
+                .env(
+                    "SECRET_KEY",
+                    "b7ad3ec8a8262756372175c8d4f83cdce82d9bc85878ff0b4258ca91a3a1e641",
+                )
                 .env("LOG_LEVEL", "INFO")
                 .env("FLASK_DEBUG", "0")
                 .env("FLASK_ENV", "production")
@@ -524,7 +567,10 @@ async fn start_backend(
                 Err(e) => {
                     let error_msg = format!("Failed to spawn backend sidecar: {}. This may be due to permission issues or missing dependencies.", e);
                     eprintln!("{}", error_msg);
-                    append_app_log(&format!("start_backend failed to spawn backend sidecar: {}", e));
+                    append_app_log(&format!(
+                        "start_backend failed to spawn backend sidecar: {}",
+                        e
+                    ));
                     Err(error_msg)
                 }
             }
@@ -549,9 +595,9 @@ fn stop_backend(backend_process: State<BackendProcess>) -> Result<String, String
             if let Some(child) = process_guard.take() {
                 match child.kill() {
                     Ok(()) => {
-                        println!("Backend process stopped successfully");
-                        append_app_log("stop_backend terminated backend process successfully");
-                        Ok("Backend process stopped successfully".to_string())
+                        println!("Backend process termination signal sent");
+                        append_app_log("stop_backend sent termination signal successfully");
+                        Ok("Backend process termination signal sent".to_string())
                     }
                     Err(e) => {
                         eprintln!("Failed to stop backend process: {}", e);
@@ -595,7 +641,10 @@ async fn restart_backend(
     // Start again
     let result = start_backend(app, backend_process, process_status, backend_logs).await;
     if let Err(ref err) = result {
-        append_app_log(&format!("restart_backend failed to restart backend: {}", err));
+        append_app_log(&format!(
+            "restart_backend failed to restart backend: {}",
+            err
+        ));
     } else {
         append_app_log("restart_backend completed successfully");
     }
@@ -850,6 +899,16 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // When a second instance is detected, show and focus the existing window
+            append_app_log("Second instance detected - showing existing window");
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+                println!("Focused existing window from second instance attempt");
+            }
+        }))
         .manage(backend_process.clone())
         .manage(process_status.clone())
         .manage(backend_logs.clone())
@@ -884,23 +943,55 @@ pub fn run() {
                         }
                     }
                     "quit" => {
-                        // Cleanup backend before exiting
-                        if let Ok(mut process_guard) = backend_process_for_tray.lock() {
-                            if let Some(child) = process_guard.take() {
-                                if let Err(e) = child.kill() {
-                                    eprintln!("Failed to kill backend process on quit: {}", e);
-                                    append_app_log(&format!(
-                                        "Failed to kill backend process on quit: {}",
-                                        e
-                                    ));
-                                } else {
-                                    println!("Backend process terminated on app quit");
-                                    append_app_log("Backend process terminated on app quit");
+                        // Cleanup backend before exiting with graceful shutdown
+                        let backend_for_quit = backend_process_for_tray.clone();
+                        let app_handle = app.clone();
+
+                        tauri::async_runtime::spawn(async move {
+                            append_app_log("Tray quit - initiating graceful backend shutdown");
+
+                            // Kill process (in sync block to avoid holding lock across await)
+                            let killed = {
+                                match backend_for_quit.lock() {
+                                    Ok(mut process_guard) => {
+                                        match process_guard.take() {
+                                            Some(child) => {
+                                                match child.kill() {
+                                                    Ok(()) => true,
+                                                    Err(e) => {
+                                                        eprintln!("Failed to send termination signal on quit: {}", e);
+                                                        append_app_log(&format!("Failed to terminate backend on quit: {}", e));
+                                                        false
+                                                    }
+                                                }
+                                            }
+                                            None => false,
+                                        }
+                                    }
+                                    Err(_) => false,
+                                }
+                            }; // process_guard dropped here
+
+                            // Now wait for graceful shutdown
+                            if killed {
+                                match wait_for_backend_shutdown(5).await {
+                                    Ok(()) => {
+                                        println!("Backend gracefully terminated on app quit");
+                                        append_app_log("Backend gracefully terminated on app quit");
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Backend shutdown warning on quit: {}", e);
+                                        append_app_log(&format!(
+                                            "Backend shutdown warning on quit: {}",
+                                            e
+                                        ));
+                                    }
                                 }
                             }
-                        }
-                        append_app_log("Tauri application exiting via tray quit");
-                        app.exit(0);
+
+                            append_app_log("Tauri application exiting via tray quit");
+                            app_handle.exit(0);
+                        });
                     }
                     _ => {
                         println!("menu item {:?} not handled", event.id());
@@ -969,36 +1060,61 @@ pub fn run() {
                             api.prevent_close();
                             let _ = window_clone.hide();
                             println!("Window minimized to tray instead of closing");
-                            append_app_log(
-                                "Window close intercepted - minimized to tray",
-                            );
+                            append_app_log("Window close intercepted - minimized to tray");
                         } else {
                             println!("Window close requested - shutting down backend");
                             append_app_log(
                                 "Window close requested - shutting down backend before exit",
                             );
 
-                            if let Ok(mut process_guard) = backend_process_for_window.lock() {
-                                if let Some(child) = process_guard.take() {
-                                    if let Err(err) = child.kill() {
-                                        eprintln!(
-                                            "Failed to kill backend process on window close: {}",
-                                            err
-                                        );
-                                        append_app_log(&format!(
-                                            "Failed to kill backend process on window close: {}",
-                                            err
-                                        ));
-                                    } else {
-                                        println!(
-                                            "Backend process terminated due to window close"
-                                        );
-                                        append_app_log(
-                                            "Backend process terminated due to window close",
-                                        );
+                            // Spawn async task for graceful shutdown
+                            let backend_for_close = backend_process_for_window.clone();
+                            tauri::async_runtime::spawn(async move {
+                                // Kill process (in sync block to avoid holding lock across await)
+                                let killed = {
+                                    match backend_for_close.lock() {
+                                        Ok(mut process_guard) => {
+                                            match process_guard.take() {
+                                                Some(child) => {
+                                                    match child.kill() {
+                                                        Ok(()) => true,
+                                                        Err(e) => {
+                                                            eprintln!("Failed to send termination signal on window close: {}", e);
+                                                            append_app_log(&format!("Failed to terminate backend on window close: {}", e));
+                                                            false
+                                                        }
+                                                    }
+                                                }
+                                                None => false,
+                                            }
+                                        }
+                                        Err(_) => false,
+                                    }
+                                }; // process_guard dropped here
+
+                                // Now wait for graceful shutdown
+                                if killed {
+                                    match wait_for_backend_shutdown(5).await {
+                                        Ok(()) => {
+                                            println!("Backend gracefully terminated on window close");
+                                            append_app_log(
+                                                "Backend gracefully terminated on window close",
+                                            );
+                                        }
+                                        Err(e) => {
+                                            eprintln!(
+                                                "Backend shutdown warning on window close: {}",
+                                                e
+                                            );
+                                            append_app_log(&format!(
+                                                "Backend shutdown warning on window close: {}",
+                                                e
+                                            ));
+                                        }
                                     }
                                 }
-                            }
+                            });
+                            // Note: Window will close immediately, cleanup happens in background
                         }
                     }
                 });
@@ -1027,53 +1143,81 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(move |app_handle, event| {
-            match event {
-                tauri::RunEvent::WindowEvent { label, event, .. } => {
-                    if label == "main" {
-                        if let tauri::WindowEvent::Focused(true) = event {
-                            let minimize_enabled = minimize_setting_for_run
-                                .lock()
-                                .map(|guard| *guard)
-                                .unwrap_or(false);
+        .run(move |app_handle, event| match event {
+            tauri::RunEvent::WindowEvent { label, event, .. } => {
+                if label == "main" {
+                    if let tauri::WindowEvent::Focused(true) = event {
+                        let minimize_enabled = minimize_setting_for_run
+                            .lock()
+                            .map(|guard| *guard)
+                            .unwrap_or(false);
 
-                            if minimize_enabled {
-                                if let Some(window) = app_handle.get_webview_window("main") {
-                                    let _ = window.unminimize();
-                                    let _ = window.show();
-                                    let _ = window.set_focus();
-                                    append_app_log(
-                                        "Application focused - restoring main window",
-                                    );
+                        if minimize_enabled {
+                            if let Some(window) = app_handle.get_webview_window("main") {
+                                let _ = window.unminimize();
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                                append_app_log("Application focused - restoring main window");
+                            }
+                        }
+                    }
+                }
+            }
+            tauri::RunEvent::ExitRequested { api, .. } => {
+                append_app_log("Exit requested - initiating graceful backend shutdown");
+
+                // Clone for async task
+                let backend_for_exit = backend_process_for_run.clone();
+
+                // Prevent immediate exit
+                api.prevent_exit();
+
+                // Spawn async task for graceful shutdown
+                tauri::async_runtime::spawn(async move {
+                    // Kill process (in sync block to avoid holding lock across await)
+                    let killed = {
+                        match backend_for_exit.lock() {
+                            Ok(mut process_guard) => {
+                                match process_guard.take() {
+                                    Some(child) => {
+                                        match child.kill() {
+                                            Ok(()) => true,
+                                            Err(e) => {
+                                                eprintln!("Failed to send termination signal on exit: {}", e);
+                                                append_app_log(&format!("Failed to terminate backend on exit: {}", e));
+                                                false
+                                            }
+                                        }
+                                    }
+                                    None => false,
                                 }
                             }
+                            Err(_) => false,
                         }
-                    }
-                }
-                tauri::RunEvent::ExitRequested { .. } => {
-                    append_app_log("Exit requested - terminating backend");
-                    if let Ok(mut process_guard) = backend_process_for_run.lock() {
-                        if let Some(child) = process_guard.take() {
-                            if let Err(err) = child.kill() {
-                                eprintln!(
-                                    "Failed to kill backend process on exit: {}",
-                                    err
-                                );
+                    }; // process_guard dropped here
+
+                    // Now wait for graceful shutdown
+                    if killed {
+                        match wait_for_backend_shutdown(5).await {
+                            Ok(()) => {
+                                println!("Backend gracefully terminated on app exit");
+                                append_app_log("Backend gracefully terminated on app exit");
+                            }
+                            Err(e) => {
+                                eprintln!("Backend shutdown warning on exit: {}", e);
                                 append_app_log(&format!(
-                                    "Failed to kill backend process on exit: {}",
-                                    err
+                                    "Backend shutdown warning on exit: {}",
+                                    e
                                 ));
-                            } else {
-                                println!("Backend process terminated on app exit");
-                                append_app_log(
-                                    "Backend process terminated on app exit",
-                                );
                             }
                         }
                     }
-                }
-                _ => {}
+
+                    append_app_log("Graceful shutdown complete - exiting application");
+                    std::process::exit(0);
+                });
             }
+            _ => {}
         });
 }
 
@@ -1137,9 +1281,7 @@ async fn startup_backend_sidecar(
             match sidecar_with_env.spawn() {
                 Ok((mut rx, child)) => {
                     println!("Backend sidecar started successfully during startup");
-                    append_app_log(
-                        "startup_backend_sidecar spawned backend sidecar successfully",
-                    );
+                    append_app_log("startup_backend_sidecar spawned backend sidecar successfully");
 
                     // Store the child process for later cleanup
                     if let Ok(mut process_guard) = backend_process.lock() {

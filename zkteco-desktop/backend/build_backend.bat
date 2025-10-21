@@ -115,11 +115,13 @@ pyinstaller --name "zkteco-backend" ^
             --hidden-import=zk.finger ^
             --hidden-import=zk.const ^
             --hidden-import=zk.exception ^
+            --hidden-import=prettytable ^
             --hidden-import=sqlite3 ^
             --hidden-import=dotenv ^
             --hidden-import=chrono ^
             --collect-all=flask ^
             --collect-all=zk ^
+            --collect-all=prettytable ^
             --add-data="src/app;app" ^
             --add-data="src/pyzk/zk;zk" ^
             service_app.py
@@ -139,20 +141,20 @@ if exist "dist\zkteco-backend.exe" (
     echo ⚡ UAC ADMIN PRIVILEGES ENABLED:
     echo   - Executable will prompt for admin rights
     echo   - Required for device access on Windows
-    
+
     REM Get file size
     for %%A in ("dist\zkteco-backend.exe") do (
         set SIZE=%%~zA
         set /a SIZE_MB=!SIZE!/1024/1024
     )
-    
+
     echo Executable: dist\zkteco-backend.exe
     echo Size: !SIZE_MB!MB
-    
+
     REM Create architecture-specific copy for Tauri
     copy "dist\zkteco-backend.exe" "dist\zkteco-backend-x86_64-pc-windows-msvc.exe" >nul
     echo Created: dist\zkteco-backend-x86_64-pc-windows-msvc.exe
-    
+
     echo.
     echo Build completed successfully!
 ) else (

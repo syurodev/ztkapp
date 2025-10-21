@@ -1,29 +1,15 @@
 [
   {
-    "user_id": "7338",
-    "name": "PALACE 1",
-    "external_user_id": 7338,
+    "user_id": "7391",
+    "name": "Cung ứng 2 test update",
+    "external_user_id": 7391,
     "first_checkin": null,
     "first_checkin_id": null,
-    "last_checkout": "2025-10-20 20:00:20.000",
-    "last_checkout_id": 44,
+    "last_checkout": "2025-10-21 14:20:20.000",
+    "last_checkout_id": 46,
     "total_checkins": 0,
     "total_checkouts": 1,
-    "date": "2025-10-20",
-    "device_id": "23db1331-cf32-4864-a26a-6d379f765324",
-    "device_serial": "PYA8252300166"
-  },
-  {
-    "user_id": "7339",
-    "name": "PALACE 2",
-    "external_user_id": 7339,
-    "first_checkin": null,
-    "first_checkin_id": null,
-    "last_checkout": "2025-10-20 16:02:20.000",
-    "last_checkout_id": 45,
-    "total_checkins": 0,
-    "total_checkouts": 1,
-    "date": "2025-10-20",
+    "date": "2025-10-21",
     "device_id": "23db1331-cf32-4864-a26a-6d379f765324",
     "device_serial": "PYA8252300166"
   }

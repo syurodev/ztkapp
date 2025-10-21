@@ -605,31 +605,40 @@ class PushProtocolService:
                 f"(device={device_id}, serial={serial_number})"
             )
 
+            # ============================================================
+            # COMMENTED OUT: Profile copy logic - can be re-enabled if needed
+            # ============================================================
             # Try to find source user from other devices with same user_id
-            source_user = user_repo.find_first_by_user_id(
-                user_id, exclude_device_id=device_id if device_id else None
-            )
+            # source_user = user_repo.find_first_by_user_id(
+            #     user_id, exclude_device_id=device_id if device_id else None
+            # )
 
             # Prepare profile data
+            # profile_payload = {}
+            # synced_at_copy = None
+
+            # if source_user:
+            #     # Copy profile from existing user on another device
+            #     profile_payload = self._collect_profile_fields(
+            #         source_user, include_optional=True
+            #     )
+            #     synced_at_copy = profile_payload.pop(
+            #         "synced_at", getattr(source_user, "synced_at", None)
+            #     )
+            #     app_logger.debug(
+            #         f"[PUSH AUTO-CREATE] Copying profile from source user: {source_user.id}"
+            #     )
+            # else:
+            #     # No source user - derive external_user_id from user_id
+            #     fallback_external_id = self._derive_external_user_id(user_id)
+            #     if fallback_external_id is not None:
+            #         profile_payload["external_user_id"] = fallback_external_id
+            # ============================================================
+
+            # Simplified: No profile copy, external_user_id will be set by cron
+            source_user = None
             profile_payload = {}
             synced_at_copy = None
-
-            if source_user:
-                # Copy profile from existing user on another device
-                profile_payload = self._collect_profile_fields(
-                    source_user, include_optional=True
-                )
-                synced_at_copy = profile_payload.pop(
-                    "synced_at", getattr(source_user, "synced_at", None)
-                )
-                app_logger.debug(
-                    f"[PUSH AUTO-CREATE] Copying profile from source user: {source_user.id}"
-                )
-            else:
-                # No source user - derive external_user_id from user_id
-                fallback_external_id = self._derive_external_user_id(user_id)
-                if fallback_external_id is not None:
-                    profile_payload["external_user_id"] = fallback_external_id
 
             # Create new user
             new_user = User(
@@ -1008,29 +1017,38 @@ class PushProtocolService:
                     None,
                 )
 
-                source_user = user_repo.find_first_by_user_id(
-                    user_info.user_id,
-                    exclude_device_id=device_id if device_id else None,
-                )
-                if source_user and existing_user and source_user.id == existing_user.id:
-                    source_user = None
+                # ============================================================
+                # COMMENTED OUT: Profile copy logic - can be re-enabled if needed
+                # ============================================================
+                # source_user = user_repo.find_first_by_user_id(
+                #     user_info.user_id,
+                #     exclude_device_id=device_id if device_id else None,
+                # )
+                # if source_user and existing_user and source_user.id == existing_user.id:
+                #     source_user = None
 
-                profile_payload = self._collect_profile_fields(
-                    source_user, include_optional=True
-                )
-                synced_at_copy = profile_payload.pop(
-                    "synced_at",
-                    getattr(source_user, "synced_at", None) if source_user else None,
-                )
+                # profile_payload = self._collect_profile_fields(
+                #     source_user, include_optional=True
+                # )
+                # synced_at_copy = profile_payload.pop(
+                #     "synced_at",
+                #     getattr(source_user, "synced_at", None) if source_user else None,
+                # )
 
-                if not source_user:
-                    fallback_external_id = self._derive_external_user_id(
-                        user_info.user_id
-                    )
-                    if fallback_external_id is not None:
-                        profile_payload.setdefault(
-                            "external_user_id", fallback_external_id
-                        )
+                # if not source_user:
+                #     fallback_external_id = self._derive_external_user_id(
+                #         user_info.user_id
+                #     )
+                #     if fallback_external_id is not None:
+                #         profile_payload.setdefault(
+                #             "external_user_id", fallback_external_id
+                #         )
+                # ============================================================
+
+                # Simplified: No profile copy, external_user_id will be set by cron
+                source_user = None
+                profile_payload = {}
+                synced_at_copy = None
 
                 if existing_user:
                     updates: Dict[str, Any] = {

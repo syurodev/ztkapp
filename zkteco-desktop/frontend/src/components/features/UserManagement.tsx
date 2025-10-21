@@ -35,23 +35,35 @@ import { useDevice } from "@/contexts/DeviceContext";
 import { deviceAPI, User, userAPI, UsersResponse } from "@/lib/api";
 import { buildAvatarUrl, getResourceDomain } from "@/lib/utils";
 import {
-    AlertCircle,
-    CheckCircle2,
-    Clock,
-    Download,
-    FileJson, Minus,
-    Monitor,
-    RefreshCcw,
-    RefreshCw,
-    Upload,
-    UserCheck,
-    Users,
-    XCircle,
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+  Download,
+  FileJson,
+  Minus,
+  Monitor,
+  RefreshCcw,
+  RefreshCw,
+  Trash2,
+  Upload,
+  UserCheck,
+  Users,
+  XCircle,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
-
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 const MotionTableRow = motion(TableRow);
 
 interface UserToImport {
@@ -108,7 +120,7 @@ export function UserManagement() {
       setUsers(response.data || []);
     } catch (err) {
       setError(
-        "Không thể tải danh sách người dùng. Vui lòng kiểm tra dịch vụ backend."
+        "Không thể tải danh sách người dùng. Vui lòng kiểm tra dịch vụ backend.",
       );
       console.error("Error loading users:", err);
     } finally {
@@ -126,7 +138,7 @@ export function UserManagement() {
       const result = await deviceAPI.syncEmployee();
       if (result["success"]) {
         toast.success(
-          `Đã đồng bộ ${result.employees_count} nhân sự lên hệ thống ngoài`
+          `Đã đồng bộ ${result.employees_count} nhân sự lên hệ thống ngoài`,
         );
         await loadUsers();
       } else {
@@ -176,12 +188,12 @@ export function UserManagement() {
       const result = await userAPI.syncUsersFromDevice();
       if (result.success) {
         toast.success(
-          `Đã đồng bộ ${result.synced_count} người dùng từ thiết bị`
+          `Đã đồng bộ ${result.synced_count} người dùng từ thiết bị`,
         );
         await loadUsers();
       } else {
         toast.error(
-          result.message || "Không thể đồng bộ người dùng từ thiết bị"
+          result.message || "Không thể đồng bộ người dùng từ thiết bị",
         );
       }
     } catch (err: any) {
@@ -192,6 +204,26 @@ export function UserManagement() {
       toast.error(errorMessage);
     } finally {
       setIsSyncingFromDevice(false);
+    }
+  };
+
+  const handleDeleteUser = async (userId: string, userName: string) => {
+    if (!activeDevice) {
+      toast.error("Vui lòng chọn thiết bị trước");
+      return;
+    }
+
+    try {
+      const result = await userAPI.deleteUser(parseInt(userId, 10));
+      if (result.success) {
+        toast.success(`Đã xoá người dùng ${userName}`);
+        await loadUsers();
+      } else {
+        toast.error(result.message || "Không thể xoá người dùng");
+      }
+    } catch (err: any) {
+      const errorMessage = err.message || "Không thể xoá người dùng";
+      toast.error(errorMessage);
     }
   };
 
@@ -210,9 +242,9 @@ export function UserManagement() {
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `users_export_${activeDevice.name}_${new Date()
-          .toISOString()
-          .split("T")[0]}.json`;
+        a.download = `users_export_${activeDevice.name}_${
+          new Date().toISOString().split("T")[0]
+        }.json`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -224,7 +256,7 @@ export function UserManagement() {
   };
 
   const handleImportDialogFileSelect = (
-    event: React.ChangeEvent<HTMLInputElement>
+    event: React.ChangeEvent<HTMLInputElement>,
   ) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -251,14 +283,14 @@ export function UserManagement() {
 
   const handleRemoveUserFromPreview = (userIdToRemove: string) => {
     setUsersToImportPreview((currentUsers) =>
-      currentUsers.filter((user) => user.user_id !== userIdToRemove)
+      currentUsers.filter((user) => user.user_id !== userIdToRemove),
     );
   };
 
   const handleConfirmImport = async () => {
     if (usersToImportPreview.length === 0) {
-        toast.error("Không có người dùng nào để nhập.");
-        return;
+      toast.error("Không có người dùng nào để nhập.");
+      return;
     }
 
     setIsImporting(true);
@@ -266,7 +298,9 @@ export function UserManagement() {
     // Create a new File object from the potentially filtered preview data
     const filteredDataStr = JSON.stringify(usersToImportPreview, null, 2);
     const blob = new Blob([filteredDataStr], { type: "application/json" });
-    const filteredFile = new File([blob], "filtered_import.json", { type: "application/json" });
+    const filteredFile = new File([blob], "filtered_import.json", {
+      type: "application/json",
+    });
 
     const formData = new FormData();
     formData.append("file", filteredFile);
@@ -298,7 +332,7 @@ export function UserManagement() {
   };
 
   const filteredUsers = users.filter((user) =>
-    user.name.toLowerCase().includes(searchQuery.toLowerCase())
+    user.name.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
   const getSyncStatusBadge = (user: User) => {
@@ -484,11 +518,14 @@ export function UserManagement() {
                       </Label>
                     </div>
                     <p className="text-sm text-muted-foreground">
-                      Khi bật, hệ thống sẽ nhập người dùng vào thiết bị có `serial_number` trùng khớp trong file. Nếu không, người dùng sẽ được nhập vào thiết bị đang hoạt động.
+                      Khi bật, hệ thống sẽ nhập người dùng vào thiết bị có
+                      `serial_number` trùng khớp trong file. Nếu không, người
+                      dùng sẽ được nhập vào thiết bị đang hoạt động.
                     </p>
 
                     <h4 className="font-semibold">
-                      Xem trước dữ liệu ({usersToImportPreview.length} người dùng)
+                      Xem trước dữ liệu ({usersToImportPreview.length} người
+                      dùng)
                     </h4>
                     <ScrollArea className="h-64 w-full rounded-md border">
                       <Table>
@@ -497,7 +534,9 @@ export function UserManagement() {
                             <TableHead>ID</TableHead>
                             <TableHead>Tên</TableHead>
                             <TableHead>Serial Number</TableHead>
-                            <TableHead className="text-right">Hành động</TableHead>
+                            <TableHead className="text-right">
+                              Hành động
+                            </TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -667,7 +706,7 @@ export function UserManagement() {
                                 <AvatarImage
                                   src={buildAvatarUrl(
                                     user.avatar_url,
-                                    resourceDomain
+                                    resourceDomain,
                                   )}
                                   alt={user.name}
                                 />
@@ -707,6 +746,40 @@ export function UserManagement() {
                               }`}
                             />
                           </Button>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                                title="Xoá người dùng này"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>
+                                  Xác nhận xoá người dùng?
+                                </AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Hành động này không thể hoàn tác. Thao tác này
+                                  sẽ xoá vĩnh viễn người dùng [{user.name}] khỏi
+                                  thiết bị và cơ sở dữ liệu.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Huỷ</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() =>
+                                    handleDeleteUser(user.id, user.name)
+                                  }
+                                >
+                                  Xoá
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
                         </TableCell>
                       </MotionTableRow>
                     );

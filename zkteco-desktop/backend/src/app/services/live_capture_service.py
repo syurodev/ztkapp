@@ -1,6 +1,7 @@
 import threading
 import time
 import os
+import random
 from datetime import datetime
 from zk import ZK
 from app.models import AttendanceLog, DoorAccessLog
@@ -221,6 +222,24 @@ def live_capture_worker(device_id=None):
     zk = None
     target_device = None
 
+    # Exponential backoff configuration
+    initial_delay = 10  # Start with 10 seconds
+    max_delay = 300  # Cap at 5 minutes
+    backoff_multiplier = 2  # Double each time
+    jitter_range = 0.2  # ±20% random jitter
+
+    current_delay = initial_delay
+    error_count = 0
+    error_log_threshold = 5  # Log every 5th error
+
+    def calculate_backoff_delay(base_delay, max_delay, jitter_range):
+        """Calculate delay with exponential backoff and jitter"""
+        # Add random jitter (±jitter_range%)
+        jitter = base_delay * jitter_range * (random.random() * 2 - 1)
+        delay_with_jitter = base_delay + jitter
+        # Ensure within bounds
+        return max(initial_delay, min(delay_with_jitter, max_delay))
+
     while True:
         # Check stop flag first (NEW)
         if device_id and multi_device_manager.should_stop(device_id):
@@ -277,10 +296,6 @@ def live_capture_worker(device_id=None):
                 time.sleep(10)
                 continue
 
-            app_logger.info(
-                f"Live capture thread: Connecting to device {target_device.get('name', 'Unknown')} (ID: {device_id}) at {ip}..."
-            )
-
             # Use connection manager for device-specific connection
             if device_id:
                 # Configure device in connection manager if not already done
@@ -298,56 +313,84 @@ def live_capture_worker(device_id=None):
                 # Legacy mode
                 zk = connection_manager.get_connection()
 
-            app_logger.info(
-                f"Live capture thread: Connected successfully to device {device_id}"
-            )
-
             # Use custom live capture with enhanced parsing
+            # Reset backoff on successful connection
+            error_count = 0
+            current_delay = initial_delay
             _enhanced_live_capture(zk, device_id)
 
         except (OSError, BrokenPipeError, ConnectionError) as e:
             # Check if stopped intentionally
             if device_id and multi_device_manager.should_stop(device_id):
-                app_logger.info(
+                app_logger.debug(
                     f"Device {device_id} stopped intentionally, not reconnecting"
                 )
                 break
-            app_logger.error(f"Live capture socket error for device {device_id}: {e}")
+
+            # Exponential backoff with jitter
+            error_count += 1
+
+            # Log error periodically
+            if error_count % error_log_threshold == 0:
+                app_logger.error(
+                    f"Live capture connection error for device {device_id} ({error_count} consecutive errors, next retry in {current_delay:.1f}s): {e}"
+                )
+
             if zk:
                 try:
                     zk.disconnect()
                 except:
                     pass
-            app_logger.info(
-                f"Live capture thread for device {device_id}: Reconnecting in 10 seconds..."
+
+            # Calculate next delay with jitter
+            actual_delay = calculate_backoff_delay(
+                current_delay, max_delay, jitter_range
             )
-            time.sleep(10)
+            time.sleep(actual_delay)
+
+            # Increase delay for next time (exponential backoff)
+            current_delay = min(current_delay * backoff_multiplier, max_delay)
+
         except Exception as e:
             # Check if stopped intentionally
             if device_id and multi_device_manager.should_stop(device_id):
-                app_logger.info(
+                app_logger.debug(
                     f"Device {device_id} stopped intentionally, not reconnecting"
                 )
                 break
-            app_logger.error(f"Live capture thread error for device {device_id}: {e}")
+
+            # Exponential backoff with jitter
+            error_count += 1
+
+            # Log error periodically
+            if error_count % error_log_threshold == 0:
+                app_logger.error(
+                    f"Live capture error for device {device_id} ({error_count} consecutive errors, next retry in {current_delay:.1f}s): {e}"
+                )
+
             if zk:
                 try:
                     zk.disconnect()
                 except:
                     pass
-            app_logger.info(
-                f"Live capture thread for device {device_id}: Reconnecting in 10 seconds..."
+
+            # Calculate next delay with jitter
+            actual_delay = calculate_backoff_delay(
+                current_delay, max_delay, jitter_range
             )
-            time.sleep(10)
+            time.sleep(actual_delay)
+
+            # Increase delay for next time (exponential backoff)
+            current_delay = min(current_delay * backoff_multiplier, max_delay)
         else:
             # Check if stopped intentionally
             if device_id and multi_device_manager.should_stop(device_id):
-                app_logger.info(
+                app_logger.debug(
                     f"Device {device_id} stopped intentionally, exiting worker"
                 )
                 break
-            app_logger.warning(
-                f"Live capture loop exited for device {device_id}. Reconnecting in 10 seconds."
+            app_logger.debug(
+                f"Live capture loop exited for device {device_id}. Reconnecting in 10s."
             )
             if zk:
                 try:
@@ -742,51 +785,60 @@ def _ensure_user_exists_for_pull(
             f"(device={device_id}, serial={serial_number})"
         )
 
+        # ============================================================
+        # COMMENTED OUT: Profile copy logic - can be re-enabled if needed
+        # ============================================================
         # Try to find source user from other devices with same user_id
-        source_user = user_repo.find_first_by_user_id(
-            user_id, exclude_device_id=device_id if device_id else None
-        )
+        # source_user = user_repo.find_first_by_user_id(
+        #     user_id, exclude_device_id=device_id if device_id else None
+        # )
 
         # Prepare profile data
+        # profile_payload = {}
+        # synced_at_copy = None
+
+        # if source_user:
+        #     # Copy profile from existing user on another device
+        #     # Use same fields as push protocol
+        #     PROFILE_COPY_FIELDS = (
+        #         "full_name",
+        #         "employee_code",
+        #         "position",
+        #         "department",
+        #         "employee_object",
+        #     )
+        #     OPTIONAL_PROFILE_COPY_FIELDS = (
+        #         "avatar_url",
+        #         "external_user_id",
+        #         "synced_at",
+        #     )
+
+        #     fields = PROFILE_COPY_FIELDS + OPTIONAL_PROFILE_COPY_FIELDS
+        #     for field in fields:
+        #         value = getattr(source_user, field, None)
+        #         if value not in (None, ""):
+        #             profile_payload[field] = value
+
+        #     synced_at_copy = profile_payload.pop(
+        #         "synced_at", getattr(source_user, "synced_at", None)
+        #     )
+
+        #     app_logger.debug(
+        #         f"[PULL AUTO-CREATE] Copying profile from source user: {source_user.id}"
+        #     )
+        # else:
+        #     # No source user - derive external_user_id from user_id
+        #     try:
+        #         fallback_external_id = int(str(user_id).strip())
+        #         profile_payload["external_user_id"] = fallback_external_id
+        #     except (TypeError, ValueError):
+        #         pass
+        # ============================================================
+
+        # Simplified: No profile copy, external_user_id will be set by cron
+        source_user = None
         profile_payload = {}
         synced_at_copy = None
-
-        if source_user:
-            # Copy profile from existing user on another device
-            # Use same fields as push protocol
-            PROFILE_COPY_FIELDS = (
-                "full_name",
-                "employee_code",
-                "position",
-                "department",
-                "employee_object",
-            )
-            OPTIONAL_PROFILE_COPY_FIELDS = (
-                "avatar_url",
-                "external_user_id",
-                "synced_at",
-            )
-
-            fields = PROFILE_COPY_FIELDS + OPTIONAL_PROFILE_COPY_FIELDS
-            for field in fields:
-                value = getattr(source_user, field, None)
-                if value not in (None, ""):
-                    profile_payload[field] = value
-
-            synced_at_copy = profile_payload.pop(
-                "synced_at", getattr(source_user, "synced_at", None)
-            )
-
-            app_logger.debug(
-                f"[PULL AUTO-CREATE] Copying profile from source user: {source_user.id}"
-            )
-        else:
-            # No source user - derive external_user_id from user_id
-            try:
-                fallback_external_id = int(str(user_id).strip())
-                profile_payload["external_user_id"] = fallback_external_id
-            except (TypeError, ValueError):
-                pass
 
         # Create new user
         new_user = User(

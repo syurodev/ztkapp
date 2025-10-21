@@ -86,6 +86,13 @@ def update_door(door_id):
 
         if success:
             updated_door = door_service.get_door(door_id)
+            try:
+                door_service.sync_single_door(updated_door)
+            except Exception as e:
+                app_logger.warning(
+                    f"Failed to sync door {door_id} to external API after update: {e}"
+                )
+
             return jsonify(
                 {
                     "success": True,
@@ -244,7 +251,81 @@ def get_all_access_logs():
 
         return jsonify({"success": True, "data": [log.to_dict() for log in logs]})
     except Exception as e:
-        app_logger.error(f"Error getting access logs: {e}", exc_info=True)
         return jsonify(
             {"success": False, "message": f"Lỗi khi lấy nhật ký truy cập: {str(e)}"}
+        ), 500
+
+
+@bp.route("/sync-external", methods=["POST"])
+def sync_doors_to_external_api():
+    """Sync all doors to external API"""
+    app_logger.info("Received request to sync all doors to external API")
+    try:
+        result = door_service.sync_doors_to_external_api()
+        return jsonify(result)
+    except Exception as e:
+        app_logger.error(f"Error syncing doors to external API: {e}", exc_info=True)
+        return jsonify(
+            {"success": False, "message": f"Lỗi khi đồng bộ cửa: {str(e)}"}
+        ), 500
+
+
+@bp.route("/access-logs/sync", methods=["POST"])
+def sync_door_access_logs():
+    """
+    Manually trigger door access logs sync to external API
+
+    Request body (optional):
+        {
+            "date": "2025-10-20"  # Target date in YYYY-MM-DD format (default: today)
+        }
+    """
+    try:
+        data = request.json or {}
+        target_date = data.get("date")  # Optional, defaults to today in service
+
+        app_logger.info(
+            f"Manual door access sync triggered for date: {target_date or 'today'}"
+        )
+
+        # Import service
+        from app.services.door_access_sync_service import door_access_sync_service
+
+        # Trigger sync
+        result = door_access_sync_service.sync_daily_door_access(target_date)
+
+        if result.get("success"):
+            synced_count = result.get("synced_logs", 0)
+            total_count = result.get("count", 0)
+            sync_date = result.get("date")
+
+            message = f"Đã đồng bộ {synced_count} log ({total_count} records) cho ngày {sync_date}"
+
+            return jsonify(
+                {
+                    "success": True,
+                    "message": message,
+                    "data": {
+                        "synced_logs": synced_count,
+                        "aggregated_records": total_count,
+                        "date": sync_date,
+                    },
+                }
+            )
+        else:
+            error_msg = result.get("error", "Unknown error")
+            app_logger.error(f"Door access sync failed: {error_msg}")
+
+            return jsonify(
+                {
+                    "success": False,
+                    "message": f"Lỗi đồng bộ: {error_msg}",
+                    "error": error_msg,
+                }
+            ), 500
+
+    except Exception as e:
+        app_logger.error(f"Error in manual door access sync: {e}", exc_info=True)
+        return jsonify(
+            {"success": False, "message": f"Lỗi khi đồng bộ log mở cửa: {str(e)}"}
         ), 500

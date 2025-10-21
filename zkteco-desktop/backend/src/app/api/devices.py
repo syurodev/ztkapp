@@ -283,7 +283,9 @@ def add_device():
                 payload = {
                     "payload": [{"serial": serial_number, "name": data.get("name")}]
                 }
-                external_sync_result = external_api_service.sync_device(payload, serial_number)
+                external_sync_result = external_api_service.sync_device(
+                    payload, serial_number
+                )
                 current_app.logger.info(
                     f"Synced new device {data.get('name')} to external API."
                 )
@@ -408,10 +410,10 @@ def update_device(device_id):
             device_name = data.get("name") or updated_device.get("name")
 
             if serial_number:
-                payload = {
-                    "payload": [{"serial": serial_number, "name": device_name}]
-                }
-                external_sync_result = external_api_service.sync_device(payload, serial_number)
+                payload = {"payload": [{"serial": serial_number, "name": device_name}]}
+                external_sync_result = external_api_service.sync_device(
+                    payload, serial_number
+                )
                 current_app.logger.info(
                     f"Synced updated device {device_id} to external API."
                 )
@@ -509,7 +511,7 @@ def activate_device(device_id):
         return jsonify({"error": error_message}), 500
 
 
-@bp.route('/devices/<device_id>/test', methods=['POST'])
+@bp.route("/devices/<device_id>/test", methods=["POST"])
 def test_device_connection(device_id):
     """Test connection to a specific device"""
     try:
@@ -518,28 +520,30 @@ def test_device_connection(device_id):
             return jsonify({"error": "Device not found"}), 404
 
         # Check device type
-        device_type = device.get('device_type', 'pull')
+        device_type = device.get("device_type", "pull")
 
-        if device_type == 'push':
+        if device_type == "push":
             # Push devices don't require connection test
-            return jsonify({
-                "success": True,
-                "message": "Thiết bị push không cần kiểm tra kết nối. Thiết bị sẽ tự đăng ký khi ping về máy chủ.",
-                "device_type": "push",
-                "note": "Connection test is not applicable for push devices"
-            })
+            return jsonify(
+                {
+                    "success": True,
+                    "message": "Thiết bị push không cần kiểm tra kết nối. Thiết bị sẽ tự đăng ký khi ping về máy chủ.",
+                    "device_type": "push",
+                    "note": "Connection test is not applicable for push devices",
+                }
+            )
 
         # Pull device - test connection
         device_config = {
-            'ip': device.get('ip'),
-            'port': int(device.get('port', 4370) or 4370),
-            'password': int(device.get('password', 0) or 0),
-            'timeout': int(device.get('timeout', 180) or 180),
-            'force_udp': bool(device.get('force_udp', False)),
-            'verbose': current_app.config.get('DEBUG', False),
-            'retry_count': int(device.get('retry_count', 3) or 3),
-            'retry_delay': int(device.get('retry_delay', 2) or 2),
-            'ping_interval': int(device.get('ping_interval', 10) or 10)
+            "ip": device.get("ip"),
+            "port": int(device.get("port", 4370) or 4370),
+            "password": int(device.get("password", 0) or 0),
+            "timeout": int(device.get("timeout", 180) or 180),
+            "force_udp": bool(device.get("force_udp", False)),
+            "verbose": current_app.config.get("DEBUG", False),
+            "retry_count": int(device.get("retry_count", 3) or 3),
+            "retry_delay": int(device.get("retry_delay", 2) or 2),
+            "ping_interval": int(device.get("ping_interval", 10) or 10),
         }
 
         connection_manager.configure_device(device_id, device_config)
@@ -549,21 +553,22 @@ def test_device_connection(device_id):
         finally:
             connection_manager.disconnect_device(device_id)
 
-        return jsonify({
-            "success": True,
-            "message": "Kiểm tra kết nối thiết bị thành công",
-            "device_type": "pull"
-        })
+        return jsonify(
+            {
+                "success": True,
+                "message": "Kiểm tra kết nối thiết bị thành công",
+                "device_type": "pull",
+            }
+        )
 
     except Exception as e:
         connection_manager.reset_device_connection(device_id)
-        return jsonify({
-            "success": False,
-            "error": f"Connection test failed: {str(e)}"
-        }), 400
+        return jsonify(
+            {"success": False, "error": f"Connection test failed: {str(e)}"}
+        ), 400
 
 
-@bp.route('/devices/sync-external', methods=['POST'])
+@bp.route("/devices/sync-external", methods=["POST"])
 def sync_devices_to_external_api():
     """
     Sync all configured devices to an external API.
@@ -577,24 +582,27 @@ def sync_devices_to_external_api():
 
         # 2. Format the payload
         devices_list = [
-            {
-                "serial": device.get("serial_number"),
-                "name": device.get("name")
-            }
-            for device in all_devices if device.get("serial_number")
+            {"serial": device.get("serial_number"), "name": device.get("name")}
+            for device in all_devices
+            if device.get("serial_number")
         ]
 
         if not devices_list:
-            return jsonify({"error": "No devices with serial numbers found to sync."}), 400
+            return jsonify(
+                {"error": "No devices with serial numbers found to sync."}
+            ), 400
 
         # Wrap in payload object
-        payload = {
-            "payload": devices_list
-        }
+        payload = {"payload": devices_list}
 
         # 3. Get external API config
-        if not config_manager.get_external_api_url() or not config_manager.get_external_api_key():
-            return jsonify({"error": "External API domain or key is not configured."}), 500
+        if (
+            not config_manager.get_external_api_url()
+            or not config_manager.get_external_api_key()
+        ):
+            return jsonify(
+                {"error": "External API domain or key is not configured."}
+            ), 500
 
         # 4. Make the external API call
         response_data = external_api_service.sync_device(payload, serial_number=None)
@@ -607,7 +615,9 @@ def sync_devices_to_external_api():
         if e.response is not None:
             try:
                 error_json = e.response.json()
-                return jsonify({"error": error_json.get("message", str(e))}), e.response.status_code
+                return jsonify(
+                    {"error": error_json.get("message", str(e))}
+                ), e.response.status_code
             except ValueError:
                 return jsonify({"error": e.response.text}), e.response.status_code
         return jsonify({"error": str(e)}), 500
@@ -620,7 +630,9 @@ def get_branches():
         branches = external_api_service.get_branches()
         return jsonify(branches)
     except Exception as e:
-        current_app.logger.error(f"An unexpected error occurred during get branches: {e}")
+        current_app.logger.error(
+            f"An unexpected error occurred during get branches: {e}"
+        )
         return jsonify({"error": str(e)}), 500
 
 
@@ -640,7 +652,13 @@ def get_active_device_info():
 def sync_employee():
     """Sync employees from active device"""
     try:
-        sync_result = get_service().sync_employee()
+        active_device = config_manager.get_active_device()
+        if not active_device:
+            return jsonify({"error": "No active device configured."}), 400
+
+        device_id = active_device.get("id")
+        service = get_zk_service(device_id)
+        sync_result = service.sync_employee(device_id)
         return jsonify(sync_result)
     except ValueError as e:
         error_message = f"Lỗi cấu hình: {str(e)}"

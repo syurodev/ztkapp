@@ -24,14 +24,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import {
-  Door,
-  DoorAccessLog,
-  doorAPI,
-  devicesAPI,
-  Device,
-  api,
-} from "@/lib/api";
+import { Door, DoorAccessLog, doorAPI, devicesAPI, Device } from "@/lib/api";
 import {
   format,
   isWithinInterval,
@@ -46,6 +39,7 @@ import {
   Loader2,
   RefreshCw,
   Search,
+  Upload,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { DateRange } from "react-day-picker";
@@ -80,20 +74,20 @@ const formatDateRangeLabel = (range: DateRange | undefined) => {
 
 export function DoorAccessHistory() {
   const [doors, setDoors] = useState<Door[]>([]);
-  const [devices, setDevices] = useState<Device[]>([]);
+  const [_, setDevices] = useState<Device[]>([]);
   const [selectedDoorId, setSelectedDoorId] = useState<string | undefined>();
   const [logs, setLogs] = useState<DoorAccessLog[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncApiLoading, setSyncApiLoading] = useState(false);
   const [dateRange, setDateRange] = useState<DateRange | undefined>();
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
 
-  const selectedDevice = useMemo(() => {
-    if (!selectedDoorId || selectedDoorId === "all") return null;
-    const door = doors.find((d) => d.id.toString() === selectedDoorId);
-    if (!door || !door.device_id) return null;
-    return devices.find((d) => d.id === door.device_id) || null;
-  }, [selectedDoorId, doors, devices]);
+  // const selectedDevice = useMemo(() => {
+  //   if (!selectedDoorId || selectedDoorId === "all") return null;
+  //   const door = doors.find((d) => d.id.toString() === selectedDoorId);
+  //   if (!door || !door.device_id) return null;
+  //   return devices.find((d) => d.id === door.device_id) || null;
+  // }, [selectedDoorId, doors, devices]);
 
   useEffect(() => {
     const loadInitialData = async () => {
@@ -111,42 +105,80 @@ export function DoorAccessHistory() {
             );
           }
         } else {
-          toast.error(
-            (doorsResponse as any)?.message || "Không thể tải danh sách cửa",
-          );
+          const errorMsg = (doorsResponse as any)?.message;
+          if (errorMsg) {
+            toast.error(errorMsg);
+          }
         }
 
         // The device API response is structured differently
         const deviceList = devicesResponse?.devices || [];
         setDevices(deviceList);
-      } catch (error) {
+      } catch (error: any) {
         console.error("Error loading initial data:", error);
-        toast.error("Không thể tải dữ liệu ban đầu");
+        const errorMsg = error?.response?.data?.message;
+        if (errorMsg) {
+          toast.error(errorMsg);
+        }
       }
     };
 
     loadInitialData();
   }, []);
 
-  const handleSyncFromAttendance = async () => {
-    if (!selectedDoorId || selectedDoorId === "all") {
-      toast.warning("Vui lòng chọn một cửa cụ thể để đồng bộ.");
-      return;
-    }
-    setSyncLoading(true);
+  // const handleSyncFromAttendance = async () => {
+  //   if (!selectedDoorId || selectedDoorId === "all") {
+  //     toast.warning("Vui lòng chọn một cửa cụ thể để đồng bộ.");
+  //     return;
+  //   }
+  //   setSyncLoading(true);
+  //   try {
+  //     const response = await api.post(
+  //       `/doors/${selectedDoorId}/sync-from-attendance`,
+  //     );
+  //     if (response.data.success) {
+  //       toast.success(response.data.message);
+  //       fetchLogs(); // Refresh the logs view
+  //     } else {
+  //       toast.error(response.data.message);
+  //     }
+  //   } catch (error: any) {
+  //     console.error("Sync from attendance failed:", error);
+  //     const errorMsg = error?.response?.data?.message;
+  //     if (errorMsg) {
+  //       toast.error(errorMsg);
+  //     }
+  //   } finally {
+  //     setSyncLoading(false);
+  //   }
+  // };
+
+  const handleSyncToExternalAPI = async () => {
+    setSyncApiLoading(true);
     try {
-      const response = await api.post(
-        `/doors/${selectedDoorId}/sync-from-attendance`,
-      );
-      if (response.data.success) {
-        toast.success(response.data.message);
+      // Get selected date from dateRange if available
+      const targetDate = dateRange?.from
+        ? format(dateRange.from, "yyyy-MM-dd")
+        : undefined;
+
+      const response = await doorAPI.syncDoorAccessLogs(targetDate);
+
+      if (response.success) {
+        toast.success(response.message);
         fetchLogs(); // Refresh the logs view
+      } else {
+        toast.error(response.message);
       }
-    } catch (error) {
-      console.error("Sync from attendance failed:", error);
-      toast.error("Không thể đồng bộ từ máy chấm công.");
+    } catch (error: any) {
+      console.error("Sync to external API failed:", error);
+      const errorMsg = error?.response?.data?.message;
+      if (errorMsg) {
+        toast.error(errorMsg);
+      } else {
+        toast.error("Có lỗi xảy ra khi đồng bộ");
+      }
     } finally {
-      setSyncLoading(false);
+      setSyncApiLoading(false);
     }
   };
 
@@ -179,12 +211,17 @@ export function DoorAccessHistory() {
       if (response?.success) {
         setLogs(response.data);
       } else {
-        toast.error(response?.message || "Không thể tải nhật ký cửa");
+        if (response?.message) {
+          toast.error(response.message);
+        }
         setLogs([]);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error loading door access logs:", error);
-      toast.error("Không thể tải nhật ký cửa");
+      const errorMsg = error?.response?.data?.message;
+      if (errorMsg) {
+        toast.error(errorMsg);
+      }
       setLogs([]);
     } finally {
       setIsLoading(false);
@@ -293,7 +330,7 @@ export function DoorAccessHistory() {
               <Search className="h-4 w-4" />
               Xóa lọc
             </Button>
-            {selectedDevice?.device_type === "pull" && (
+            {/*{selectedDevice?.device_type === "pull" && (
               <Button
                 variant="outline"
                 size="sm"
@@ -307,7 +344,25 @@ export function DoorAccessHistory() {
                 )}
                 <span className="ml-2">Lấy lịch sử từ máy</span>
               </Button>
-            )}
+            )}*/}
+            <Button
+              variant="default"
+              size="sm"
+              onClick={handleSyncToExternalAPI}
+              disabled={syncApiLoading}
+              title={
+                dateRange?.from
+                  ? `Đồng bộ log cho ngày ${format(dateRange.from, "dd/MM/yyyy")}`
+                  : "Đồng bộ log hôm nay lên API"
+              }
+            >
+              {syncApiLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Upload className="h-4 w-4" />
+              )}
+              <span className="ml-2">Đồng bộ</span>
+            </Button>
             <Button
               variant="ghost"
               size="sm"
@@ -390,10 +445,7 @@ export function DoorAccessHistory() {
                     return (
                       <TableRow key={log.id}>
                         <TableCell className="whitespace-nowrap font-medium">
-                          {format(
-                            parseISO(log.timestamp),
-                            "dd/MM/yyyy HH:mm:ss",
-                          )}
+                          {format(parseISO(log.timestamp), "dd-MM-yyyy HH:mm")}
                         </TableCell>
                         <TableCell>
                           {doorNameMap[log.door_id.toString()] ??

@@ -26,12 +26,6 @@ interface Door {
   device_id: string | null;
 }
 
-interface Device {
-  id: string;
-  name: string;
-  device_type?: "pull" | "push";
-}
-
 interface AccessLog {
   id: number;
   door_id: number;
@@ -45,30 +39,22 @@ interface AccessLog {
 
 export function DoorHistory() {
   const [doors, setDoors] = useState<Door[]>([]);
-  const [devices, setDevices] = useState<Device[]>([]);
   const [selectedDoor, setSelectedDoor] = useState<string>("");
-  const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
   const [startDate, setStartDate] = useState<Date | undefined>();
   const [endDate, setEndDate] = useState<Date | undefined>();
   const [logs, setLogs] = useState<AccessLog[]>([]);
   const [loading, setLoading] = useState(false);
-  const [syncLoading, setSyncLoading] = useState(false);
 
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
-        const [doorsResponse, devicesResponse] = await Promise.all([
+        const [doorsResponse, _] = await Promise.all([
           api.get("/doors"),
           api.get("/devices"),
         ]);
 
         if (doorsResponse.data.success) {
           setDoors(doorsResponse.data.data);
-        }
-
-        if (devicesResponse.data.devices) {
-          setDevices(devicesResponse.data.devices);
-          console.log("Fetched devices:", devicesResponse.data.devices);
         }
       } catch (error) {
         toast.error("Failed to fetch initial data.");
@@ -81,15 +67,6 @@ export function DoorHistory() {
     const door = doors.find((d) => d.id.toString() === doorId);
     setSelectedDoor(doorId);
     console.log("Selected door:", door);
-
-    if (door && door.device_id) {
-      const device = devices.find((d) => d.id === door.device_id);
-      setSelectedDevice(device || null);
-      console.log("Found device:", device);
-    } else {
-      setSelectedDevice(null);
-      console.log("No device associated with this door.");
-    }
   };
 
   const handleViewHistory = async () => {
@@ -112,30 +89,6 @@ export function DoorHistory() {
       toast.error("Failed to fetch door history.");
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleSyncFromAttendance = async () => {
-    if (!selectedDoor) {
-      toast.warning("Please select a door first.");
-      return;
-    }
-    setSyncLoading(true);
-    try {
-      const response = await api.post(
-        `/doors/${selectedDoor}/sync-from-attendance`,
-      );
-      if (response.data.success) {
-        toast.success(response.data.message);
-        // Refresh the logs view
-        if (startDate && endDate) {
-          handleViewHistory();
-        }
-      }
-    } catch (error) {
-      toast.error("Failed to sync from attendance machine.");
-    } finally {
-      setSyncLoading(false);
     }
   };
 
@@ -163,7 +116,7 @@ export function DoorHistory() {
           <Button onClick={handleViewHistory} disabled={loading}>
             {loading ? "Loading..." : "View History"}
           </Button>
-          {selectedDevice?.device_type === "pull" && (
+          {/*{selectedDevice?.device_type === "pull" && (
             <Button
               onClick={handleSyncFromAttendance}
               disabled={!selectedDoor || syncLoading}
@@ -171,7 +124,7 @@ export function DoorHistory() {
             >
               {syncLoading ? "Syncing..." : "Lấy lịch sử từ máy"}
             </Button>
-          )}
+          )}*/}
         </div>
         <Table>
           <TableHeader>

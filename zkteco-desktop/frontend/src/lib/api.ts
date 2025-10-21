@@ -1230,4 +1230,28 @@ export const doorAPI = {
     });
     return response.data;
   },
+
+  syncDoors: async (): Promise<{ success: boolean; message: string }> => {
+    const response = await api.post("/doors/sync-external");
+    return response.data;
+  },
+
+  // Sync door access logs to external API
+  syncDoorAccessLogs: async (
+    date?: string,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    data?: {
+      synced_logs: number;
+      aggregated_records: number;
+      date: string;
+    };
+    error?: string;
+  }> => {
+    const response = await api.post("/doors/access-logs/sync", {
+      date: date, // Optional: YYYY-MM-DD format, defaults to today
+    });
+    return response.data;
+  },
 };

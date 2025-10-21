@@ -12,6 +12,7 @@ from app.repositories.door_access_repository import DoorAccessRepository
 from app.models.door import Door
 from app.models.door_access_log import DoorAccessLog
 from app.services.device_service import get_zk_service
+from app.services.external_api_service import external_api_service
 
 
 class DoorService:
@@ -263,6 +264,45 @@ class DoorService:
             return self.access_repo.get_by_user_id(user_id, limit, offset)
         else:
             return self.access_repo.get_all(limit, offset)
+
+    def sync_single_door(self, door: Door):
+        """Sync a single door to the external API"""
+        app_logger.info(f"Syncing single door to external API: {door.name}")
+
+        door_request = {"id": door.id, "name": door.name}
+
+        try:
+            response = external_api_service.sync_doors([door_request])
+            app_logger.info(f"Successfully synced door {door.name} to external API")
+            return response
+        except Exception as e:
+            app_logger.error(
+                f"Error syncing door {door.name} to external API: {e}", exc_info=True
+            )
+            raise e
+
+    def sync_doors_to_external_api(self):
+        """Sync all doors to external API"""
+        app_logger.info("Starting sync of all doors to external API")
+
+        doors = self.get_all_doors()
+        if not doors:
+            app_logger.info("No doors found to sync")
+            return {"success": True, "message": "No doors to sync"}
+
+        app_logger.info(f"Found {len(doors)} doors to sync")
+
+        door_requests = []
+        for door in doors:
+            door_requests.append({"id": door.id, "name": door.name})
+
+        try:
+            response = external_api_service.sync_doors(door_requests)
+            app_logger.info("Successfully synced doors to external API")
+            return response
+        except Exception as e:
+            app_logger.error(f"Error syncing doors to external API: {e}", exc_info=True)
+            return {"success": False, "message": f"Lỗi khi đồng bộ cửa: {str(e)}"}
 
 
 # Create singleton instance

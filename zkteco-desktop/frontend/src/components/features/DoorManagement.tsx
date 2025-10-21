@@ -36,14 +36,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Door, doorAPI, devicesAPI, Device } from "@/lib/api";
-import {
-  DoorOpen,
-  Plus,
-  Trash2,
-  Settings,
-  RefreshCw,
-  Loader2,
-} from "lucide-react";
+import { Plus, Trash2, Settings, RefreshCw, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
@@ -58,7 +51,6 @@ export function DoorManagement() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [selectedDoor, setSelectedDoor] = useState<Door | null>(null);
-  const [unlockingDoorId, setUnlockingDoorId] = useState<number | null>(null);
 
   // Form state
   const [formData, setFormData] = useState<{
@@ -210,18 +202,18 @@ export function DoorManagement() {
     }
   };
 
-  const handleUnlockDoor = async (doorId: number, duration: number = 3) => {
-    setUnlockingDoorId(doorId);
+  const handleSyncDoors = async () => {
+    setIsLoading(true);
     try {
-      const response = await doorAPI.unlockDoor(doorId, duration);
+      const response = await doorAPI.syncDoors();
       if (response.success) {
-        toast.success(`Mở cửa thành công trong ${duration} giây`);
+        toast.success("Đồng bộ cửa thành công");
       }
     } catch (error: any) {
-      toast.error(error.response?.data?.message || "Không thể mở cửa");
-      console.error("Error unlocking door:", error);
+      toast.error(error.response?.data?.message || "Không thể đồng bộ cửa");
+      console.error("Error syncing doors:", error);
     } finally {
-      setUnlockingDoorId(null);
+      setIsLoading(false);
     }
   };
 
@@ -235,7 +227,7 @@ export function DoorManagement() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "active":
-        return <Badge className="bg-green-500">Hoạt động</Badge>;
+        return <Badge className="bg-teal-500">Hoạt động</Badge>;
       case "inactive":
         return <Badge variant="secondary">Không hoạt động</Badge>;
       case "error":
@@ -251,6 +243,19 @@ export function DoorManagement() {
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
           <CardTitle className="text-2xl font-bold">Quản lý cửa</CardTitle>
           <div className="flex gap-2">
+            <Button
+              onClick={handleSyncDoors}
+              variant="outline"
+              size="sm"
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+              <span className="ml-2">Đồng bộ</span>
+            </Button>
             <Button
               onClick={loadDoors}
               variant="outline"
@@ -306,21 +311,6 @@ export function DoorManagement() {
                       <TableCell>{getStatusBadge(door.status)}</TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
-                          <Button
-                            onClick={() => handleUnlockDoor(door.id, 3)}
-                            variant="default"
-                            size="sm"
-                            disabled={
-                              unlockingDoorId === door.id || !door.device_id
-                            }
-                          >
-                            {unlockingDoorId === door.id ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <DoorOpen className="h-4 w-4" />
-                            )}
-                            <span className="ml-2">Mở cửa</span>
-                          </Button>
                           <Button
                             onClick={() => openEditDialog(door)}
                             variant="outline"

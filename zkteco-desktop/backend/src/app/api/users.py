@@ -117,17 +117,26 @@ def sync_users_from_device(device_id=None):
                     str(device_user.user_id), target_device_id
                 )
 
-                source_user = user_repo.find_first_by_user_id(
-                    str(device_user.user_id),
-                    exclude_device_id=target_device_id,
-                )
-                profile_payload = _collect_profile_fields(
-                    source_user, include_optional=True
-                )
-                synced_at_copy = profile_payload.pop(
-                    "synced_at",
-                    getattr(source_user, "synced_at", None) if source_user else None,
-                )
+                # ============================================================
+                # COMMENTED OUT: Profile copy logic - can be re-enabled if needed
+                # ============================================================
+                # source_user = user_repo.find_first_by_user_id(
+                #     str(device_user.user_id),
+                #     exclude_device_id=target_device_id,
+                # )
+                # profile_payload = _collect_profile_fields(
+                #     source_user, include_optional=True
+                # )
+                # synced_at_copy = profile_payload.pop(
+                #     "synced_at",
+                #     getattr(source_user, "synced_at", None) if source_user else None,
+                # )
+                # ============================================================
+
+                # Simplified: No profile copy, external_user_id will be set by cron
+                source_user = None
+                profile_payload = {}
+                synced_at_copy = None
 
                 if existing_user:
                     # Update existing user with latest info from device
@@ -273,45 +282,22 @@ def serialize_template(template):
 
 @bp.route("/users", methods=["GET"])
 def get_all_users():
-    start_time = time.time()
-    current_app.logger.info(
-        "[DEBUG] Starting get_all_users API call with database sync"
-    )
-
     try:
         # First try to sync users from device
-        current_app.logger.info("[DEBUG] Attempting to sync users from device...")
-        sync_start = time.time()
-
-        sync_success, synced_count, sync_error = sync_users_from_device()
-        sync_end = time.time()
-
-        if sync_success:
-            current_app.logger.info(
-                f"[DEBUG] Device sync completed in {sync_end - sync_start:.2f} seconds, synced {synced_count} new users"
-            )
-        else:
-            current_app.logger.warning(
-                f"[DEBUG] Device sync failed in {sync_end - sync_start:.2f} seconds: {sync_error}"
-            )
-            current_app.logger.info("[DEBUG] Falling back to database users only")
+        try:
+            sync_success, synced_count, sync_error = sync_users_from_device()
+        except TimeoutError:
+            sync_success = False
+            synced_count = 0
+            sync_error = "Device connection timed out"
 
         # Get users from database (whether sync worked or not)
-        current_app.logger.info("[DEBUG] Retrieving users from database...")
-        db_start = time.time()
-
-        # Get active device to filter users
         active_device = config_manager.get_active_device()
         device_id = active_device["id"] if active_device else None
 
         db_users = user_repo.get_all(device_id=device_id)
-        db_end = time.time()
-        current_app.logger.info(
-            f"[DEBUG] Database query completed in {db_end - db_start:.2f} seconds"
-        )
 
         if not db_users:
-            current_app.logger.info("[DEBUG] No users found in database")
             message = "Không tìm thấy người dùng nào"
             if sync_error:
                 message += f" (Đồng bộ với thiết bị thất bại: {sync_error})"
@@ -326,11 +312,6 @@ def get_all_users():
                     },
                 }
             )
-
-        current_app.logger.info(
-            f"[DEBUG] Found {len(db_users)} users in database, starting serialization"
-        )
-        serialize_start = time.time()
 
         # Serialize database users to match frontend format
         serialized_users = []
@@ -367,16 +348,6 @@ def get_all_users():
                 }
             )
 
-        serialize_end = time.time()
-        current_app.logger.info(
-            f"[DEBUG] Serialization completed in {serialize_end - serialize_start:.2f} seconds"
-        )
-
-        total_time = time.time() - start_time
-        current_app.logger.info(
-            f"[DEBUG] Total API call completed in {total_time:.2f} seconds"
-        )
-
         return jsonify(
             {
                 "message": "Lấy danh sách người dùng thành công",
@@ -393,11 +364,6 @@ def get_all_users():
 
     except Exception as e:
         error_message = f"Lỗi khi lấy danh sách người dùng: {str(e)}"
-        current_app.logger.error(f"[DEBUG] Exception occurred: {error_message}")
-        total_time = time.time() - start_time
-        current_app.logger.error(
-            f"[DEBUG] API call failed after {total_time:.2f} seconds"
-        )
         return jsonify({"message": error_message}), 500
 
 

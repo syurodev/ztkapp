@@ -172,6 +172,14 @@ class ZKTecoService:
         """Start the service"""
         self.logger.info("Starting ZKTeco Service...")
 
+        # Run database migrations
+        try:
+            from app.database.run_migrations import run_migrations
+
+            run_migrations()
+        except Exception as e:
+            self.logger.error(f"Failed to run database migrations: {e}")
+
         # Fetch network IPs once at startup (cached in memory for this process lifecycle)
         self.fetch_local_ip()
         self.fetch_public_ip()

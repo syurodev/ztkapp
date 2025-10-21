@@ -19,6 +19,8 @@ class DoorAccessLog:
     status: str = ""  # success, failed, error
     timestamp: Optional[datetime] = None
     notes: Optional[str] = None
+    is_synced: bool = False
+    synced_at: Optional[datetime] = None
 
     def to_dict(self):
         """Convert to dictionary for JSON serialization"""
@@ -42,6 +44,8 @@ class DoorAccessLog:
             "status": self.status,
             "timestamp": serialize_datetime(self.timestamp),
             "notes": self.notes,
+            "is_synced": self.is_synced,
+            "synced_at": serialize_datetime(self.synced_at),
         }
 
     @staticmethod
@@ -56,4 +60,6 @@ class DoorAccessLog:
             status=data.get("status", ""),
             timestamp=data.get("timestamp"),
             notes=data.get("notes"),
+            is_synced=data.get("is_synced", False),
+            synced_at=data.get("synced_at"),
         )

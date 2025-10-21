@@ -31,12 +31,13 @@ from app.shared.logger import app_logger
 # BLUEPRINT SETUP
 # ============================================================================
 
-push_devices_bp = Blueprint('push_devices', __name__)
+push_devices_bp = Blueprint("push_devices", __name__)
 
 
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
+
 
 def _get_query_params() -> Dict[str, Any]:
     """
@@ -66,7 +67,7 @@ def _create_text_response(text: str) -> Response:
     Note:
         All responses to device must end with \\r\\n
     """
-    response = Response(text, mimetype='text/plain; charset=utf-8')
+    response = Response(text, mimetype="text/plain; charset=utf-8")
     return response
 
 
@@ -74,7 +75,8 @@ def _create_text_response(text: str) -> Response:
 # PUSH PROTOCOL ENDPOINTS (Device-facing)
 # ============================================================================
 
-@push_devices_bp.route('/iclock/getrequest', methods=['GET'])
+
+@push_devices_bp.route("/iclock/getrequest", methods=["GET"])
 def device_ping():
     """
     Device ping endpoint - Check for pending commands.
@@ -104,8 +106,6 @@ def device_ping():
     try:
         query_params = _get_query_params()
 
-        app_logger.debug(f"[PUSH API] Device ping: {query_params}")
-
         # Handle ping and get response (OK or command)
         response_text = push_protocol_service.handle_device_ping(query_params)
 
@@ -117,7 +117,7 @@ def device_ping():
         return _create_text_response("OK\r\n")
 
 
-@push_devices_bp.route('/iclock/cdata', methods=['GET'])
+@push_devices_bp.route("/iclock/cdata", methods=["GET"])
 def device_handshake():
     """
     Device handshake endpoint - Initial connection establishment.
@@ -142,8 +142,6 @@ def device_handshake():
     try:
         query_params = _get_query_params()
 
-        app_logger.debug(f"[PUSH API] Device handshake: {query_params}")
-
         # Handle handshake
         response_text = push_protocol_service.handle_handshake(query_params)
 
@@ -154,7 +152,7 @@ def device_handshake():
         return _create_text_response("OK\r\n")
 
 
-@push_devices_bp.route('/iclock/cdata', methods=['POST'])
+@push_devices_bp.route("/iclock/cdata", methods=["POST"])
 def device_data_upload():
     """
     Device data upload endpoint - Receive data from device.
@@ -197,7 +195,7 @@ def device_data_upload():
     """
     try:
         query_params = _get_query_params()
-        table_type = query_params.get('table', 'UNKNOWN')
+        table_type = query_params.get("table", "UNKNOWN")
 
         # Get raw body data
         raw_data = request.get_data(as_text=True)
@@ -208,11 +206,8 @@ def device_data_upload():
             f"data_length={len(raw_data)}"
         )
 
-        # Log first 200 chars of data for debugging
-        app_logger.debug(f"[PUSH API] Data preview: {raw_data[:200]}")
-
         # Route to appropriate handler based on table type
-        if table_type == 'ATTLOG':
+        if table_type == "ATTLOG":
             # Attendance records
             records, saved_count = push_protocol_service.handle_attendance_data(
                 raw_data, query_params
@@ -221,7 +216,7 @@ def device_data_upload():
                 f"[PUSH API] OK ATTLOG processed: {len(records)} records, {saved_count} saved"
             )
 
-        elif table_type == 'OPERLOG':
+        elif table_type == "OPERLOG":
             # User information
             users, saved_count = push_protocol_service.handle_user_data(
                 raw_data, query_params
@@ -230,11 +225,9 @@ def device_data_upload():
                 f"[PUSH API] OK OPERLOG processed: {len(users)} users, {saved_count} saved"
             )
 
-        elif table_type == 'BIODATA':
+        elif table_type == "BIODATA":
             # Biometric templates
-            filepath = push_protocol_service.handle_biodata(
-                raw_data, query_params
-            )
+            filepath = push_protocol_service.handle_biodata(raw_data, query_params)
             if filepath:
                 app_logger.info(f"[PUSH API] OK BIODATA saved: {filepath}")
             else:
@@ -243,7 +236,6 @@ def device_data_upload():
         else:
             # Unknown table type
             app_logger.warning(f"[PUSH API] Unknown table type: {table_type}")
-            app_logger.debug(f"[PUSH API] Raw data: {raw_data[:500]}")
 
         # Always return OK to acknowledge receipt
         return _create_text_response("OK\r\n")
@@ -254,7 +246,7 @@ def device_data_upload():
         return _create_text_response("OK\r\n")
 
 
-@push_devices_bp.route('/iclock/fdata', methods=['POST'])
+@push_devices_bp.route("/iclock/fdata", methods=["POST"])
 def device_file_upload():
     """
     Device file upload endpoint - Receive binary biometric files.
@@ -305,7 +297,7 @@ def device_file_upload():
         return _create_text_response("OK\r\n")
 
 
-@push_devices_bp.route('/iclock/devicecmd', methods=['GET'])
+@push_devices_bp.route("/iclock/devicecmd", methods=["GET"])
 def device_command_check():
     """
     Device command check endpoint (legacy).
@@ -326,8 +318,6 @@ def device_command_check():
     try:
         query_params = _get_query_params()
 
-        app_logger.debug(f"[PUSH API] Legacy device command check: {query_params}")
-
         # Return empty response (no commands via this endpoint)
         return _create_text_response("")
 
@@ -340,7 +330,8 @@ def device_command_check():
 # MANAGEMENT API ENDPOINTS (Web UI/Admin-facing)
 # ============================================================================
 
-@push_devices_bp.route('/api/push/devices/<serial_number>/command', methods=['POST'])
+
+@push_devices_bp.route("/api/push/devices/<serial_number>/command", methods=["POST"])
 def queue_device_command(serial_number: str):
     """
     Queue a command to be sent to device on next ping.
@@ -383,19 +374,17 @@ def queue_device_command(serial_number: str):
     try:
         # Validate request
         if not request.is_json:
-            return jsonify({
-                "success": False,
-                "error": "Content-Type must be application/json"
-            }), 400
+            return jsonify(
+                {"success": False, "error": "Content-Type must be application/json"}
+            ), 400
 
         data = request.get_json()
-        command = data.get('command')
+        command = data.get("command")
 
         if not command:
-            return jsonify({
-                "success": False,
-                "error": "Missing 'command' field in request body"
-            }), 400
+            return jsonify(
+                {"success": False, "error": "Missing 'command' field in request body"}
+            ), 400
 
         # Queue command
         success = push_protocol_service.queue_command(serial_number, command)
@@ -406,27 +395,25 @@ def queue_device_command(serial_number: str):
                 f"SN={serial_number}, command={command}"
             )
 
-            return jsonify({
-                "success": True,
-                "message": "Đã đưa lệnh vào hàng đợi. Thiết bị sẽ nhận ở lần ping tiếp theo.",
-                "serial_number": serial_number,
-                "command": command
-            })
+            return jsonify(
+                {
+                    "success": True,
+                    "message": "Đã đưa lệnh vào hàng đợi. Thiết bị sẽ nhận ở lần ping tiếp theo.",
+                    "serial_number": serial_number,
+                    "command": command,
+                }
+            )
         else:
-            return jsonify({
-                "success": False,
-                "error": "Failed to queue command"
-            }), 500
+            return jsonify({"success": False, "error": "Failed to queue command"}), 500
 
     except Exception as e:
         app_logger.error(f"Error in queue_device_command: {e}", exc_info=True)
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
-@push_devices_bp.route('/api/push/devices/<serial_number>/upload-users', methods=['POST'])
+@push_devices_bp.route(
+    "/api/push/devices/<serial_number>/upload-users", methods=["POST"]
+)
 def request_user_upload(serial_number: str):
     """
     Request device to upload all user information.
@@ -459,27 +446,25 @@ def request_user_upload(serial_number: str):
                 f"[PUSH API] User upload requested for device {serial_number}"
             )
 
-            return jsonify({
-                "success": True,
-                "message": "Đã yêu cầu thiết bị gửi danh sách người dùng. Thiết bị sẽ tải lên ở lần ping tiếp theo.",
-                "serial_number": serial_number,
-                "command": command
-            })
+            return jsonify(
+                {
+                    "success": True,
+                    "message": "Đã yêu cầu thiết bị gửi danh sách người dùng. Thiết bị sẽ tải lên ở lần ping tiếp theo.",
+                    "serial_number": serial_number,
+                    "command": command,
+                }
+            )
         else:
-            return jsonify({
-                "success": False,
-                "error": "Failed to queue command"
-            }), 500
+            return jsonify({"success": False, "error": "Failed to queue command"}), 500
 
     except Exception as e:
         app_logger.error(f"Error in request_user_upload: {e}", exc_info=True)
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
-@push_devices_bp.route('/api/push/devices/<serial_number>/upload-attendance', methods=['POST'])
+@push_devices_bp.route(
+    "/api/push/devices/<serial_number>/upload-attendance", methods=["POST"]
+)
 def request_attendance_upload(serial_number: str):
     """
     Request device to upload attendance logs.
@@ -512,29 +497,26 @@ def request_attendance_upload(serial_number: str):
                 f"[PUSH API] Attendance upload requested for device {serial_number}"
             )
 
-            return jsonify({
-                "success": True,
-                "message": "Đã yêu cầu thiết bị gửi dữ liệu chấm công. Thiết bị sẽ tải lên ở lần ping tiếp theo.",
-                "serial_number": serial_number,
-                "command": command
-            })
+            return jsonify(
+                {
+                    "success": True,
+                    "message": "Đã yêu cầu thiết bị gửi dữ liệu chấm công. Thiết bị sẽ tải lên ở lần ping tiếp theo.",
+                    "serial_number": serial_number,
+                    "command": command,
+                }
+            )
         else:
-            return jsonify({
-                "success": False,
-                "error": "Failed to queue command"
-            }), 500
+            return jsonify({"success": False, "error": "Failed to queue command"}), 500
 
     except Exception as e:
         app_logger.error(f"Error in request_attendance_upload: {e}", exc_info=True)
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 # ============================================================================
 # ERROR HANDLERS
 # ============================================================================
+
 
 @push_devices_bp.errorhandler(404)
 def not_found(error):
@@ -542,14 +524,11 @@ def not_found(error):
     app_logger.warning(f"[PUSH API] 404 Not Found: {request.url}")
 
     # For device endpoints, return OK to prevent errors
-    if request.path.startswith('/iclock/'):
+    if request.path.startswith("/iclock/"):
         return _create_text_response("OK\r\n")
 
     # For API endpoints, return JSON error
-    return jsonify({
-        "success": False,
-        "error": "Endpoint not found"
-    }), 404
+    return jsonify({"success": False, "error": "Endpoint not found"}), 404
 
 
 @push_devices_bp.errorhandler(500)
@@ -558,11 +537,8 @@ def internal_error(error):
     app_logger.error(f"[PUSH API] 500 Internal Error: {error}", exc_info=True)
 
     # For device endpoints, return OK to prevent errors
-    if request.path.startswith('/iclock/'):
+    if request.path.startswith("/iclock/"):
         return _create_text_response("OK\r\n")
 
     # For API endpoints, return JSON error
-    return jsonify({
-        "success": False,
-        "error": "Internal server error"
-    }), 500
+    return jsonify({"success": False, "error": "Internal server error"}), 500

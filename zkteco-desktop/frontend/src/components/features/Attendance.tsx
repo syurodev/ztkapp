@@ -595,7 +595,7 @@ export function Attendance() {
                                           <AvatarImage
                                             src={buildAvatarUrl(
                                               record.avatar_url,
-                                              resourceDomain
+                                              resourceDomain,
                                             )}
                                             alt={
                                               record.full_name ?? record.name
@@ -609,7 +609,12 @@ export function Attendance() {
                                       {record.full_name ?? record.name}
                                     </div>
                                   </TableCell>
-                                  <TableCell>{record.timestamp}</TableCell>
+                                  <TableCell>
+                                    {format(
+                                      new Date(record.timestamp),
+                                      "yyyy-MM-dd HH:mm",
+                                    )}
+                                  </TableCell>
                                   <TableCell>
                                     {ATTENDANCE_METHOD_MAP[record.method] ||
                                       "Không xác định"}

@@ -236,7 +236,9 @@ export function AttendanceHistoryView({
                     {record.full_name ?? record.name}
                   </div>
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <span>{record.timestamp}</span>
+                    <span>
+                      {format(new Date(record.timestamp), "yyyy-MM-dd HH:mm")}
+                    </span>
                     {methodIcon && (
                       <Badge variant={"outline"}>
                         {methodIcon}

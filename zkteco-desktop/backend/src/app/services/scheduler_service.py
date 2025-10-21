@@ -8,6 +8,7 @@ from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
 from app.shared.logger import app_logger
 from app.services.attendance_sync_service import attendance_sync_service
 from app.services.attendance_cleanup_service import attendance_cleanup_service
+from app.services.door_access_sync_service import door_access_sync_service
 from app.config.config_manager import config_manager
 
 
@@ -44,6 +45,9 @@ class SchedulerService:
             # Add monthly attendance cleanup job (runs on 1st day of month at 2 AM)
             self._add_monthly_cleanup_job()
 
+            # Add daily door access sync job (runs at 23:59 every day)
+            self._add_daily_door_access_sync_job()
+
             # Start the scheduler
             self.scheduler.start()
             self.is_running = True
@@ -73,17 +77,39 @@ class SchedulerService:
             self.scheduler.add_job(
                 func=self._run_daily_attendance_sync,
                 trigger=trigger,
-                id='daily_attendance_sync',
-                name='Daily Attendance Sync',
+                id="daily_attendance_sync",
+                name="Daily Attendance Sync",
                 replace_existing=True,
                 max_instances=1,  # Prevent overlapping executions
-                misfire_grace_time=300  # 5 minutes grace period
+                misfire_grace_time=300,  # 5 minutes grace period
             )
 
             self.logger.info("Daily attendance sync job scheduled for 23:59 every day")
 
         except Exception as e:
             self.logger.error(f"Failed to add daily attendance sync job: {e}")
+            raise
+
+    def _add_daily_door_access_sync_job(self):
+        """Add daily door access sync job to scheduler"""
+        try:
+            # Schedule job to run at 23:59 every day
+            trigger = CronTrigger(hour=23, minute=59)
+
+            self.scheduler.add_job(
+                func=self._run_daily_door_access_sync,
+                trigger=trigger,
+                id="daily_door_access_sync",
+                name="Daily Door Access Sync",
+                replace_existing=True,
+                max_instances=1,  # Prevent overlapping executions
+                misfire_grace_time=300,  # 5 minutes grace period
+            )
+
+            self.logger.info("Daily door access sync job scheduled for 23:59 every day")
+
+        except Exception as e:
+            self.logger.error(f"Failed to add daily door access sync job: {e}")
             raise
 
     def _add_first_checkin_sync_job(self):
@@ -94,36 +120,40 @@ class SchedulerService:
             self.scheduler.add_job(
                 func=self._run_first_checkin_sync,
                 trigger=trigger,
-                id='first_checkin_sync',
-                name='First Checkin Sync (30s interval)',
+                id="first_checkin_sync",
+                name="First Checkin Sync (30s interval)",
                 replace_existing=True,
                 max_instances=1,
-                misfire_grace_time=15
+                misfire_grace_time=15,
             )
 
-            self.logger.info("OK First checkin sync job scheduled to run every 30 seconds")
+            self.logger.info(
+                "OK First checkin sync job scheduled to run every 30 seconds"
+            )
 
         except Exception as e:
             self.logger.error(f"Failed to add first checkin sync job: {e}")
             raise
 
     def _add_periodic_user_sync_job(self):
-        """Add periodic user sync job to scheduler (every 30 seconds)"""
+        """Add periodic user sync job to scheduler (every 5 minutes)"""
         try:
-            # Schedule job to run every 30 seconds
-            trigger = IntervalTrigger(seconds=30)
+            # Schedule job to run every 5 minutes
+            trigger = IntervalTrigger(minutes=5)
 
             self.scheduler.add_job(
                 func=self._run_periodic_user_sync,
                 trigger=trigger,
-                id='periodic_user_sync',
-                name='Periodic User Sync from External API',
+                id="periodic_user_sync",
+                name="Periodic User Sync from External API",
                 replace_existing=True,
                 max_instances=1,  # Prevent overlapping executions
-                misfire_grace_time=60  # 1 minute grace period
+                misfire_grace_time=60,  # 1 minute grace period
             )
 
-            self.logger.info("OK Periodic user sync job scheduled to run every 30 seconds")
+            self.logger.info(
+                "OK Periodic user sync job scheduled to run every 5 minutes"
+            )
 
         except Exception as e:
             self.logger.error(f"Failed to add periodic user sync job: {e}")
@@ -138,14 +168,16 @@ class SchedulerService:
             self.scheduler.add_job(
                 func=self._run_monthly_cleanup,
                 trigger=trigger,
-                id='monthly_attendance_cleanup',
-                name='Monthly Attendance Cleanup (Remove old synced/skipped records)',
+                id="monthly_attendance_cleanup",
+                name="Monthly Attendance Cleanup (Remove old synced/skipped records)",
                 replace_existing=True,
                 max_instances=1,  # Prevent overlapping executions
-                misfire_grace_time=3600  # 1 hour grace period
+                misfire_grace_time=3600,  # 1 hour grace period
             )
 
-            self.logger.info("OK Monthly attendance cleanup job scheduled for 1st day of month at 2:00 AM")
+            self.logger.info(
+                "OK Monthly attendance cleanup job scheduled for 1st day of month at 2:00 AM"
+            )
 
         except Exception as e:
             self.logger.error(f"Failed to add monthly cleanup job: {e}")
@@ -158,113 +190,46 @@ class SchedulerService:
         Works for both pull and push devices as it only updates the database,
         not device-specific operations.
         """
-        job_start_time = datetime.now()
-        self.logger.info("=" * 80)
-        self.logger.info(f"CRON JOB STARTED: Periodic User Sync from External API")
-        self.logger.info(f"Start Time: {job_start_time.strftime('%Y-%m-%d %H:%M:%S')}")
-        self.logger.info("=" * 80)
-
         try:
-            # Import here to avoid circular import
             from app.services.device_service import get_zk_service
-            zk_service = get_zk_service()
 
-            # Sync all users from external API to update employee details
-            # This works for all device types:
-            # - Push devices: Updates users that were added via push protocol
-            # - Pull devices: Updates users that were added via manual sync
+            zk_service = get_zk_service()
             result = zk_service.sync_all_users_from_external_api()
 
-            if result.get('success'):
-                updated_count = result.get('updated_count', 0)
-                total_users = result.get('total_users', 0)
+            if result.get("success"):
+                updated_count = result.get("updated_count", 0)
                 if updated_count > 0:
                     self.logger.info(
-                        f"Periodic user sync completed: "
-                        f"updated {updated_count}/{total_users} users with employee details"
+                        f"[CRON] Periodic User Sync: Updated {updated_count} users"
                     )
-                else:
-                    self.logger.debug(f"No user updates needed ({total_users} users checked)")
             else:
-                error_msg = result.get('error') or result.get('message', 'Unknown error')
-                self.logger.warning(f"Periodic user sync completed with warnings: {error_msg}")
+                error_msg = result.get("error") or result.get(
+                    "message", "Unknown error"
+                )
+                self.logger.warning(f"[CRON] Periodic User Sync failed: {error_msg}")
 
         except Exception as e:
-            self.logger.error(f"Error in periodic user sync: {e}")
-            # Don't raise - let scheduler continue
-
-        finally:
-            duration = datetime.now() - job_start_time
-            self.logger.info("=" * 80)
-            self.logger.info(f"CRON JOB COMPLETED: Periodic User Sync")
-            self.logger.info(f"Duration: {duration}")
-            self.logger.info(f"End Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-            self.logger.info("=" * 80)
+            self.logger.error(f"[CRON] Periodic User Sync error: {e}")
 
     def _run_first_checkin_sync(self):
         """Execute frequent first-checkin sync job (works for both pull and push devices)"""
-        job_start_time = datetime.now()
-        self.logger.info("-" * 60)
-        self.logger.info(
-            f"CRON JOB STARTED: First Checkin Sync at {job_start_time.strftime('%Y-%m-%d %H:%M:%S')}"
-        )
-
         try:
-            from app.services.device_service import get_zk_service
-
-            # Step 1: Sync unsynced users from DB to external API (works for all device types)
-            # Push devices: Users are already in DB from push protocol
-            # Pull devices: Users are in DB from manual sync
-            user_result = None
-            try:
-                zk_service = get_zk_service()
-                user_result = zk_service.sync_employee()
-
-                if user_result.get('success'):
-                    synced_users = user_result.get('synced_users_count') or 0
-                    employee_count = user_result.get('employees_count', 0)
-                    if synced_users or employee_count:
-                        self.logger.info(
-                            f"User sync to external API: {synced_users}/{employee_count} users synced"
-                        )
-                    else:
-                        self.logger.debug("User sync: no unsynced users to process")
-                else:
-                    self.logger.warning(
-                        f"User sync to external API failed: {user_result.get('message') or user_result.get('error', 'unknown error')}"
-                    )
-            except Exception as user_error:
-                self.logger.error(f"Error syncing users to external API: {user_error}")
-                # Continue to attendance sync even if user sync fails
-
-            # Step 2: Sync first checkins from DB to external API (works for all device types)
-            # Push devices: Attendance already in DB from push protocol
-            # Pull devices: Attendance in DB from manual sync
+            # Sync first checkins only
             attendance_result = attendance_sync_service.sync_first_checkins()
 
-            if attendance_result.get('success'):
-                synced = attendance_result.get('synced_records', 0)
-                total = attendance_result.get('count', 0)
-                if synced or total:
+            if attendance_result.get("success"):
+                synced = attendance_result.get("synced_records", 0)
+                if synced > 0:
                     self.logger.info(
-                        f"First checkin sync completed: processed {total} users, synced {synced} records to external API"
+                        f"[CRON] First Checkin: Synced {synced} attendance records"
                     )
-                else:
-                    self.logger.debug("First checkin sync: no pending attendance records")
             else:
                 self.logger.warning(
-                    f"First checkin sync returned error: {attendance_result.get('error', 'unknown error')}"
+                    f"[CRON] First Checkin attendance sync error: {attendance_result.get('error', 'unknown error')}"
                 )
 
         except Exception as e:
-            self.logger.error(f"Error in first checkin sync: {e}")
-
-        finally:
-            duration = datetime.now() - job_start_time
-            self.logger.info(
-                f"CRON JOB COMPLETED: First Checkin Sync in {duration}"
-            )
-            self.logger.info("-" * 60)
+            self.logger.error(f"[CRON] First Checkin error: {e}")
 
     def _fetch_attendance_from_all_devices(self):
         """Fetch attendance logs from all active pull devices before sync"""
@@ -277,46 +242,61 @@ class SchedulerService:
                 return
 
             # Filter to only pull devices (push devices send data automatically)
-            pull_devices = [d for d in active_devices if d.get('device_type', 'pull') == 'pull']
+            pull_devices = [
+                d for d in active_devices if d.get("device_type", "pull") == "pull"
+            ]
             push_count = len(active_devices) - len(pull_devices)
 
             if push_count > 0:
-                self.logger.info(f"Skipping {push_count} push device(s) - they push data automatically")
+                self.logger.info(
+                    f"Skipping {push_count} push device(s) - they push data automatically"
+                )
 
             if not pull_devices:
                 self.logger.info("No pull devices found for attendance fetch")
                 return
 
-            self.logger.info(f"Fetching attendance logs from {len(pull_devices)} active pull device(s)")
+            self.logger.info(
+                f"Fetching attendance logs from {len(pull_devices)} active pull device(s)"
+            )
 
             total_fetched = 0
             successful_devices = 0
 
             for device in pull_devices:
-                device_id = device.get('id')
-                device_name = device.get('name', device_id)
+                device_id = device.get("id")
+                device_name = device.get("name", device_id)
 
                 try:
-                    self.logger.info(f"Fetching attendance from device: {device_name} ({device_id})")
+                    self.logger.info(
+                        f"Fetching attendance from device: {device_name} ({device_id})"
+                    )
 
                     # Import here to avoid circular import
                     from app.services.device_service import get_zk_service
-                    zk_service = get_zk_service()
+
+                    zk_service = get_zk_service(device_id)
 
                     # Fetch attendance logs from device
-                    result = zk_service.get_attendance(device_id)
+                    result = zk_service.get_attendance()
 
-                    if result and 'sync_stats' in result:
-                        new_records = result['sync_stats'].get('new_records_saved', 0)
+                    if result and "sync_stats" in result:
+                        new_records = result["sync_stats"].get("new_records_saved", 0)
                         total_fetched += new_records
-                        self.logger.info(f"Device {device_name}: fetched {new_records} new attendance records")
+                        self.logger.info(
+                            f"Device {device_name}: fetched {new_records} new attendance records"
+                        )
                     else:
-                        self.logger.info(f"Device {device_name}: no new records or unexpected response format")
+                        self.logger.info(
+                            f"Device {device_name}: no new records or unexpected response format"
+                        )
 
                     successful_devices += 1
 
                 except Exception as device_error:
-                    self.logger.error(f"Error fetching attendance from device {device_name} ({device_id}): {device_error}")
+                    self.logger.error(
+                        f"Error fetching attendance from device {device_name} ({device_id}): {device_error}"
+                    )
                     # Continue with next device
                     continue
 
@@ -331,213 +311,198 @@ class SchedulerService:
 
     def _run_monthly_cleanup(self):
         """Execute monthly cleanup job to remove old synced/skipped attendance records"""
-        job_start_time = datetime.now()
-        self.logger.info("=" * 80)
-        self.logger.info(f"CRON JOB STARTED: Monthly Attendance Cleanup")
-        self.logger.info(f"Start Time: {job_start_time.strftime('%Y-%m-%d %H:%M:%S')}")
-        self.logger.info("=" * 80)
-
         try:
             # Get retention days from app settings (default: 365 days = 1 year)
             try:
                 from app.repositories.setting_repository import setting_repo
-                retention_setting = setting_repo.get('cleanup_retention_days')
-                retention_days = int(retention_setting.value) if retention_setting else 365
+
+                retention_setting = setting_repo.get("cleanup_retention_days")
+                retention_days = (
+                    int(retention_setting.value) if retention_setting else 365
+                )
             except Exception:
                 retention_days = 365  # Default to 1 year
-
-            self.logger.info(f"Cleanup retention period: {retention_days} days")
 
             # Run cleanup
             result = attendance_cleanup_service.cleanup_old_attendance(retention_days)
 
-            if result['success']:
-                deleted_count = result.get('deleted_count', 0)
+            if result["success"]:
+                deleted_count = result.get("deleted_count", 0)
                 if deleted_count > 0:
                     self.logger.info(
-                        f"Monthly cleanup completed: deleted {deleted_count} old records (synced/skipped)"
+                        f"[CRON] Monthly Cleanup: Deleted {deleted_count} old records (retention: {retention_days} days)"
                     )
-                    self.logger.info(f"Records remaining: {result.get('stats_after', {}).get('total_records', 'unknown')}")
-                else:
-                    self.logger.info("Monthly cleanup: no old records to delete")
             else:
                 self.logger.error(
-                    f"Monthly cleanup failed: {result.get('error')}"
+                    f"[CRON] Monthly Cleanup failed: {result.get('error')}"
                 )
 
         except Exception as e:
-            self.logger.error(f"Error in monthly cleanup job: {e}")
-            # Don't raise - let scheduler continue
-
-        finally:
-            duration = datetime.now() - job_start_time
-            self.logger.info("=" * 80)
-            self.logger.info(f"CRON JOB COMPLETED: Monthly Attendance Cleanup")
-            self.logger.info(f"Duration: {duration}")
-            self.logger.info(f"End Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-            self.logger.info("=" * 80)
+            self.logger.error(f"[CRON] Monthly Cleanup error: {e}")
 
     def _run_daily_attendance_sync(self):
         """Execute daily attendance sync job with multi-day support (works for both pull and push devices)"""
-        job_start_time = datetime.now()
-        self.logger.info("=" * 80)
-        self.logger.info(f"CRON JOB STARTED: Daily Attendance Sync")
-        self.logger.info(f"Start Time: {job_start_time.strftime('%Y-%m-%d %H:%M:%S')}")
-        self.logger.info("=" * 80)
-
         try:
-            # Step 1: Fetch attendance logs from PULL devices only (push devices send data automatically)
-            self.logger.info("Step 1: Fetching attendance logs from active PULL devices")
+            # Step 1: Fetch attendance from pull devices
             self._fetch_attendance_from_all_devices()
 
-            # Step 2: Run the attendance sync for all pending dates (works for all device types)
-            # Push devices: Attendance already in DB from push protocol
-            # Pull devices: Attendance now in DB from Step 1
-            self.logger.info("Step 2: Syncing attendance data from DB to external API")
+            # Step 2: Sync to external API
             result = attendance_sync_service.sync_attendance_daily(
                 ignore_error_limit=True
             )
 
-            if result['success']:
-                dates_processed = result.get('dates_processed', [])
-                total_count = result.get('count', 0)
-                total_dates = result.get('total_dates', 0)
+            if result["success"]:
+                total_count = result.get("count", 0)
+                total_dates = result.get("total_dates", 0)
 
                 if total_dates > 0:
+                    dates_processed = result.get("dates_processed", [])
                     self.logger.info(
-                        f"Daily attendance sync completed: "
-                        f"{total_count} records synced across {total_dates} dates: {dates_processed}"
+                        f"[CRON] Daily Attendance: Synced {total_count} records across {total_dates} dates: {dates_processed}"
                     )
-                else:
-                    self.logger.info("No pending attendance records found for sync")
             else:
                 self.logger.error(
-                    f"Daily attendance sync failed: {result.get('error')}"
+                    f"[CRON] Daily Attendance failed: {result.get('error')}"
                 )
 
         except Exception as e:
-            self.logger.error(f"Error in scheduled daily attendance sync: {e}")
+            self.logger.error(f"[CRON] Daily Attendance error: {e}")
             raise
 
-        finally:
-            duration = datetime.now() - job_start_time
-            self.logger.info("=" * 80)
-            self.logger.info(f"CRON JOB COMPLETED: Daily Attendance Sync")
-            self.logger.info(f"Duration: {duration}")
-            self.logger.info(f"End Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-            self.logger.info("=" * 80)
+    def _run_daily_door_access_sync(self):
+        """Execute daily door access sync job"""
+        try:
+            target_date = datetime.now().strftime("%Y-%m-%d")
+            result = door_access_sync_service.sync_daily_door_access(target_date)
+
+            if result.get("success"):
+                synced_count = result.get("synced_count", 0)
+                total_logs = result.get("total_logs", 0)
+
+                if synced_count > 0:
+                    self.logger.info(
+                        f"[CRON] Door Access: Synced {synced_count} records ({total_logs} logs) for {target_date}"
+                    )
+            else:
+                error_msg = result.get("error", "unknown error")
+                self.logger.error(f"[CRON] Door Access failed: {error_msg}")
+
+        except Exception as e:
+            self.logger.error(f"[CRON] Door Access error: {e}")
 
     def _job_executed_listener(self, event):
         """Handle successful job execution events"""
-        self.logger.info(
-            f"Job '{event.job_id}' executed successfully at {event.scheduled_run_time}"
-        )
+        # Only log at debug level to reduce noise
+        self.logger.debug(f"Job '{event.job_id}' executed successfully")
 
     def _job_error_listener(self, event):
         """Handle job error events"""
-        self.logger.error(
-            f"Job '{event.job_id}' crashed at {event.scheduled_run_time}: {event.exception}"
-        )
+        self.logger.error(f"Job '{event.job_id}' crashed: {event.exception}")
 
-    def get_job_status(self, job_id: str = 'daily_attendance_sync'):
+    def get_job_status(self, job_id: str = "daily_attendance_sync"):
         """Get status of a specific job"""
         if not self.scheduler:
-            return {'running': False, 'error': 'Scheduler not initialized'}
+            return {"running": False, "error": "Scheduler not initialized"}
 
         try:
             job = self.scheduler.get_job(job_id)
             if job:
                 return {
-                    'running': self.is_running,
-                    'job_id': job.id,
-                    'job_name': job.name,
-                    'next_run_time': str(job.next_run_time) if job.next_run_time else None,
-                    'trigger': str(job.trigger)
+                    "running": self.is_running,
+                    "job_id": job.id,
+                    "job_name": job.name,
+                    "next_run_time": str(job.next_run_time)
+                    if job.next_run_time
+                    else None,
+                    "trigger": str(job.trigger),
                 }
             else:
-                return {'running': False, 'error': f'Job {job_id} not found'}
+                return {"running": False, "error": f"Job {job_id} not found"}
 
         except Exception as e:
-            return {'running': False, 'error': str(e)}
+            return {"running": False, "error": str(e)}
 
     def get_all_jobs(self):
         """Get status of all scheduled jobs"""
         if not self.scheduler:
-            return {'running': False, 'jobs': []}
+            return {"running": False, "jobs": []}
 
         try:
             jobs = []
             for job in self.scheduler.get_jobs():
-                jobs.append({
-                    'id': job.id,
-                    'name': job.name,
-                    'next_run_time': str(job.next_run_time) if job.next_run_time else None,
-                    'trigger': str(job.trigger)
-                })
+                jobs.append(
+                    {
+                        "id": job.id,
+                        "name": job.name,
+                        "next_run_time": str(job.next_run_time)
+                        if job.next_run_time
+                        else None,
+                        "trigger": str(job.trigger),
+                    }
+                )
 
-            return {
-                'running': self.is_running,
-                'jobs': jobs,
-                'total_jobs': len(jobs)
-            }
+            return {"running": self.is_running, "jobs": jobs, "total_jobs": len(jobs)}
 
         except Exception as e:
             self.logger.error(f"Error getting job list: {e}")
-            return {'running': False, 'error': str(e)}
+            return {"running": False, "error": str(e)}
 
-    def trigger_job_manually(self, job_id: str = 'daily_attendance_sync'):
+    def trigger_job_manually(self, job_id: str = "daily_attendance_sync"):
         """Manually trigger a scheduled job"""
         if not self.scheduler or not self.is_running:
-            return {'success': False, 'error': 'Scheduler not running'}
+            return {"success": False, "error": "Scheduler not running"}
 
         try:
             job = self.scheduler.get_job(job_id)
             if not job:
-                return {'success': False, 'error': f'Job {job_id} not found'}
+                return {"success": False, "error": f"Job {job_id} not found"}
 
             # Execute the job manually
-            if job_id == 'daily_attendance_sync':
+            if job_id == "daily_attendance_sync":
                 result = attendance_sync_service.sync_attendance_daily()
                 return {
-                    'success': True,
-                    'message': f'Job {job_id} executed manually',
-                    'result': result
+                    "success": True,
+                    "message": f"Job {job_id} executed manually",
+                    "result": result,
                 }
-            elif job_id == 'periodic_user_sync':
+            elif job_id == "periodic_user_sync":
                 from app.services.device_service import get_zk_service
+
                 zk_service = get_zk_service()
                 result = zk_service.sync_all_users_from_external_api()
                 return {
-                    'success': True,
-                    'message': f'Job {job_id} executed manually',
-                    'result': result
+                    "success": True,
+                    "message": f"Job {job_id} executed manually",
+                    "result": result,
                 }
-            elif job_id == 'monthly_attendance_cleanup':
+            elif job_id == "monthly_attendance_cleanup":
                 # Get retention days from settings
                 try:
                     from app.repositories.setting_repository import setting_repo
-                    retention_setting = setting_repo.get('cleanup_retention_days')
-                    retention_days = int(retention_setting.value) if retention_setting else 365
+
+                    retention_setting = setting_repo.get("cleanup_retention_days")
+                    retention_days = (
+                        int(retention_setting.value) if retention_setting else 365
+                    )
                 except Exception:
                     retention_days = 365
 
-                result = attendance_cleanup_service.cleanup_old_attendance(retention_days)
+                result = attendance_cleanup_service.cleanup_old_attendance(
+                    retention_days
+                )
                 return {
-                    'success': True,
-                    'message': f'Job {job_id} executed manually',
-                    'result': result
+                    "success": True,
+                    "message": f"Job {job_id} executed manually",
+                    "result": result,
                 }
             else:
                 # For other jobs, just run them
                 job.func()
-                return {
-                    'success': True,
-                    'message': f'Job {job_id} executed manually'
-                }
+                return {"success": True, "message": f"Job {job_id} executed manually"}
 
         except Exception as e:
             self.logger.error(f"Error manually triggering job {job_id}: {e}")
-            return {'success': False, 'error': str(e)}
+            return {"success": False, "error": str(e)}
 
 
 # Global scheduler instance

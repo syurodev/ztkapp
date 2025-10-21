@@ -104,9 +104,6 @@ class ZkConnectionManager:
                 )
 
                 if old_config == normalized_config:
-                    app_logger.debug(
-                        f"Configuration unchanged for device {device_id}, skipping reset"
-                    )
                     return
 
                 self._device_configs[device_id] = normalized_config
@@ -194,10 +191,6 @@ class ZkConnectionManager:
                 self._connection_locks[device_id] = threading.Lock()
 
         with self._connection_locks[device_id]:
-            app_logger.debug(
-                f"get_device_connection() called for device {device_id} - instance exists: {device_id in self._connections}"
-            )
-
             if device_id in self._connections:
                 connection = self._connections[device_id]
                 app_logger.debug(
@@ -212,7 +205,7 @@ class ZkConnectionManager:
                 device_id not in self._connections
                 or not self._is_device_connection_healthy(device_id)
             ):
-                app_logger.info(
+                app_logger.debug(
                     f"Establishing new connection for device {device_id} due to unhealthy or missing connection"
                 )
                 self._establish_device_connection(device_id)
@@ -601,7 +594,9 @@ class ZkConnectionManager:
 
     def _establish_device_connection(self, device_id: str):
         """Establish a new ZK connection for a specific device"""
-        app_logger.info(f"_establish_device_connection() called for device {device_id}")
+        app_logger.debug(
+            f"_establish_device_connection() called for device {device_id}"
+        )
 
         if device_id not in self._device_configs:
             app_logger.error(f"Device {device_id} not configured")
@@ -612,27 +607,20 @@ class ZkConnectionManager:
         config = self._device_configs[device_id]
         timeout_seconds = self._normalize_timeout(config.get("timeout"))
         config["timeout"] = timeout_seconds
-        app_logger.info(f"Using config for device {device_id}: {config}")
+        app_logger.debug(f"Using config for device {device_id}: {config}")
 
         # Close existing connection if any
         if device_id in self._connections:
-            app_logger.info(f"Closing existing connection for device {device_id}")
             try:
                 self._connections[device_id].disconnect()
-                app_logger.info(
-                    f"Successfully closed existing connection for device {device_id}"
-                )
             except Exception as e:
-                app_logger.warning(
+                app_logger.debug(
                     f"Error closing existing connection for device {device_id}: {e}"
                 )
 
         # Determine ZK class (mock or real)
         use_mock = bool(strtobool(os.getenv("USE_MOCK_DEVICE", "false")))
         zk_class = ZKMock if use_mock else ZK
-        app_logger.info(
-            f"Using ZK class for device {device_id}: {zk_class.__name__}, mock: {use_mock}"
-        )
 
         # Create new ZK instance
         connection_params = {
@@ -643,9 +631,6 @@ class ZkConnectionManager:
             "force_udp": config.get("force_udp", False),
             "verbose": config.get("verbose", False),
         }
-        app_logger.info(
-            f"Creating ZK instance for device {device_id} with params: {connection_params}"
-        )
 
         zk_instance = zk_class(**connection_params)
         self._connections[device_id] = zk_instance
@@ -702,8 +687,6 @@ class ZkConnectionManager:
 
     def _connect_device_with_retry(self, device_id: str):
         """Connect device with retry mechanism"""
-        app_logger.info(f"_connect_device_with_retry() called for device {device_id}")
-
         config = self._device_configs[device_id]
         max_retries = config.get("retry_count", 3)
         retry_delay = config.get("retry_delay", 2)
@@ -711,47 +694,26 @@ class ZkConnectionManager:
 
         while retry_count < max_retries:
             try:
-                app_logger.info(
-                    f"Connection attempt {retry_count + 1}/{max_retries} for device {device_id}"
-                )
-                app_logger.info(
-                    f"Calling connect() on ZK instance for device {device_id}..."
-                )
-
                 self._connections[device_id].connect()
 
+                # Success - log once
                 app_logger.info(
-                    f"connect() returned successfully for device {device_id}"
+                    f"Connected to device {device_id} at {config.get('ip')}:{config.get('port')}"
                 )
-                app_logger.info(
-                    f"Post-connect is_connect status for device {device_id}: {self._connections[device_id].is_connect}"
-                )
-                app_logger.info(
-                    f"Successfully connected to ZK device {device_id} at {config.get('ip')}:{config.get('port')}"
-                )
-
                 self._last_ping_times[device_id] = time.time()
-                app_logger.info(
-                    f"Set last ping time for device {device_id} to: {self._last_ping_times[device_id]}"
-                )
-
                 return
 
             except Exception as e:
                 retry_count += 1
-                app_logger.error(
-                    f"Connection attempt {retry_count}/{max_retries} failed for device {device_id} with error: {type(e).__name__}: {e}"
-                )
 
                 if retry_count >= max_retries:
+                    # Failed after all retries - log error
                     app_logger.error(
-                        f"Failed to connect to ZK device {device_id} after {max_retries} attempts: {e}"
+                        f"Failed to connect to device {device_id} at {config.get('ip')} after {max_retries} attempts: {e}"
                     )
                     raise e
 
-                app_logger.warning(
-                    f"Retrying device {device_id} connection in {retry_delay}s..."
-                )
+                # Retry silently
                 time.sleep(retry_delay)
 
     def _connect_with_retry(self):

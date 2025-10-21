@@ -142,6 +142,114 @@ class DoorAccessRepository:
             )
             raise
 
+    def get_unsynced_logs_by_date(self, target_date: str) -> List[DoorAccessLog]:
+        """Get unsynced door access logs for a specific date"""
+        rows = db_manager.fetch_all(
+            """
+            SELECT * FROM door_access_logs
+            WHERE DATE(timestamp) = ? AND is_synced = 0
+            ORDER BY user_id, door_id, timestamp
+            """,
+            (target_date,),
+        )
+        return [self._row_to_log(row) for row in rows]
+
+    def get_aggregated_door_access(self, target_date: str) -> List[dict]:
+        """
+        Get aggregated door access data for a specific date.
+        Groups by user_id and door_id, collecting all timestamps.
+
+        Returns:
+            List of dicts with structure:
+            {
+                'user_id': int,
+                'door_id': int,
+                'external_user_id': int (from users table),
+                'timestamps': List[str],  # HH:MM:SS format
+                'log_ids': List[int]  # For marking as synced later
+            }
+        """
+        query = """
+            SELECT
+                dal.id,
+                dal.user_id,
+                dal.door_id,
+                TIME(dal.timestamp) as time_str,
+                u.external_user_id
+            FROM door_access_logs dal
+            LEFT JOIN users u ON CAST(dal.user_id AS TEXT) = u.user_id
+            WHERE DATE(dal.timestamp) = ?
+              AND dal.is_synced = 0
+            ORDER BY dal.user_id, dal.door_id, dal.timestamp
+        """
+
+        rows = db_manager.fetch_all(query, (target_date,))
+
+        if not rows:
+            return []
+
+        # Group by (user_id, door_id)
+        from collections import defaultdict
+
+        grouped = defaultdict(
+            lambda: {
+                "user_id": None,
+                "door_id": None,
+                "external_user_id": None,
+                "timestamps": [],
+                "log_ids": [],
+            }
+        )
+
+        for row in rows:
+            key = (row["user_id"], row["door_id"])
+
+            if grouped[key]["user_id"] is None:
+                grouped[key]["user_id"] = row["user_id"]
+                grouped[key]["door_id"] = row["door_id"]
+                grouped[key]["external_user_id"] = row["external_user_id"]
+
+            grouped[key]["timestamps"].append(row["time_str"])
+            grouped[key]["log_ids"].append(row["id"])
+
+        return list(grouped.values())
+
+    def mark_logs_as_synced(self, log_ids: List[int]) -> int:
+        """
+        Mark door access logs as synced.
+
+        Args:
+            log_ids: List of log IDs to mark as synced
+
+        Returns:
+            Number of rows updated
+        """
+        if not log_ids:
+            return 0
+
+        try:
+            placeholders = ",".join(["?"] * len(log_ids))
+            query = f"""
+                UPDATE door_access_logs
+                SET is_synced = 1, synced_at = ?
+                WHERE id IN ({placeholders})
+            """
+
+            from datetime import datetime
+
+            cursor = db_manager.execute_query(query, (datetime.now(), *log_ids))
+
+            rowcount = cursor.rowcount
+            app_logger.info(f"DoorAccessRepository: Marked {rowcount} logs as synced")
+            return rowcount
+
+        except Exception as e:
+            app_logger.error(
+                f"DoorAccessRepository: Error marking logs as synced: {e}",
+                exc_info=True,
+            )
+            raise
+
     def _row_to_log(self, row) -> DoorAccessLog:
         """Convert database row to DoorAccessLog object"""
         return DoorAccessLog(
@@ -153,4 +261,6 @@ class DoorAccessRepository:
             status=row["status"],
             timestamp=row["timestamp"],
             notes=row["notes"],
+            is_synced=bool(row["is_synced"] if "is_synced" in row.keys() else 0),
+            synced_at=row["synced_at"] if "synced_at" in row.keys() else None,
         )

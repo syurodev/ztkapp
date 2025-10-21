@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import signal
 import requests
 from typing import Any, Dict, List, Optional, Type
 
@@ -28,36 +29,6 @@ class ZkService:
     def __init__(self, device_id: str = None):
         self.device_id = device_id
 
-    def _normalize_user_id(self, user_id) -> Optional[str]:
-        """Chuẩn hoá user_id về chuỗi số để đồng bộ giữa các luồng."""
-        if user_id is None:
-            return None
-        try:
-            return str(int(str(user_id).strip()))
-        except (TypeError, ValueError):
-            return None
-
-    def _check_pull_device(self, device_id: str) -> None:
-        """Check if device is pull type, raise ValueError if not"""
-        from app.utils.device_helpers import require_pull_device
-
-        require_pull_device(device_id)
-
-    def _normalize_user_id(self, user_id) -> Optional[str]:
-        """Chuẩn hoá user_id về chuỗi số để đồng bộ giữa các luồng."""
-        if user_id is None:
-            return None
-        try:
-            return str(int(str(user_id).strip()))
-        except (TypeError, ValueError):
-            return None
-
-    def _check_pull_device(self, device_id: str) -> None:
-        """Check if device is pull type, raise ValueError if not"""
-        from app.utils.device_helpers import require_pull_device
-
-        require_pull_device(device_id)
-
     def _get_z_instance(self):
         """Helper to get a configured ZKSS instance."""
         target_device_id = self.device_id
@@ -77,12 +48,20 @@ class ZkService:
         app_logger.info(f"Creating ZKSS instance for {ip}:{port}")
         return ZKSS(), ip, port
 
-    def get_all_users(self):
+    def get_all_users(self, timeout=10):
         """Get all users from device using pyzatt."""
         app_logger.info(
-            f"get_all_users() called for device {self.device_id} using pyzatt"
+            f"get_all_users() called for device {self.device_id} using pyzatt with a timeout of {timeout} seconds"
         )
         z, ip, port = self._get_z_instance()
+
+        def handler(signum, frame):
+            raise TimeoutError("Device connection timed out")
+
+        # Set the timeout alarm
+        signal.signal(signal.SIGALRM, handler)
+        signal.alarm(timeout)
+
         try:
             app_logger.info(f"Connecting to {ip}:{port} with pyzatt...")
             z.connect_net(ip, dev_port=port)
@@ -109,6 +88,9 @@ class ZkService:
 
             return adapted_users
 
+        except TimeoutError as e:
+            app_logger.error(f"Timeout error in get_all_users: {e}")
+            raise  # Re-raise the exception to be caught by the caller
         except Exception as e:
             app_logger.error(
                 f"Error in get_all_users with pyzatt: {type(e).__name__}: {e}"
@@ -118,6 +100,8 @@ class ZkService:
             traceback.print_exc()
             raise
         finally:
+            # Disable the alarm
+            signal.alarm(0)
             if hasattr(z, "connected_flg") and z.connected_flg:
                 z.disconnect()
                 app_logger.info("pyzatt disconnection successful.")
@@ -246,81 +230,8 @@ class ZkService:
     def delete_user_template(self, *args, **kwargs):
         self._not_implemented()
 
-            # Build users array với user_id duy nhất (ưu tiên serial_number nếu có)
-            users_map: Dict[str, Dict[str, Any]] = {}
-            for user in users:
-                raw_user_id = None
-                serial_value = ""
-
-                if hasattr(user, "user_id"):
-                    # User object from database
-                    raw_user_id = user.user_id
-                    serial_value = user.serial_number or ""
-                elif isinstance(user, dict):
-                    # Dict with user_id and serial_number
-                    raw_user_id = user.get("user_id", "") or ""
-                    serial_value = user.get("serial_number", "") or ""
-                else:
-                    # Fallback: just user_id string
-                    raw_user_id = user
-
-                normalized_id = self._normalize_user_id(raw_user_id)
-                if not normalized_id:
-                    continue
-
-                existing_entry = users_map.get(normalized_id)
-                if not existing_entry or (
-                    not existing_entry.get("serial_number") and serial_value
-                ):
-                    users_map[normalized_id] = {
-                        "id": int(normalized_id),
-                        "serial_number": serial_value or "",
-                    }
-
-            users_array = list(users_map.values())
-
-            app_logger.info(
-                f"Fetching employee details for {len(users_array)} users from external API"
-            )
-
-            # Build users array với user_id duy nhất (ưu tiên serial_number nếu có)
-            users_map: Dict[str, Dict[str, Any]] = {}
-            for user in users:
-                raw_user_id = None
-                serial_value = ""
-
-                if hasattr(user, "user_id"):
-                    # User object from database
-                    raw_user_id = user.user_id
-                    serial_value = user.serial_number or ""
-                elif isinstance(user, dict):
-                    # Dict with user_id and serial_number
-                    raw_user_id = user.get("user_id", "") or ""
-                    serial_value = user.get("serial_number", "") or ""
-                else:
-                    # Fallback: just user_id string
-                    raw_user_id = user
-
-                normalized_id = self._normalize_user_id(raw_user_id)
-                if not normalized_id:
-                    continue
-
-                existing_entry = users_map.get(normalized_id)
-                if not existing_entry or (
-                    not existing_entry.get("serial_number") and serial_value
-                ):
-                    users_map[normalized_id] = {
-                        "id": int(normalized_id),
-                        "serial_number": serial_value or "",
-                    }
-
-            users_array = list(users_map.values())
-
-            app_logger.info(
-                f"Fetching employee details for {len(users_array)} users from external API"
-            )
-
-            data = external_api_service.get_employees_by_user_ids(users_array)
+    def get_user_template(self, *args, **kwargs):
+        self._not_implemented()
 
     def get_device_info(self, *args, **kwargs):
         self._not_implemented()
@@ -328,295 +239,305 @@ class ZkService:
     def save_device_info_to_config(self, *args, **kwargs):
         self._not_implemented()
 
-            # Map user_id -> details (đã chuẩn hoá)
-            result = {}
-            for employee in employee_details:
-                normalized_id = self._normalize_user_id(
-                    employee.get("time_clock_user_id")
-                )
-
-            employee_details = data.get("data", [])
-            app_logger.info(
-                f"Received {len(employee_details)} employee details from external API"
-            )
-
-            # Map user_id -> details (đã chuẩn hoá)
-            result = {}
-            for employee in employee_details:
-                normalized_id = self._normalize_user_id(
-                    employee.get("time_clock_user_id")
-                )
-
-                if normalized_id:
-                    result[normalized_id] = {
-                        "employee_id": employee.get("employee_id"),
-                        "employee_name": employee.get("employee_name"),
-                        "employee_avatar": employee.get("employee_avatar"),
-                        # Map theo response API mới:
-                        "full_name": employee.get("employee_name") or "",
-                        "employee_code": employee.get("employee_user_name") or "",
-                        "position": employee.get("employee_role") or "",
-                        "employee_object": employee.get("employee_object_text") or "",
-                        "department": "",  # Để trống theo yêu cầu
-                        "notes": "",  # API không trả về notes
-                    }
-
-    def sync_all_users_from_external_api(self, *args, **kwargs):
-        self._not_implemented()
-
-        except requests.exceptions.RequestException as e:
-            app_logger.error(f"HTTP error fetching employee details: {e}")
-            return {}
-        except Exception as e:
-            app_logger.error(
-                f"Error fetching employee details: {type(e).__name__}: {e}"
-            )
-            return {}
-
     def sync_employee(self, device_id: str = None):
-        target_device_id = device_id or self.device_id
-        app_logger.info(f"sync_employee() called for device {target_device_id}")
-
-        # Note: This function works with both pull and push devices
-        # It only syncs users from DB to external API (no device connection needed)
-        # Push devices populate DB via push protocol, pull devices via manual sync
-
+        """
+        Sync all users from the active device from local DB to external API, and then
+        update the local DB with data from the external API.
+        """
         try:
-            # Get active device info
-            if target_device_id:
-                device = config_manager.get_device(target_device_id)
-            else:
-                device = config_manager.get_active_device()
-                target_device_id = device["id"] if device else None
+            target_device_id = device_id or self.device_id
+            if not target_device_id:
+                active_device = config_manager.get_active_device()
+                if not active_device:
+                    raise ValueError("No active device configured.")
+                target_device_id = active_device["id"]
 
-            if not device:
-                raise ValueError("No device found for sync")
+            # Step 1: Sync all users from DB to external API
+            all_users = user_repo.get_all(target_device_id)
 
-            # Get only unsynced users for this device
-            db_users = user_repo.get_unsynced_users(device_id=target_device_id)
-            app_logger.info(
-                f"Retrieved {len(db_users)} unsynced users from database for sync to external API"
-            )
-            if not db_users:
+            if not all_users:
+                app_logger.info(
+                    f"No users found for device {target_device_id} to sync."
+                )
                 return {
                     "success": True,
+                    "message": f"No users found for device {target_device_id} to sync.",
+                    "synced_users_count": 0,
                     "employees_count": 0,
-                    "message": "No unsynced users found",
                 }
 
-            # Get device info for serial number
-            device_info = device.get("device_info", {})
-            serial_number = device_info.get(
+            device_config = config_manager.get_device(target_device_id)
+            if not device_config:
+                return {
+                    "success": False,
+                    "error": "No device configuration found",
+                    "synced_users_count": 0,
+                    "employees_count": 0,
+                }
+
+            device_serial = device_config.get(
                 "serial_number", target_device_id or "unknown"
             )
 
-            # Format employees data from database users
             employees = []
-            user_ids_to_sync = []  # Track user IDs that will be synced
-
-            for user in db_users:
-                normalized_id = self._normalize_user_id(user.user_id)
-                user_id_payload = int(normalized_id) if normalized_id else user.user_id
-                employee = {
-                    "userId": user_id_payload,
+            for user in all_users:
+                employee_data = {
+                    "userId": user.user_id,
                     "name": user.name,
+                    "card": user.card or "",
+                    "privilege": user.privilege,
+                    "password": user.password or "",
                     "groupId": user.group_id,
                 }
-                employees.append(employee)
-                user_ids_to_sync.append(
-                    user.id
-                )  # Store the database ID for later update
-
-            # Get API key from config
-            if not config_manager.get_external_api_key():
-                app_logger.warning(
-                    "EXTERNAL_API_KEY not configured, skipping employee sync"
-                )
-                return {"success": False, "message": "EXTERNAL_API_KEY not configured"}
-
-            # Make API request
-            data = external_api_service.sync_employees(employees, serial_number)
-
-            if data.get("status") != 200:
-                return {"success": False, "message": data.get("message")}
-
-            # Sync successful - now try to fetch employee details (best effort)
-            # IMPORTANT: Users will be marked as synced regardless of detail fetch success
-            from datetime import datetime
+                employees.append(employee_data)
 
             app_logger.info(
-                "Sync successful, attempting to fetch employee details from external API..."
+                f"Step 1: Performing a full sync of {len(employees)} users to external API for device {device_serial}"
             )
-            employee_details = self._fetch_employee_details(db_users)
+            sync_result = external_api_service.sync_employees(employees, device_serial)
 
-            # Log detail fetch result
-            if employee_details:
-                app_logger.info(
-                    f"Successfully fetched details for {len(employee_details)} employees"
+            if sync_result.get("status") != 200:
+                error_msg = sync_result.get(
+                    "message", "Unknown error from external API"
                 )
-            else:
-                app_logger.warning(
-                    "Failed to fetch employee details, but sync will continue (users will still be marked as synced)"
-                )
+                app_logger.warning(f"External API sync failed: {error_msg}")
+                return {
+                    "success": False,
+                    "error": error_msg,
+                    "synced_users_count": 0,
+                    "employees_count": len(all_users),
+                }
 
-            # Update users with sync status (and details if available)
-            synced_count = 0
-            updated_with_details_count = 0
-
-            for user in db_users:
-                try:
-                    # Always mark as synced since main sync was successful
-                    updates = {"is_synced": True, "synced_at": datetime.now()}
-
-                    # Add employee details nếu có (chỉ theo user_id đã chuẩn hoá)
-                    lookup_key = self._normalize_user_id(user.user_id)
-                    if (
-                        lookup_key
-                        and employee_details
-                        and lookup_key in employee_details
-                    ):
-                        details = employee_details[lookup_key]
-                        updates["external_user_id"] = details.get("employee_id")
-                        updates["avatar_url"] = details.get("employee_avatar")
-
-                        # Add new fields with safe defaults
-                        updates["full_name"] = details.get("full_name") or ""
-                        updates["employee_code"] = details.get("employee_code") or ""
-                        updates["position"] = details.get("position") or ""
-                        updates["employee_object"] = (
-                            details.get("employee_object") or ""
-                        )
-                        updates["department"] = details.get("department") or ""
-                        updates["notes"] = details.get("notes") or ""
-
-                        app_logger.info(
-                            f"User {user.user_id} ({user.name}) on device {user.serial_number}: marked as synced + mapped to employee_id={details.get('employee_id')}, "
-                            f"full_name={details.get('full_name')}, code={details.get('employee_code')}, "
-                            f"position={details.get('position')}, object={details.get('employee_object')}"
-                        )
-                        updated_with_details_count += 1
-                    else:
-                        app_logger.debug(
-                            f"User {user.user_id} ({user.name}): marked as synced (no employee details)"
-                        )
-
-                    user_repo.update(user.id, updates)
-                    synced_count += 1
-
-                except Exception as update_error:
-                    app_logger.warning(
-                        f"Failed to update user {user.id}: {update_error}"
-                    )
+            for user in all_users:
+                user_repo.mark_as_synced(user.id)
 
             app_logger.info(
-                f"Successfully synced {len(employees)} employees to external API, "
-                f"updated {synced_count} users in database ({updated_with_details_count} with employee details)"
+                f"Step 1 successfully completed full sync of {len(all_users)} users to external API for device {target_device_id}"
+            )
+
+            # Step 2: Fetch data from external API and update local DB
+            app_logger.info(
+                f"Step 2: Fetching user details from external API for device {target_device_id}"
+            )
+            update_result = self.sync_all_users_from_external_api(
+                device_id=target_device_id
             )
 
             return {
                 "success": True,
-                "employees_count": len(employees),
-                "synced_users_count": synced_count,
-                "updated_with_details_count": updated_with_details_count,
-                "timestamp": int(time.time()),
-                "response_status": 200,
-                "external_api_response": data,
+                "message": f"Successfully synced {len(all_users)} users to external API and updated {update_result.get('updated_count', 0)} users from external API.",
+                "synced_users_count": len(all_users),
+                "employees_count": len(all_users),
+                "update_result": update_result,
             }
 
-        except requests.exceptions.RequestException as e:
-            app_logger.error(f"HTTP error in sync_employee: {e}")
-            raise
         except Exception as e:
             app_logger.error(f"Error in sync_employee: {type(e).__name__}: {e}")
-            raise
+            return {
+                "success": False,
+                "error": str(e),
+                "synced_users_count": 0,
+                "employees_count": 0,
+            }
 
-    def sync_all_users_from_external_api(self):
+    def sync_all_users_from_external_api(self, device_id: str = None):
         """
-        Sync all users from external API to update employee details (avatar, external_user_id)
-        This is called periodically by scheduler to keep user data up-to-date
-
-        Returns:
-            Dict with sync results
+        Fetch user details from external API and update local DB
+        NOTE: This does NOT interact with device - only API and DB
+        Works for both pull and push devices
         """
         try:
-            app_logger.info("Starting periodic user sync from external API")
+            target_device_id = device_id or self.device_id
 
-            # Get all users from database
-            all_users = user_repo.get_all()
+            # Get all users from DB
+            all_users = user_repo.get_all(target_device_id)
+
             if not all_users:
-                app_logger.info(
-                    "No users found in database, skipping periodic user sync"
-                )
+                app_logger.info(f"No users found in DB for device {target_device_id}")
                 return {
                     "success": True,
-                    "message": "No users to sync",
+                    "message": "No users to update",
                     "updated_count": 0,
+                    "total_users": 0,
                 }
 
-            # Fetch employee details from external API
-            app_logger.info(
-                f"Fetching employee details for {len(all_users)} users from external API"
+            # Get device config for serial number
+            device_config = (
+                config_manager.get_device(target_device_id)
+                if target_device_id
+                else config_manager.get_active_device()
             )
-            employee_details = self._fetch_employee_details(all_users)
-
-            if not employee_details:
-                app_logger.warning("No employee details received from external API")
+            if not device_config:
                 return {
-                    "success": True,
-                    "message": "No employee details received",
+                    "success": False,
+                    "error": "No device configuration found",
                     "updated_count": 0,
+                    "total_users": len(all_users),
                 }
 
-            # Update users with employee details
-            updated_count = 0
-            for user in all_users:
-                lookup_key = self._normalize_user_id(user.user_id)
-                if lookup_key and lookup_key in employee_details:
-                    details = employee_details[lookup_key]
-                    updates = {
-                        "external_user_id": details.get("employee_id"),
-                        "avatar_url": details.get("employee_avatar"),
-                        "full_name": details.get("full_name") or "",
-                        "employee_code": details.get("employee_code") or "",
-                        "position": details.get("position") or "",
-                        "employee_object": details.get("employee_object") or "",
-                        "department": details.get("department") or "",
-                        "notes": details.get("notes") or "",
-                    }
+            device_serial = device_config.get(
+                "serial_number", target_device_id or "unknown"
+            )
 
-                    try:
-                        user_repo.update(user.id, updates)
-                        updated_count += 1
-                        app_logger.debug(
-                            f"Updated user {user.user_id} ({user.name}) on device {user.serial_number}: "
-                            f"employee_id={details.get('employee_id')}, "
-                            f"avatar={'present' if details.get('employee_avatar') else 'none'}, "
-                            f"full_name={details.get('full_name')}, "
-                            f"code={details.get('employee_code')}, "
-                            f"position={details.get('position')}, "
-                            f"object={details.get('employee_object')}"
+            # Prepare user list for API query
+            users_query = []
+            for user in all_users:
+                users_query.append({"id": int(user.user_id), "serial": device_serial})
+
+            # Process users in batches of 100 to avoid timeout
+            BATCH_SIZE = 100
+            total_batches = (len(users_query) + BATCH_SIZE - 1) // BATCH_SIZE
+            app_logger.info(
+                f"Processing {len(users_query)} users in {total_batches} batch(es) of {BATCH_SIZE}"
+            )
+
+            all_employees_data = []
+            for batch_index in range(0, len(users_query), BATCH_SIZE):
+                batch = users_query[batch_index : batch_index + BATCH_SIZE]
+                batch_num = (batch_index // BATCH_SIZE) + 1
+
+                # Fetch employee details from external API
+                api_response = external_api_service.get_employees_by_user_ids(batch)
+
+                if api_response.get("status") != 200:
+                    error_msg = api_response.get(
+                        "message", "Unknown error from external API"
+                    )
+                    app_logger.warning(
+                        f"Batch {batch_num}/{total_batches} failed: {error_msg}"
+                    )
+                    # Continue with next batch instead of returning error
+                    continue
+
+                # Extract employee data
+                # API can return data as array directly or as object with employees key
+                data = api_response.get("data", [])
+                if isinstance(data, dict):
+                    employees_data = data.get("employees", [])
+                elif isinstance(data, list):
+                    employees_data = data
+                else:
+                    employees_data = []
+
+                if employees_data:
+                    all_employees_data.extend(employees_data)
+
+            if not all_employees_data:
+                app_logger.info("No employee details returned from external API")
+                return {
+                    "success": True,
+                    "message": "No employee details to update",
+                    "updated_count": 0,
+                    "total_users": len(all_users),
+                }
+
+            # Update local users with employee details
+            updated_count = 0
+            for employee in all_employees_data:
+                # API returns time_clock_user_id as string
+                user_id = str(employee.get("time_clock_user_id"))
+                api_serial = employee.get("serial_number", "")
+
+                # Find matching user in DB by user_id AND serial_number
+                # This ensures we update the correct user when multiple devices have same user_id
+                if api_serial:
+                    # If API returns serial, match both user_id and serial
+                    matching_user = next(
+                        (
+                            u
+                            for u in all_users
+                            if u.user_id == user_id and u.serial_number == api_serial
+                        ),
+                        None,
+                    )
+                else:
+                    # If API doesn't return serial (empty string), fall back to user_id only
+                    # But prefer users from the current device_serial
+                    matching_user = next(
+                        (
+                            u
+                            for u in all_users
+                            if u.user_id == user_id and u.serial_number == device_serial
+                        ),
+                        None,
+                    )
+                    if not matching_user:
+                        # Still not found? Try without serial restriction
+                        matching_user = next(
+                            (u for u in all_users if u.user_id == user_id), None
                         )
-                    except Exception as update_error:
-                        app_logger.warning(
-                            f"Failed to update user {user.user_id} ({user.name}) on device {user.serial_number}: {update_error}"
-                        )
+
+                if matching_user:
+                    # Prepare update data
+                    updates = {}
+
+                    employee_id_value = employee.get("employee_id")
+
+                    if employee_id_value:
+                        updates["external_user_id"] = employee_id_value
+
+                    if employee.get("employee_avatar"):
+                        updates["avatar_url"] = employee["employee_avatar"]
+
+                    if employee.get("employee_name"):
+                        updates["full_name"] = employee["employee_name"]
+
+                    if employee.get("employee_user_name"):
+                        updates["employee_code"] = employee["employee_user_name"]
+
+                    if employee.get("employee_role"):
+                        updates["position"] = employee["employee_role"]
+
+                    if employee.get("department"):
+                        updates["department"] = employee["department"]
+
+                    if employee.get("employee_object_text"):
+                        updates["employee_object"] = employee["employee_object_text"]
+
+                    if employee.get("notes"):
+                        updates["notes"] = employee["notes"]
+
+                    # Only update if there's new data
+                    if updates:
+                        if user_repo.update(matching_user.id, updates):
+                            updated_count += 1
+
+                        else:
+                            app_logger.warning(
+                                f"[SYNC_USERS_API] Failed to update user {user_id} in DB"
+                            )
 
             app_logger.info(
-                f"Periodic user sync completed: updated {updated_count} users out of {len(all_users)} total users"
+                f"Updated {updated_count}/{len(all_users)} users with employee details from external API"
             )
 
             return {
                 "success": True,
-                "total_users": len(all_users),
+                "message": f"Updated {updated_count} users with employee details",
                 "updated_count": updated_count,
-                "employee_details_count": len(employee_details),
+                "total_users": len(all_users),
             }
 
         except Exception as e:
             app_logger.error(
                 f"Error in sync_all_users_from_external_api: {type(e).__name__}: {e}"
             )
-            return {"success": False, "error": str(e)}
+            return {
+                "success": False,
+                "error": str(e),
+                "updated_count": 0,
+                "total_users": 0,
+            }
+
+    def _fetch_employee_details(self, *args, **kwargs):
+        """
+        DEPRECATED: Use sync_all_users_from_external_api() instead
+        This method is kept for backward compatibility
+        """
+        app_logger.warning(
+            "_fetch_employee_details() is deprecated, use sync_all_users_from_external_api()"
+        )
+        return self.sync_all_users_from_external_api(*args, **kwargs)
 
 
 def get_zk_service(device_id: str = None):

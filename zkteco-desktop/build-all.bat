@@ -161,6 +161,7 @@ pyinstaller --name "zkteco-backend" ^
             --hidden-import=psutil ^
             --hidden-import=zk ^
             --hidden-import=pyzatt ^
+            --hidden-import=prettytable ^
             --hidden-import=sqlite3 ^
             --hidden-import=dotenv ^
             --hidden-import=chrono ^

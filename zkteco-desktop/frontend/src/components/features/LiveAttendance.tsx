@@ -559,11 +559,11 @@ export function LiveAttendance() {
                                 <div className="grid grid-cols-2 gap-4 pt-2">
                                   <DetailItem
                                     label="Phòng ban"
-                                    value={latestRecord.department || "-"}
+                                    value={latestRecord.position || "-"}
                                   />
                                   <DetailItem
                                     label="Chức danh"
-                                    value={latestRecord.position || "-"}
+                                    value={latestRecord.department || "-"}
                                   />
                                   <DetailItem
                                     label="Giới tính"

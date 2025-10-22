@@ -570,7 +570,7 @@ export function LiveAttendance() {
                                     value={formatGender(latestRecord.gender)}
                                   />
                                   <DetailItem
-                                    label="Ngày vào làm việc"
+                                    label="Ngày nhận việc"
                                     value={formatHireDate(
                                       latestRecord.hire_date,
                                     )}

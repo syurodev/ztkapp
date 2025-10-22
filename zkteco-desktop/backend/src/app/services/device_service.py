@@ -497,6 +497,12 @@ class ZkService:
                     if employee.get("notes"):
                         updates["notes"] = employee["notes"]
 
+                    if employee.get("gender") is not None:
+                        updates["gender"] = employee.get("gender")
+
+                    if employee.get("hire_date"):
+                        updates["hire_date"] = employee.get("hire_date")
+
                     # Only update if there's new data
                     if updates:
                         if user_repo.update(matching_user.id, updates):

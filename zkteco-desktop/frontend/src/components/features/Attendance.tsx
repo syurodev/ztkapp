@@ -34,7 +34,11 @@ import {
 } from "@/components/ui/table";
 import { useDevice } from "@/contexts/DeviceContext";
 import { attendanceAPI } from "@/lib/api";
-import { buildAvatarUrl, getResourceDomain } from "@/lib/utils";
+import {
+  buildAvatarUrl,
+  getResourceDomain,
+  RESOURCE_DOMAIN_EVENT,
+} from "@/lib/utils";
 import { ATTENDANCE_METHOD_MAP, PUNCH_ACTION_MAP } from "@/types/constant";
 import { format } from "date-fns";
 import { AnimatePresence, motion } from "framer-motion";
@@ -142,9 +146,40 @@ export function Attendance() {
   const [resourceDomain, setResourceDomain] = useState<string>("");
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
 
-  // Load resource domain on mount
+  // Load resource domain on mount and listen for updates
   useEffect(() => {
-    getResourceDomain().then(setResourceDomain);
+    const refreshResourceDomain = () => {
+      void getResourceDomain().then(setResourceDomain);
+    };
+
+    refreshResourceDomain();
+
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handleResourceDomainChange = (event: Event): void => {
+      const detail = (event as CustomEvent<{ resourceDomain?: string }>).detail;
+
+      if (
+        detail &&
+        typeof detail.resourceDomain === "string" &&
+        detail.resourceDomain !== ""
+      ) {
+        setResourceDomain(detail.resourceDomain);
+      } else {
+        refreshResourceDomain();
+      }
+    };
+
+    window.addEventListener(RESOURCE_DOMAIN_EVENT, handleResourceDomainChange);
+
+    return () => {
+      window.removeEventListener(
+        RESOURCE_DOMAIN_EVENT,
+        handleResourceDomainChange,
+      );
+    };
   }, []);
 
   useEffect(() => {

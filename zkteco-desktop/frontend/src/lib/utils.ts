@@ -9,6 +9,9 @@ export function cn(...inputs: ClassValue[]) {
 // Cache for resource domain
 let resourceDomainCache: string = "";
 
+// Event name for resource domain updates
+export const RESOURCE_DOMAIN_EVENT = "resource-domain:changed";
+
 // Get resource domain from config
 export async function getResourceDomain(): Promise<string> {
   if (resourceDomainCache) {
@@ -17,7 +20,7 @@ export async function getResourceDomain(): Promise<string> {
 
   try {
     const config = await configAPI.getConfig();
-    resourceDomainCache = config.RESOURCE_DOMAIN || "";
+    resourceDomainCache = (config.RESOURCE_DOMAIN || "").trim();
     return resourceDomainCache;
   } catch (error) {
     console.error("Failed to get resource domain:", error);
@@ -29,7 +32,7 @@ export async function getResourceDomain(): Promise<string> {
 // Build full avatar URL from avatar_url field
 export function buildAvatarUrl(
   avatarUrl: string | null | undefined,
-  resourceDomain?: string
+  resourceDomain?: string,
 ): string | undefined {
   if (!avatarUrl) {
     return undefined;
@@ -54,7 +57,15 @@ export function buildAvatarUrl(
   return `${domain}${path}`;
 }
 
-// Clear cache (useful when config is updated)
-export function clearResourceDomainCache() {
-  resourceDomainCache = "";
+// Clear cache (useful when config is updated). Optional hint lets listeners avoid refetching.
+export function clearResourceDomainCache(nextDomain?: string) {
+  resourceDomainCache = (nextDomain || "").trim();
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent<{ resourceDomain: string }>(RESOURCE_DOMAIN_EVENT, {
+        detail: { resourceDomain: resourceDomainCache },
+      }),
+    );
+  }
 }

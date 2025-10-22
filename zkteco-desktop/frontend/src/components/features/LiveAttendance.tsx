@@ -1,6 +1,5 @@
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -13,22 +12,15 @@ import {
 } from "@/components/ui/table";
 import { useDevice } from "@/contexts/DeviceContext";
 import { attendanceAPI, liveAPI, LiveAttendanceRecord } from "@/lib/api";
-import { buildAvatarUrl, cn, getResourceDomain } from "@/lib/utils";
-import { ATTENDANCE_METHOD_MAP, PUNCH_ACTION_MAP } from "@/types/constant";
-import { format } from "date-fns";
 import {
-  Activity,
-  ArrowLeftFromLine,
-  ArrowRightToLine,
-  Fingerprint,
-  IdCard,
-  Monitor,
-  ScanFaceIcon,
-  User,
-  Wifi,
-  WifiOff,
-} from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+  buildAvatarUrl,
+  cn,
+  getResourceDomain,
+  RESOURCE_DOMAIN_EVENT,
+} from "@/lib/utils";
+import { format, isValid, parseISO } from "date-fns";
+import { Activity, Monitor, User, Wifi, WifiOff } from "lucide-react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 
 const MAX_RECORDS = 50;
@@ -38,7 +30,7 @@ export function LiveAttendance() {
   const { devices, activeDevice, activeDeviceId } = useDevice();
 
   const [liveAttendance, setLiveAttendance] = useState<LiveAttendanceRecord[]>(
-    []
+    [],
   );
   const [isConnected, setIsConnected] = useState(false);
   const [showAllDevices, setShowAllDevices] = useState(false);
@@ -48,15 +40,126 @@ export function LiveAttendance() {
   const reconnectTimerRef = useRef<NodeJS.Timeout | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
 
-  // Load resource domain on mount
+  const getShiftLabel = (action: number) =>
+    action === 0 ? "Thời gian vào ca" : "Thời gian ra ca";
+
+  const extractTimestampParts = (timestamp?: string) => {
+    if (!timestamp) {
+      return { time: "-", date: "-" };
+    }
+    const [datePart, timePart] = timestamp.split(" ");
+    let formattedDate = datePart || "-";
+    if (datePart) {
+      try {
+        const parsed = parseISO(datePart);
+        if (isValid(parsed)) {
+          formattedDate = format(parsed, "dd/MM/yyyy");
+        }
+      } catch (error) {
+        // Ignore parse errors and retain original value
+      }
+    }
+    return {
+      time: timePart || timestamp,
+      date: formattedDate,
+    };
+  };
+
+  const formatGender = (value?: string | null) => {
+    if (!value) return "-";
+    const normalized = value.toString().trim().toLowerCase();
+    if (["male", "nam", "m"].includes(normalized)) {
+      return "Nam";
+    }
+    if (["female", "nu", "nữ", "f"].includes(normalized)) {
+      return "Nữ";
+    }
+    if (
+      ["other", "khac", "khác", "unspecified", "unknown"].includes(normalized)
+    ) {
+      return "Khác";
+    }
+    return value;
+  };
+
+  const formatHireDate = (value?: string | null) => {
+    if (!value) return "-";
+    try {
+      const parsed = parseISO(value);
+      if (isValid(parsed)) {
+        return format(parsed, "dd/MM/yyyy");
+      }
+      const fallback = new Date(value);
+      if (!Number.isNaN(fallback.getTime())) {
+        return format(fallback, "dd/MM/yyyy");
+      }
+    } catch (error) {
+      // Ignore parse errors and fall back to raw value
+    }
+    return value;
+  };
+
+  const DetailItem = ({
+    label,
+    value,
+    highlight = false,
+  }: {
+    label: string;
+    value: ReactNode;
+    highlight?: boolean;
+  }) => (
+    <div className="space-y-1">
+      <div className="text-sm text-muted-foreground font-medium">{label}</div>
+      <div
+        className={
+          highlight ? "text-4xl font-semibold" : "text-lg font-semibold"
+        }
+      >
+        {value}
+      </div>
+    </div>
+  );
+
+  // Load resource domain on mount and subscribe to updates
   useEffect(() => {
-    getResourceDomain().then(setResourceDomain);
+    const refreshResourceDomain = () => {
+      void getResourceDomain().then(setResourceDomain);
+    };
+
+    refreshResourceDomain();
+
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handleResourceDomainChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ resourceDomain?: string }>).detail;
+
+      if (
+        detail &&
+        typeof detail.resourceDomain === "string" &&
+        detail.resourceDomain !== ""
+      ) {
+        setResourceDomain(detail.resourceDomain);
+      } else {
+        refreshResourceDomain();
+      }
+    };
+
+    window.addEventListener(RESOURCE_DOMAIN_EVENT, handleResourceDomainChange);
+
+    return () => {
+      window.removeEventListener(
+        RESOURCE_DOMAIN_EVENT,
+        handleResourceDomainChange,
+      );
+    };
   }, []);
 
   useEffect(() => {
     const mergeRecords = (
       incoming: LiveAttendanceRecord[],
-      existing: LiveAttendanceRecord[]
+      existing: LiveAttendanceRecord[],
     ) => {
       const combined = [...incoming, ...existing];
       const seen = new Set<string>();
@@ -73,7 +176,7 @@ export function LiveAttendance() {
       return unique
         .sort(
           (a, b) =>
-            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
         )
         .slice(0, MAX_RECORDS);
     };
@@ -95,6 +198,8 @@ export function LiveAttendance() {
       department: record.department,
       notes: record.notes,
       employee_object: record.employee_object,
+      gender: record.gender,
+      hire_date: record.hire_date,
     });
 
     if (devices.length === 0) {
@@ -116,7 +221,7 @@ export function LiveAttendance() {
         });
 
         const initialRecords: LiveAttendanceRecord[] = Array.isArray(
-          response?.data
+          response?.data,
         )
           ? response.data
               .map(mapToLiveRecord)
@@ -185,7 +290,7 @@ export function LiveAttendance() {
       cleanupRef.current = liveAPI.connect(
         handleMessage,
         handleError,
-        handleOpen
+        handleOpen,
       );
     };
 
@@ -222,7 +327,7 @@ export function LiveAttendance() {
       // Sort by timestamp ascending
       const sorted = [...userDayRecords].sort(
         (a, b) =>
-          new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+          new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
       );
 
       // Find first checkin (action = 0)
@@ -243,7 +348,7 @@ export function LiveAttendance() {
     // Sort final result by timestamp descending (newest first)
     return filtered.sort(
       (a, b) =>
-        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
     );
   };
 
@@ -258,15 +363,9 @@ export function LiveAttendance() {
   // Apply action filter
   if (actionFilter !== "all") {
     filteredAttendance = filteredAttendance.filter(
-      (record) => record.action === actionFilter
+      (record) => record.action === actionFilter,
     );
   }
-
-  // Get device name helper
-  const getDeviceName = (deviceId: string) => {
-    const device = devices.find((d) => d.id === deviceId);
-    return device?.name || deviceId;
-  };
 
   const ConnectionIcon = isConnected ? Wifi : WifiOff;
   const connectionColor = isConnected ? "text-green-500" : "text-red-500";
@@ -377,24 +476,17 @@ export function LiveAttendance() {
                   const latestRecord = filteredAttendance[0];
                   const displayName =
                     latestRecord.full_name || latestRecord.name;
-                  const actionIcon =
-                    latestRecord.action === 0 ? (
-                      <ArrowRightToLine className="h-6 w-6" />
-                    ) : (
-                      <ArrowLeftFromLine className="h-6 w-6" />
-                    );
                   const actionColor =
                     latestRecord.action === 0
                       ? "border-teal-500 dark:border-teal-500 bg-teal-50 dark:bg-teal-950"
                       : "border-sky-500 dark:border-sky-500 bg-sky-50 dark:bg-sky-950";
-                  const methodIcon =
-                    latestRecord.method === 1 ? (
-                      <Fingerprint className="h-4 w-4" />
-                    ) : latestRecord.method === 4 ? (
-                      <IdCard className="h-4 w-4" />
-                    ) : latestRecord.method === 15 ? (
-                      <ScanFaceIcon className="h-4 w-4" />
-                    ) : null;
+                  const shiftInfo = extractTimestampParts(
+                    latestRecord.timestamp,
+                  );
+                  const shiftDisplay =
+                    shiftInfo.date && shiftInfo.date !== "-"
+                      ? `${shiftInfo.time} • ${shiftInfo.date}`
+                      : shiftInfo.time;
 
                   return (
                     <AnimatePresence mode="wait">
@@ -419,13 +511,13 @@ export function LiveAttendance() {
                                 <Avatar
                                   className={cn(
                                     "w-72 h-[432px] rounded-2xl border-4 shadow-xl",
-                                    actionColor
+                                    actionColor,
                                   )}
                                 >
                                   <AvatarImage
                                     src={buildAvatarUrl(
                                       latestRecord.avatar_url,
-                                      resourceDomain
+                                      resourceDomain,
                                     )}
                                     alt={displayName}
                                     className="object-cover"
@@ -451,102 +543,44 @@ export function LiveAttendance() {
                                 animate={{ opacity: 1, y: 0 }}
                                 transition={{ duration: 0.25, ease: "easeOut" }}
                               >
-                                <div className="space-y-1">
-                                  <div className="text-sm text-muted-foreground font-medium">
-                                    Tên hệ thống
-                                  </div>
-                                  <div className="text-4xl font-semibold">
-                                    {latestRecord.full_name || "-"}
-                                  </div>
-                                </div>
-                                <div className="space-y-1">
-                                  <div className="text-sm text-muted-foreground font-medium">
-                                    Thời gian
-                                  </div>
-                                  <div className="font-mono font-bold text-3xl text-primary">
-                                    {latestRecord.timestamp.split(" ")[1]}
-                                  </div>
-                                </div>
+                                <DetailItem
+                                  label="Mã nhân viên"
+                                  value={latestRecord.employee_code || "-"}
+                                />
+                                <DetailItem
+                                  label="Tên nhân viên"
+                                  value={
+                                    latestRecord.full_name ||
+                                    latestRecord.name ||
+                                    "-"
+                                  }
+                                  highlight
+                                />
                                 <div className="grid grid-cols-2 gap-4 pt-2">
-                                  <div className="space-y-1">
-                                    <div className="text-sm text-muted-foreground font-medium">
-                                      ID người dùng trên máy
-                                    </div>
-                                    <div className="text-lg font-semibold font-mono">
-                                      {latestRecord.user_id}
-                                    </div>
-                                  </div>
-                                  <div className="space-y-1">
-                                    <div className="text-sm text-muted-foreground font-medium">
-                                      Mã nhân viên
-                                    </div>
-                                    <div className="text-lg font-semibold">
-                                      {latestRecord.employee_code || "-"}
-                                    </div>
-                                  </div>
-                                  <div className="space-y-1">
-                                    <div className="text-sm text-muted-foreground font-medium">
-                                      Tên trên máy
-                                    </div>
-                                    <div className="text-lg font-semibold">
-                                      {latestRecord.name}
-                                    </div>
-                                  </div>
-                                  <div className="space-y-1">
-                                    <div className="text-sm text-muted-foreground font-medium">
-                                      Vị trí
-                                    </div>
-                                    <div className="text-lg font-semibold">
-                                      {latestRecord.position || "-"}
-                                    </div>
-                                  </div>
-                                  <div className="space-y-1">
-                                    <div className="text-sm text-muted-foreground font-medium">
-                                      Phòng ban
-                                    </div>
-                                    <div className="text-lg font-semibold">
-                                      {latestRecord.department || "-"}
-                                    </div>
-                                  </div>
-                                  <div className="space-y-1">
-                                    <div className="text-sm text-muted-foreground font-medium">
-                                      Đối tượng
-                                    </div>
-                                    <div className="text-lg font-semibold">
-                                      {latestRecord.employee_object || "-"}
-                                    </div>
-                                  </div>
+                                  <DetailItem
+                                    label="Phòng ban"
+                                    value={latestRecord.department || "-"}
+                                  />
+                                  <DetailItem
+                                    label="Chức danh"
+                                    value={latestRecord.position || "-"}
+                                  />
+                                  <DetailItem
+                                    label="Giới tính"
+                                    value={formatGender(latestRecord.gender)}
+                                  />
+                                  <DetailItem
+                                    label="Ngày vào làm việc"
+                                    value={formatHireDate(
+                                      latestRecord.hire_date,
+                                    )}
+                                  />
                                 </div>
-                                <div className="flex items-center gap-3 flex-wrap pt-2">
-                                  <Badge
-                                    variant="outline"
-                                    className={`gap-2 text-sm px-3 py-1.5 ${actionColor}`}
-                                  >
-                                    {actionIcon}
-                                    {PUNCH_ACTION_MAP[latestRecord.action] ||
-                                      "Không xác định"}
-                                  </Badge>
-                                  {methodIcon && (
-                                    <Badge
-                                      variant="outline"
-                                      className="gap-2 text-sm px-3 py-1.5"
-                                    >
-                                      {methodIcon}
-                                      {ATTENDANCE_METHOD_MAP[
-                                        latestRecord.method
-                                      ] || "Không xác định"}
-                                    </Badge>
-                                  )}
-                                  {devices.length > 1 && (
-                                    <Badge
-                                      variant="secondary"
-                                      className="text-sm px-3 py-1.5"
-                                    >
-                                      <Monitor className="h-3 w-3 mr-1" />
-                                      {getDeviceName(latestRecord.device_id)}
-                                    </Badge>
-                                  )}
-                                </div>
+                                <DetailItem
+                                  label={getShiftLabel(latestRecord.action)}
+                                  value={shiftDisplay}
+                                  highlight
+                                />
                               </motion.div>
                             </div>
                           </CardContent>
@@ -566,41 +600,25 @@ export function LiveAttendance() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead className="w-32">Thời gian</TableHead>
-                          <TableHead>Tên</TableHead>
-                          <TableHead className="w-32">Mã NV</TableHead>
-                          <TableHead className="w-32">ID máy</TableHead>
+                          <TableHead className="w-32">Mã nhân viên</TableHead>
+                          <TableHead>Tên nhân viên</TableHead>
                           <TableHead className="w-32">Phòng ban</TableHead>
-                          <TableHead className="w-24">Vị trí</TableHead>
-                          <TableHead className="w-28">Hành động</TableHead>
-                          <TableHead className="w-28">Phương thức</TableHead>
-                          {devices.length > 1 && (
-                            <TableHead className="w-32">Thiết bị</TableHead>
-                          )}
+                          <TableHead className="w-32">Chức danh</TableHead>
+                          <TableHead className="w-24">Giới tính</TableHead>
+                          <TableHead className="w-32">Ngày vào làm</TableHead>
+                          <TableHead className="w-40">Thời gian</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         <AnimatePresence initial={false}>
                           {filteredAttendance.slice(1).map((record, index) => {
-                            const displayName = record.full_name || record.name;
-                            const actionIcon =
-                              record.action === 0 ? (
-                                <ArrowRightToLine className="h-4 w-4" />
-                              ) : (
-                                <ArrowLeftFromLine className="h-4 w-4" />
-                              );
-                            const actionColor =
-                              record.action === 0
-                                ? "text-teal-600 dark:text-teal-400"
-                                : "text-sky-600 dark:text-sky-400";
-                            const methodIcon =
-                              record.method === 1 ? (
-                                <Fingerprint className="h-4 w-4" />
-                              ) : record.method === 4 ? (
-                                <IdCard className="h-4 w-4" />
-                              ) : record.method === 15 ? (
-                                <ScanFaceIcon className="h-4 w-4" />
-                              ) : null;
+                            const displayName =
+                              record.full_name || record.name || "-";
+                            const shiftInfo = extractTimestampParts(
+                              record.timestamp,
+                            );
+                            const shiftPrefix =
+                              record.action === 0 ? "Vào ca" : "Ra ca";
 
                             return (
                               <MotionTableRow
@@ -611,72 +629,25 @@ export function LiveAttendance() {
                                 exit={{ opacity: 0, y: -12 }}
                                 transition={{ duration: 0.2, ease: "easeOut" }}
                               >
-                                <TableCell className="font-mono text-sm">
-                                  {record.timestamp.split(" ")[1]}
-                                </TableCell>
-                                <TableCell className="font-medium flex gap-2 items-center">
-                                  <Avatar className={cn(actionColor)}>
-                                    <AvatarImage
-                                      src={buildAvatarUrl(
-                                        record.avatar_url,
-                                        resourceDomain
-                                      )}
-                                      alt={displayName}
-                                      className="object-cover"
-                                    />
-                                    <AvatarFallback>
-                                      {displayName ? (
-                                        displayName
-                                          .split(" ")
-                                          .map((n) => n[0])
-                                          .join("")
-                                          .toUpperCase()
-                                          .slice(0, 2)
-                                      ) : (
-                                        <User className="h-32 w-32" />
-                                      )}
-                                    </AvatarFallback>
-                                  </Avatar>
-                                  {displayName}
-                                </TableCell>
                                 <TableCell className="font-mono">
                                   {record.employee_code || "-"}
                                 </TableCell>
-                                <TableCell className="font-mono">
-                                  {record.user_id}
+                                <TableCell className="font-medium">
+                                  {displayName}
                                 </TableCell>
-                                <TableCell>{record.department || "-"}</TableCell>
+                                <TableCell>
+                                  {record.department || "-"}
+                                </TableCell>
                                 <TableCell>{record.position || "-"}</TableCell>
                                 <TableCell>
-                                  <Badge
-                                    variant="outline"
-                                    className={`${actionColor}`}
-                                  >
-                                    {actionIcon}
-                                    {PUNCH_ACTION_MAP[record.action] ||
-                                      "Không xác định"}
-                                  </Badge>
+                                  {formatGender(record.gender)}
                                 </TableCell>
                                 <TableCell>
-                                  <div className="flex items-center gap-1">
-                                    {methodIcon}
-                                    <span className="text-sm">
-                                      {ATTENDANCE_METHOD_MAP[
-                                        record.method
-                                      ] || "N/A"}
-                                    </span>
-                                  </div>
+                                  {formatHireDate(record.hire_date)}
                                 </TableCell>
-                                {devices.length > 1 && (
-                                  <TableCell>
-                                    <Badge
-                                      variant="secondary"
-                                      className="text-xs"
-                                    >
-                                      {getDeviceName(record.device_id)}
-                                    </Badge>
-                                  </TableCell>
-                                )}
+                                <TableCell className="font-mono text-sm">
+                                  {`${shiftPrefix}: ${shiftInfo.time}`}
+                                </TableCell>
                               </MotionTableRow>
                             );
                           })}

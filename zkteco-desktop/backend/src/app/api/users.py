@@ -25,6 +25,8 @@ PROFILE_COPY_FIELDS = (
     "position",
     "department",
     "employee_object",
+    "gender",
+    "hire_date",
 )
 OPTIONAL_PROFILE_COPY_FIELDS = ("avatar_url", "external_user_id", "synced_at")
 
@@ -564,6 +566,8 @@ def sync_single_user(user_id):
                     employee_details_data[lookup_key] = {
                         "employee_id": employee_detail.get("employee_id"),
                         "employee_avatar": employee_detail.get("employee_avatar"),
+                        "gender": employee_detail.get("gender"),
+                        "hire_date": employee_detail.get("hire_date"),
                     }
 
         # Update user with sync status
@@ -579,6 +583,12 @@ def sync_single_user(user_id):
             details = employee_details_data[user_lookup_key]
             updates["external_user_id"] = details.get("employee_id")
             updates["avatar_url"] = details.get("employee_avatar")
+
+            if details.get("gender") is not None:
+                updates["gender"] = details.get("gender")
+
+            if details.get("hire_date"):
+                updates["hire_date"] = details.get("hire_date")
 
         user_repo.update(db_user.id, updates)
 
@@ -695,9 +705,8 @@ def import_users():
                         device_id = target_device.id
                     else:
                         device_id = active_device["id"]
-                        # Use active device's serial if not present in data
-                        if not serial_number:
-                            serial_number = active_device.get("serial_number")
+                        # Always align serial number with active device when not exact
+                        serial_number = active_device.get("serial_number")
 
                     existing_user = user_repo.get_by_user_id(user_id, device_id)
 

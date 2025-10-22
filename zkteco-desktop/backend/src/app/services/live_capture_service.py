@@ -986,6 +986,8 @@ def _queue_attendance_event(
             position = user.position if user and user.position else ""
             department = user.department if user and user.department else ""
             notes = user.notes if user and user.notes else ""
+            gender = user.gender if user and user.gender else ""
+            hire_date = user.hire_date if user and user.hire_date else ""
 
             # Queue for realtime streaming (with new fields)
             event_data = {
@@ -1004,6 +1006,8 @@ def _queue_attendance_event(
                 "position": position,
                 "department": department,
                 "notes": notes,
+                "gender": gender,
+                "hire_date": hire_date,
             }
             device_event_stream.publish(event_data)
             app_logger.info(
@@ -1144,6 +1148,58 @@ def stop_device_capture(device_id: str):
     except Exception as e:
         app_logger.error(f"Error stopping live capture for device {device_id}: {e}")
         return False
+
+
+def ensure_pull_devices_capturing() -> dict:
+    """Ensure all active pull devices have live capture threads running."""
+    summary = {
+        "active_checked": 0,
+        "pull_devices": 0,
+        "already_running": 0,
+        "auto_started": 0,
+        "errors": [],
+    }
+
+    try:
+        from app.config.config_manager import config_manager
+
+        active_devices = config_manager.get_devices_by_status(is_active=True)
+        summary["active_checked"] = len(active_devices)
+
+        for device in active_devices:
+            device_id = device.get("id")
+            if not device_id:
+                continue
+
+            if device.get("device_type", "pull") != "pull":
+                continue
+
+            summary["pull_devices"] += 1
+
+            if multi_device_manager.is_device_active(device_id):
+                summary["already_running"] += 1
+                continue
+
+            try:
+                app_logger.info(
+                    f"[LiveCapture] Auto-starting capture for pull device {device_id}"
+                )
+                multi_device_manager.start_device_capture(device_id)
+                summary["auto_started"] += 1
+            except Exception as start_error:
+                msg = (
+                    f"Failed to auto-start live capture for device {device_id}: "
+                    f"{start_error}"
+                )
+                summary["errors"].append(msg)
+                app_logger.error(msg)
+
+    except Exception as error:
+        msg = f"ensure_pull_devices_capturing encountered an error: {error}"
+        summary["errors"].append(msg)
+        app_logger.error(msg, exc_info=True)
+
+    return summary
 
 
 def get_capture_status():

@@ -10,6 +10,7 @@ from app.services.attendance_sync_service import attendance_sync_service
 from app.services.attendance_cleanup_service import attendance_cleanup_service
 from app.services.door_access_sync_service import door_access_sync_service
 from app.config.config_manager import config_manager
+from app.services.live_capture_service import ensure_pull_devices_capturing
 
 
 class SchedulerService:
@@ -41,6 +42,9 @@ class SchedulerService:
 
             # Add periodic user sync job (every 30 seconds)
             self._add_periodic_user_sync_job()
+
+            # Add live capture health check job
+            self._add_live_capture_health_job()
 
             # Add monthly attendance cleanup job (runs on 1st day of month at 2 AM)
             self._add_monthly_cleanup_job()
@@ -136,10 +140,10 @@ class SchedulerService:
             raise
 
     def _add_periodic_user_sync_job(self):
-        """Add periodic user sync job to scheduler (every 5 minutes)"""
+        """Add periodic user sync job to scheduler (every 30 seconds)"""
         try:
             # Schedule job to run every 5 minutes
-            trigger = IntervalTrigger(minutes=5)
+            trigger = IntervalTrigger(seconds=30)
 
             self.scheduler.add_job(
                 func=self._run_periodic_user_sync,
@@ -157,6 +161,31 @@ class SchedulerService:
 
         except Exception as e:
             self.logger.error(f"Failed to add periodic user sync job: {e}")
+            raise
+
+    def _add_live_capture_health_job(self):
+        """Add job that keeps pull-device live capture threads alive."""
+        try:
+            interval_seconds = int(os.getenv("LIVE_CAPTURE_HEALTH_INTERVAL", "45"))
+            trigger = IntervalTrigger(seconds=interval_seconds)
+
+            self.scheduler.add_job(
+                func=self._run_live_capture_health_check,
+                trigger=trigger,
+                id="live_capture_health_check",
+                name="Live Capture Health Check",
+                replace_existing=True,
+                max_instances=1,
+                misfire_grace_time=interval_seconds,
+            )
+
+            self.logger.info(
+                "Live capture health check scheduled every %s seconds",
+                interval_seconds,
+            )
+
+        except Exception as e:
+            self.logger.error(f"Failed to add live capture health job: {e}")
             raise
 
     def _add_monthly_cleanup_job(self):
@@ -339,6 +368,24 @@ class SchedulerService:
 
         except Exception as e:
             self.logger.error(f"[CRON] Monthly Cleanup error: {e}")
+
+    def _run_live_capture_health_check(self):
+        """Ensure live capture remains active for pull devices."""
+        try:
+            summary = ensure_pull_devices_capturing()
+
+            restarted = summary.get("auto_started", 0)
+            if restarted:
+                self.logger.info(
+                    "[CRON] Live capture health check restarted %s device(s)",
+                    restarted,
+                )
+
+            for message in summary.get("errors", []):
+                self.logger.warning("[CRON] Live capture health warning: %s", message)
+
+        except Exception as e:
+            self.logger.error(f"[CRON] Live capture health check error: {e}")
 
     def _run_daily_attendance_sync(self):
         """Execute daily attendance sync job with multi-day support (works for both pull and push devices)"""

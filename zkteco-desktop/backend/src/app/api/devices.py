@@ -63,6 +63,7 @@ def update_config():
     general_config = {
         "API_GATEWAY_DOMAIN": data.get("API_GATEWAY_DOMAIN"),
         "EXTERNAL_API_KEY": data.get("EXTERNAL_API_KEY", ""),
+        "RESOURCE_DOMAIN": data.get("RESOURCE_DOMAIN"),
     }
     config_manager.save_config(general_config)
 

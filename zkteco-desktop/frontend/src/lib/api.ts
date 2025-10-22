@@ -918,6 +918,8 @@ export interface LiveAttendanceRecord {
   department?: string;
   notes?: string;
   employee_object?: string;
+  gender?: string;
+  hire_date?: string;
 }
 
 // Health check

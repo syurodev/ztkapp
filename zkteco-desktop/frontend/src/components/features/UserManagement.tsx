@@ -33,7 +33,11 @@ import {
 } from "@/components/ui/table";
 import { useDevice } from "@/contexts/DeviceContext";
 import { deviceAPI, User, userAPI, UsersResponse } from "@/lib/api";
-import { buildAvatarUrl, getResourceDomain } from "@/lib/utils";
+import {
+  buildAvatarUrl,
+  getResourceDomain,
+  RESOURCE_DOMAIN_EVENT,
+} from "@/lib/utils";
 import {
   AlertCircle,
   CheckCircle2,
@@ -97,7 +101,38 @@ export function UserManagement() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    getResourceDomain().then(setResourceDomain);
+    const refreshResourceDomain = () => {
+      void getResourceDomain().then(setResourceDomain);
+    };
+
+    refreshResourceDomain();
+
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handleResourceDomainChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ resourceDomain?: string }>).detail;
+
+      if (
+        detail &&
+        typeof detail.resourceDomain === "string" &&
+        detail.resourceDomain !== ""
+      ) {
+        setResourceDomain(detail.resourceDomain);
+      } else {
+        refreshResourceDomain();
+      }
+    };
+
+    window.addEventListener(RESOURCE_DOMAIN_EVENT, handleResourceDomainChange);
+
+    return () => {
+      window.removeEventListener(
+        RESOURCE_DOMAIN_EVENT,
+        handleResourceDomainChange,
+      );
+    };
   }, []);
 
   useEffect(() => {

@@ -16,16 +16,23 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useTray } from "../../contexts/TrayContext";
 import { AlertCircle, Database, Info, Trash2 } from "lucide-react";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export function Settings() {
   const [apiGatewayDomain, setApiGatewayDomain] = useState("");
   const [externalApiKey, setExternalApiKey] = useState("");
+  const [resourceDomain, setResourceDomain] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const { minimizeToTray, toggleMinimizeToTray } = useTray();
 
   // Branch settings
-  const [branches, setBranches] = useState<{id: number; name: string}[]>([]);
+  const [branches, setBranches] = useState<{ id: number; name: string }[]>([]);
   const [selectedBranchId, setSelectedBranchId] = useState<string>("");
 
   // Cleanup settings
@@ -47,11 +54,17 @@ export function Settings() {
       const config = await configAPI.getConfig();
       setApiGatewayDomain(config.API_GATEWAY_DOMAIN || "");
       setExternalApiKey(config.EXTERNAL_API_KEY || "");
+      setResourceDomain(config.RESOURCE_DOMAIN || "");
     } catch (err: any) {
       console.error("Error loading settings:", err);
       const status = err.status || err.response?.status;
-      if (err.code === 'ECONNREFUSED' || err.message?.includes('Network Error')) {
-        toast.error("Không thể kết nối tới máy chủ. Vui lòng kiểm tra dịch vụ backend.");
+      if (
+        err.code === "ECONNREFUSED" ||
+        err.message?.includes("Network Error")
+      ) {
+        toast.error(
+          "Không thể kết nối tới máy chủ. Vui lòng kiểm tra dịch vụ backend.",
+        );
       } else if (status >= 500) {
         toast.error("Máy chủ gặp lỗi khi tải cấu hình. Vui lòng thử lại.");
       }
@@ -68,7 +81,9 @@ export function Settings() {
       } else {
         // Even if mocked, there might be an issue. Log it.
         console.error("Branch API did not return status 200:", branchResponse);
-        toast.error(`Lỗi tải danh sách chi nhánh: ${branchResponse.message || 'Unknown error'}`);
+        toast.error(
+          `Lỗi tải danh sách chi nhánh: ${branchResponse.message || "Unknown error"}`,
+        );
       }
     } catch (err) {
       console.error("Error fetching branches:", err);
@@ -81,7 +96,10 @@ export function Settings() {
         setSelectedBranchId(settingResponse.data.value || "");
       } else {
         // Handle cases where success is false, even if it's a 200 OK
-        console.warn("Could not retrieve ACTIVE_BRANCH_ID setting:", settingResponse.error);
+        console.warn(
+          "Could not retrieve ACTIVE_BRANCH_ID setting:",
+          settingResponse.error,
+        );
         // This is not a critical error, so we don't show a toast.
       }
     } catch (err) {
@@ -108,8 +126,9 @@ export function Settings() {
       await configAPI.updateConfig({
         API_GATEWAY_DOMAIN: apiGatewayDomain,
         EXTERNAL_API_KEY: externalApiKey,
+        RESOURCE_DOMAIN: resourceDomain,
       });
-      clearResourceDomainCache();
+      clearResourceDomainCache(resourceDomain);
       toast.success("Đã lưu cấu hình thành công");
     } catch (err) {
       toast.error("Không thể lưu cấu hình");
@@ -122,7 +141,11 @@ export function Settings() {
   const handleBranchChange = async (newBranchId: string) => {
     setSelectedBranchId(newBranchId);
     try {
-      await settingsAPI.updateSetting("ACTIVE_BRANCH_ID", newBranchId, "Active Branch ID");
+      await settingsAPI.updateSetting(
+        "ACTIVE_BRANCH_ID",
+        newBranchId,
+        "Active Branch ID",
+      );
       toast.success("Đã cập nhật chi nhánh hoạt động.");
     } catch (err) {
       toast.error("Không thể lưu cài đặt chi nhánh.");
@@ -206,7 +229,8 @@ export function Settings() {
               onChange={(e) => setApiGatewayDomain(e.target.value)}
             />
             <p className="text-sm text-muted-foreground mt-1">
-              Sử dụng một tên miền chung cho cả API (`/api/v1`) và tài nguyên (`/short`).
+              Sử dụng một tên miền chung cho cả API (`/api/v1`) và tài nguyên
+              (`/short`).
             </p>
           </div>
 
@@ -219,6 +243,19 @@ export function Settings() {
               value={externalApiKey}
               onChange={(e) => setExternalApiKey(e.target.value)}
             />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="resource-domain">Tên miền tài nguyên</Label>
+            <Input
+              id="resource-domain"
+              placeholder="https://beta.api.gateway.daihy.ohqsoft.com/short"
+              value={resourceDomain}
+              onChange={(e) => setResourceDomain(e.target.value)}
+            />
+            <p className="text-sm text-muted-foreground mt-1">
+              Để trống để sử dụng mặc định `{apiGatewayDomain}/short`.
+            </p>
           </div>
 
           <div className="pt-4">
@@ -237,24 +274,24 @@ export function Settings() {
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
-            <div className="space-y-2">
-                <Label>Chi nhánh hoạt động</Label>
-                <Select value={selectedBranchId} onValueChange={handleBranchChange}>
-                    <SelectTrigger>
-                        <SelectValue placeholder="Chọn một chi nhánh..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {branches.map(branch => (
-                            <SelectItem key={branch.id} value={String(branch.id)}>
-                                {branch.name}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-                <p className="text-sm text-muted-foreground">
-                    Chi nhánh được chọn sẽ được sử dụng cho các hoạt động liên quan.
-                </p>
-            </div>
+          <div className="space-y-2">
+            <Label>Chi nhánh hoạt động</Label>
+            <Select value={selectedBranchId} onValueChange={handleBranchChange}>
+              <SelectTrigger>
+                <SelectValue placeholder="Chọn một chi nhánh..." />
+              </SelectTrigger>
+              <SelectContent>
+                {branches.map((branch) => (
+                  <SelectItem key={branch.id} value={String(branch.id)}>
+                    {branch.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground">
+              Chi nhánh được chọn sẽ được sử dụng cho các hoạt động liên quan.
+            </p>
+          </div>
         </CardContent>
       </Card>
 
@@ -268,9 +305,12 @@ export function Settings() {
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
-              <Label htmlFor="minimize-to-tray">Thu nhỏ xuống khay hệ thống</Label>
+              <Label htmlFor="minimize-to-tray">
+                Thu nhỏ xuống khay hệ thống
+              </Label>
               <p className="text-sm text-muted-foreground">
-                Khi bật, thao tác đóng cửa sổ sẽ thu nhỏ ứng dụng xuống khay hệ thống thay vì thoát hẳn
+                Khi bật, thao tác đóng cửa sổ sẽ thu nhỏ ứng dụng xuống khay hệ
+                thống thay vì thoát hẳn
               </p>
             </div>
             <Switch
@@ -288,7 +328,9 @@ export function Settings() {
         </CardHeader>
         <CardContent>
           <div className="space-y-2 text-sm text-muted-foreground">
-            <p>• Nhấp chuột phải vào biểu tượng khay để mở danh sách tùy chọn</p>
+            <p>
+              • Nhấp chuột phải vào biểu tượng khay để mở danh sách tùy chọn
+            </p>
             <p>
               • Nhấp chuột trái vào biểu tượng khay để ẩn/hiện cửa sổ ứng dụng
             </p>
@@ -320,13 +362,17 @@ export function Settings() {
               min="30"
               max="3650"
               value={retentionDays}
-              onChange={(e) => setRetentionDays(parseInt(e.target.value) || 365)}
+              onChange={(e) =>
+                setRetentionDays(parseInt(e.target.value) || 365)
+              }
             />
           </div>
 
           <div className="flex items-center justify-between py-2">
             <div className="space-y-0.5">
-              <Label htmlFor="cleanup-enabled">Tự động dọn dẹp hàng tháng</Label>
+              <Label htmlFor="cleanup-enabled">
+                Tự động dọn dẹp hàng tháng
+              </Label>
             </div>
             <Switch
               id="cleanup-enabled"
@@ -366,18 +412,27 @@ export function Settings() {
             <div className="space-y-4">
               <Alert variant="default">
                 <AlertCircle className="h-4 w-4" />
-                <AlertTitle>Sẽ xoá {cleanupPreview.records_to_delete?.toLocaleString()} bản ghi</AlertTitle>
+                <AlertTitle>
+                  Sẽ xoá {cleanupPreview.records_to_delete?.toLocaleString()}{" "}
+                  bản ghi
+                </AlertTitle>
               </Alert>
 
               <div className="grid grid-cols-2 gap-4 p-4 bg-muted rounded-lg">
                 <div>
                   <p className="text-sm font-medium">Thời gian lưu trữ</p>
-                  <p className="text-2xl font-bold">{cleanupPreview.retention_days} ngày</p>
+                  <p className="text-2xl font-bold">
+                    {cleanupPreview.retention_days} ngày
+                  </p>
                 </div>
                 <div>
                   <p className="text-sm font-medium">Ngày cắt</p>
                   <p className="text-sm text-muted-foreground">
-                    {cleanupPreview.cutoff_date ? new Date(cleanupPreview.cutoff_date).toLocaleDateString('vi-VN') : 'N/A'}
+                    {cleanupPreview.cutoff_date
+                      ? new Date(cleanupPreview.cutoff_date).toLocaleDateString(
+                          "vi-VN",
+                        )
+                      : "N/A"}
                   </p>
                 </div>
               </div>

@@ -797,6 +797,8 @@ class PushProtocolService:
             employee_object = (
                 user.employee_object if user and user.employee_object else ""
             )
+            gender = user.gender if user and user.gender else ""
+            hire_date = user.hire_date if user and user.hire_date else ""
 
             # Format timestamp - handle both string and datetime objects
             if isinstance(attendance_log.timestamp, str):
@@ -826,6 +828,8 @@ class PushProtocolService:
                 "department": department,
                 "notes": notes,
                 "employee_object": employee_object,
+                "gender": gender,
+                "hire_date": hire_date,
             }
 
             # Broadcast to all SSE clients

@@ -317,6 +317,22 @@ class DatabaseManager:
                     f"Warning: Could not add employee_object column to users table: {e}"
                 )
 
+        if "gender" not in columns:
+            try:
+                print("Adding gender column to users table...")
+                cursor.execute("ALTER TABLE users ADD COLUMN gender TEXT NULL")
+                print("gender column added to users table successfully")
+            except Exception as e:
+                print(f"Warning: Could not add gender column to users table: {e}")
+
+        if "hire_date" not in columns:
+            try:
+                print("Adding hire_date column to users table...")
+                cursor.execute("ALTER TABLE users ADD COLUMN hire_date TEXT NULL")
+                print("hire_date column added to users table successfully")
+            except Exception as e:
+                print(f"Warning: Could not add hire_date column to users table: {e}")
+
     def _migrate_attendance_logs_table(self, cursor):
         """Migrate existing attendance_logs table to add sync tracking columns and unique constraint"""
         # Check if columns already exist

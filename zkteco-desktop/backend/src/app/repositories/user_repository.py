@@ -3,26 +3,47 @@ from datetime import datetime
 from app.models.user import User
 from app.database.connection import db_manager
 
+
 class UserRepository:
     """User database operations with sync tracking"""
 
     def create(self, user: User) -> User:
         """Create new user"""
-        query = '''
+        query = """
                 INSERT INTO users (
                     user_id, name, device_id, serial_number, privilege,
                     group_id, card, password, is_synced, synced_at,
                     full_name, employee_code, position, department,
-                    employee_object, notes, avatar_url, external_user_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
-                '''
+                    employee_object, notes, avatar_url, external_user_id,
+                    gender, hire_date
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+                """
 
-        cursor = db_manager.execute_query(query, (
-            user.user_id, user.name, user.device_id, user.serial_number, user.privilege,
-            user.group_id, user.card, user.password, user.is_synced, user.synced_at,
-            user.full_name, user.employee_code, user.position, user.department,
-            user.employee_object, user.notes, user.avatar_url, user.external_user_id,
-        ))
+        cursor = db_manager.execute_query(
+            query,
+            (
+                user.user_id,
+                user.name,
+                user.device_id,
+                user.serial_number,
+                user.privilege,
+                user.group_id,
+                user.card,
+                user.password,
+                user.is_synced,
+                user.synced_at,
+                user.full_name,
+                user.employee_code,
+                user.position,
+                user.department,
+                user.employee_object,
+                user.notes,
+                user.avatar_url,
+                user.external_user_id,
+                user.gender,
+                user.hire_date,
+            ),
+        )
 
         # Get the created user with auto-generated ID
         return self.get_by_id(cursor.lastrowid)
@@ -37,7 +58,7 @@ class UserRepository:
         if device_id:
             row = db_manager.fetch_one(
                 "SELECT * FROM users WHERE user_id = ? AND device_id = ?",
-                (user_id, device_id)
+                (user_id, device_id),
             )
         else:
             row = db_manager.fetch_one(
@@ -46,7 +67,9 @@ class UserRepository:
             )
         return self._row_to_user(row) if row else None
 
-    def find_first_by_user_id(self, user_id: str, exclude_device_id: str = None) -> Optional[User]:
+    def find_first_by_user_id(
+        self, user_id: str, exclude_device_id: str = None
+    ) -> Optional[User]:
         """Find the first user with a given user_id, optionally excluding one device."""
         if exclude_device_id:
             query = "SELECT * FROM users WHERE user_id = ? AND device_id != ? LIMIT 1"
@@ -54,7 +77,7 @@ class UserRepository:
         else:
             query = "SELECT * FROM users WHERE user_id = ? LIMIT 1"
             row = db_manager.fetch_one(query, (user_id,))
-        
+
         return self._row_to_user(row) if row else None
 
     def get_all(self, device_id: str = None) -> List[User]:
@@ -62,7 +85,7 @@ class UserRepository:
         if device_id:
             rows = db_manager.fetch_all(
                 "SELECT * FROM users WHERE device_id = ? ORDER BY created_at DESC",
-                (device_id,)
+                (device_id,),
             )
         else:
             rows = db_manager.fetch_all("SELECT * FROM users ORDER BY created_at DESC")
@@ -73,7 +96,7 @@ class UserRepository:
         if device_id:
             rows = db_manager.fetch_all(
                 "SELECT * FROM users WHERE is_synced = FALSE AND device_id = ?",
-                (device_id,)
+                (device_id,),
             )
         else:
             rows = db_manager.fetch_all("SELECT * FROM users WHERE is_synced = FALSE")
@@ -93,9 +116,9 @@ class UserRepository:
 
     def update(self, user_id: int, updates: Dict[str, Any]) -> bool:
         """Update user"""
-        updates['updated_at'] = datetime.now()
+        updates["updated_at"] = datetime.now()
 
-        set_clause = ', '.join([f"{key} = ?" for key in updates.keys()])
+        set_clause = ", ".join([f"{key} = ?" for key in updates.keys()])
         query = f"UPDATE users SET {set_clause} WHERE id = ?"
 
         cursor = db_manager.execute_query(query, (*updates.values(), user_id))
@@ -108,6 +131,7 @@ class UserRepository:
 
     def _row_to_user(self, row) -> User:
         """Convert database row to User object"""
+
         # Helper function to safely get column value
         def get_column(column_name, default=None):
             try:
@@ -116,26 +140,28 @@ class UserRepository:
                 return default
 
         return User(
-            id=row['id'],
-            user_id=row['user_id'],
-            name=row['name'],
-            device_id=row['device_id'],
-            serial_number=get_column('serial_number'),
-            privilege=row['privilege'],
-            group_id=row['group_id'],
-            card=row['card'],
-            password=row['password'],
-            is_synced=bool(row['is_synced']),
-            synced_at=row['synced_at'],
-            external_user_id=get_column('external_user_id'),
-            avatar_url=get_column('avatar_url'),
+            id=row["id"],
+            user_id=row["user_id"],
+            name=row["name"],
+            device_id=row["device_id"],
+            serial_number=get_column("serial_number"),
+            privilege=row["privilege"],
+            group_id=row["group_id"],
+            card=row["card"],
+            password=row["password"],
+            is_synced=bool(row["is_synced"]),
+            synced_at=row["synced_at"],
+            external_user_id=get_column("external_user_id"),
+            avatar_url=get_column("avatar_url"),
             # New fields
-            full_name=get_column('full_name'),
-            employee_code=get_column('employee_code'),
-            employee_object=get_column('employee_object'),
-            position=get_column('position'),
-            department=get_column('department'),
-            notes=get_column('notes'),
-            created_at=row['created_at'],
-            updated_at=row['updated_at']
+            full_name=get_column("full_name"),
+            employee_code=get_column("employee_code"),
+            employee_object=get_column("employee_object"),
+            position=get_column("position"),
+            department=get_column("department"),
+            notes=get_column("notes"),
+            gender=get_column("gender"),
+            hire_date=get_column("hire_date"),
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
         )

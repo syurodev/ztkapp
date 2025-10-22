@@ -2,9 +2,11 @@ from dataclasses import dataclass, asdict
 from typing import Optional
 from datetime import datetime
 
+
 @dataclass
 class User:
     """User model with sync tracking"""
+
     user_id: str
     name: str  # Name from device (fallback)
     device_id: Optional[str] = None
@@ -12,7 +14,7 @@ class User:
     privilege: int = 0
     group_id: int = 0
     card: int = 0
-    password: str = ''
+    password: str = ""
     is_synced: bool = False
     synced_at: Optional[datetime] = None
     external_user_id: Optional[int] = None  # bigint from external API
@@ -24,6 +26,8 @@ class User:
     department: Optional[str] = None  # Phòng ban
     notes: Optional[str] = None  # Ghi chú
     employee_object: Optional[str] = None  # Đối tượng nhân viên (theo external API)
+    gender: Optional[str] = None  # Giới tính
+    hire_date: Optional[str] = None  # Ngày vào làm (YYYY-MM-DD)
     id: Optional[int] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

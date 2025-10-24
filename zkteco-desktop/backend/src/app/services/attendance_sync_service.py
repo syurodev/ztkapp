@@ -209,12 +209,20 @@ class AttendanceSyncService:
             self.logger.info(
                 f"Starting first-checkin sync for date: {sync_date}, device: {device_id or 'all'}"
             )
+            self.logger.debug(
+                f"[SYNC] Target date: {sync_date}, Device ID: {device_id}"
+            )
 
             attendance_summary = self._calculate_daily_attendance_with_dedup(
                 sync_date, device_id
             )
 
+            self.logger.debug(
+                f"[SYNC] Calculated attendance summary: {len(attendance_summary) if attendance_summary else 0} users"
+            )
+
             if not attendance_summary:
+                self.logger.debug("[SYNC] No pending first checkins found after dedup")
                 return {
                     "success": True,
                     "message": "No pending first checkins found",
@@ -251,10 +259,25 @@ class AttendanceSyncService:
                 and (summary.get("external_user_id") or 0) > 0
             ]
 
+            self.logger.debug(
+                f"[SYNC] Valid summaries after filtering: {len(valid_summaries)}"
+            )
+            for summary in valid_summaries:
+                self.logger.debug(
+                    f"[SYNC] - User {summary.get('user_id')} ({summary.get('name')}): external_id={summary.get('external_user_id')}, first_checkin={summary.get('first_checkin')}"
+                )
+
             if not valid_summaries:
                 self.logger.info(
                     "No first checkin records available after filtering, skipping sync"
                 )
+                self.logger.debug(
+                    f"[SYNC] Total attendance_summary before filter: {len(attendance_summary)}"
+                )
+                for summary in attendance_summary:
+                    self.logger.debug(
+                        f"[SYNC] - Filtered out: User {summary.get('user_id')}, external_id={summary.get('external_user_id')}, first_checkin={summary.get('first_checkin')}"
+                    )
                 return {
                     "success": True,
                     "date": str(sync_date),
@@ -361,10 +384,18 @@ class AttendanceSyncService:
             start_datetime = datetime.combine(target_date, datetime.min.time())
             end_datetime = datetime.combine(target_date, datetime.max.time())
 
+            self.logger.debug(
+                f"[QUERY] Querying attendance logs from {start_datetime} to {end_datetime}"
+            )
+
             # Get pending/error attendance logs for the date range
             sync_status_filters = (SyncStatus.PENDING, SyncStatus.ERROR)
             error_clause = (
                 "" if ignore_error_limit else " AND COALESCE(error_count, 0) < 100"
+            )
+
+            self.logger.debug(
+                f"[QUERY] Filters - sync_status: {sync_status_filters}, error_clause: {error_clause}, device_id: {device_id}"
             )
 
             if device_id:
@@ -400,7 +431,16 @@ class AttendanceSyncService:
                 )
 
             if not logs:
+                self.logger.debug(f"[QUERY] No logs found for {target_date}")
                 return []
+
+            self.logger.debug(
+                f"[QUERY] Found {len(logs)} attendance logs for {target_date}"
+            )
+            for log in logs:
+                self.logger.debug(
+                    f"[QUERY] - Log ID={log.get('id')}, user={log.get('user_id')}, timestamp={log.get('timestamp')}, action={log.get('action')}, sync_status={log.get('sync_status')}, error_count={log.get('error_count')}"
+                )
 
             # Group logs by user_id
             user_logs = defaultdict(list)
@@ -410,9 +450,18 @@ class AttendanceSyncService:
             # Get user names mapping
             users = user_repo.get_all(device_id)
             user_name_map = {user.user_id: user.name for user in users}
-            user_external_id_map = {
-                user.user_id: getattr(user, "external_user_id", None) for user in users
-            }
+
+            # Build external_user_id map - prioritize users with external_user_id
+            user_external_id_map = {}
+            for user in users:
+                external_id = getattr(user, "external_user_id", None)
+                # Only update if current user has external_id OR if key doesn't exist yet
+                if user.user_id not in user_external_id_map or external_id:
+                    user_external_id_map[user.user_id] = external_id
+
+            self.logger.debug(
+                f"[SYNC] Built user maps: {len(user_name_map)} names, {len(user_external_id_map)} external_ids"
+            )
 
             # Calculate first checkin and last checkout for each user
             attendance_summary = []
@@ -623,9 +672,14 @@ class AttendanceSyncService:
             # Get user names mapping
             users = user_repo.get_all(device_id)
             user_name_map = {user.user_id: user.name for user in users}
-            user_external_id_map = {
-                user.user_id: getattr(user, "external_user_id", None) for user in users
-            }
+
+            # Build external_user_id map - prioritize users with external_user_id
+            user_external_id_map = {}
+            for user in users:
+                external_id = getattr(user, "external_user_id", None)
+                # Only update if current user has external_id OR if key doesn't exist yet
+                if user.user_id not in user_external_id_map or external_id:
+                    user_external_id_map[user.user_id] = external_id
 
             # Calculate first checkin and last checkout for each user with IDs
             attendance_summary = []

@@ -243,22 +243,45 @@ class SchedulerService:
     def _run_first_checkin_sync(self):
         """Execute frequent first-checkin sync job (works for both pull and push devices)"""
         try:
+            self.logger.debug(
+                "[CRON] ========== First Checkin Sync Job Started =========="
+            )
+            self.logger.debug(f"[CRON] Timestamp: {datetime.now()}")
+
             # Sync first checkins only
             attendance_result = attendance_sync_service.sync_first_checkins()
 
+            self.logger.debug(f"[CRON] First Checkin Sync Result: {attendance_result}")
+
             if attendance_result.get("success"):
                 synced = attendance_result.get("synced_records", 0)
-                if synced > 0:
-                    self.logger.info(
-                        f"[CRON] First Checkin: Synced {synced} attendance records"
-                    )
-            else:
-                self.logger.warning(
-                    f"[CRON] First Checkin attendance sync error: {attendance_result.get('error', 'unknown error')}"
+                count = attendance_result.get("count", 0)
+                date = attendance_result.get("date", "unknown")
+
+                self.logger.info(
+                    f"[CRON] First Checkin: Found {count} pending records, synced {synced} records for date {date}"
                 )
 
+                if synced > 0:
+                    self.logger.info(
+                        f"[CRON] First Checkin: Successfully synced {synced} attendance records"
+                    )
+                else:
+                    self.logger.debug(
+                        "[CRON] First Checkin: No records synced this run"
+                    )
+            else:
+                error_msg = attendance_result.get("error", "unknown error")
+                self.logger.warning(
+                    f"[CRON] First Checkin attendance sync error: {error_msg}"
+                )
+
+            self.logger.debug(
+                "[CRON] ========== First Checkin Sync Job Finished =========="
+            )
+
         except Exception as e:
-            self.logger.error(f"[CRON] First Checkin error: {e}")
+            self.logger.error(f"[CRON] First Checkin error: {e}", exc_info=True)
 
     def _fetch_attendance_from_all_devices(self):
         """Fetch attendance logs from all active pull devices before sync"""

@@ -140,7 +140,13 @@ if not app_logger.handlers:
     # Add console handler (with colors)
     app_logger.addHandler(create_console_handler())
 
-app_logger.setLevel(logging.INFO)
+app_logger.setLevel(logging.DEBUG)
 
 # Prevent propagation to root logger (which might cause duplicates)
 app_logger.propagate = False
+
+# Log startup message
+app_logger.info("=" * 80)
+app_logger.info("Logger initialized with DEBUG level")
+app_logger.info(f"Log file location: {get_user_log_dir()}/app.log")
+app_logger.info("=" * 80)

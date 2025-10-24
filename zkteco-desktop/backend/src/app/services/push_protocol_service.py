@@ -26,7 +26,13 @@ from threading import Lock
 import requests
 
 from app.shared.logger import app_logger
-from app.repositories import attendance_repo, user_repo, device_repo
+from app.repositories import (
+    attendance_repo,
+    user_repo,
+    device_repo,
+    door_repo,
+    door_access_repo,
+)
 from app.config.config_manager import config_manager
 from app.models import AttendanceLog
 from app.events.event_stream import device_event_stream

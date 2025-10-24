@@ -14,34 +14,29 @@ import { useDevice } from "@/contexts/DeviceContext";
 import { attendanceAPI, liveAPI, LiveAttendanceRecord } from "@/lib/api";
 import {
   buildAvatarUrl,
-  cn,
   getResourceDomain,
   RESOURCE_DOMAIN_EVENT,
 } from "@/lib/utils";
 import { format, isValid, parseISO } from "date-fns";
 import { Activity, Monitor, User, Wifi, WifiOff } from "lucide-react";
-import { ReactNode, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 
 const MAX_RECORDS = 50;
 const MotionTableRow = motion(TableRow);
 
 export function LiveAttendance() {
-  const { devices, activeDevice, activeDeviceId } = useDevice();
+  const { devices, primaryDeviceId } = useDevice();
 
   const [liveAttendance, setLiveAttendance] = useState<LiveAttendanceRecord[]>(
     [],
   );
   const [isConnected, setIsConnected] = useState(false);
-  const [showAllDevices, setShowAllDevices] = useState(false);
   const [actionFilter, setActionFilter] = useState<"all" | 0 | 1>("all");
   const [resourceDomain, setResourceDomain] = useState<string>("");
   const [_, setIsInitialLoading] = useState(false);
   const reconnectTimerRef = useRef<NodeJS.Timeout | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
-
-  const getShiftLabel = (action: number) =>
-    action === 0 ? "Thời gian vào ca" : "Thời gian ra ca";
 
   const extractTimestampParts = (timestamp?: string) => {
     if (!timestamp) {
@@ -59,8 +54,13 @@ export function LiveAttendance() {
         // Ignore parse errors and retain original value
       }
     }
+    // Remove milliseconds from time (e.g., "08:54:29.000" -> "08:54:29")
+    let formattedTime = timePart || timestamp;
+    if (formattedTime.includes(".")) {
+      formattedTime = formattedTime.split(".")[0];
+    }
     return {
-      time: timePart || timestamp,
+      time: formattedTime,
       date: formattedDate,
     };
   };
@@ -99,26 +99,26 @@ export function LiveAttendance() {
     return value;
   };
 
-  const DetailItem = ({
-    label,
-    value,
-    highlight = false,
-  }: {
-    label: string;
-    value: ReactNode;
-    highlight?: boolean;
-  }) => (
-    <div className="space-y-1">
-      <div className="text-sm text-muted-foreground font-medium">{label}</div>
-      <div
-        className={
-          highlight ? "text-4xl font-semibold" : "text-lg font-semibold"
-        }
-      >
-        {value}
-      </div>
-    </div>
-  );
+  // const DetailItem = ({
+  //   label,
+  //   value,
+  //   highlight = false,
+  // }: {
+  //   label: string;
+  //   value: ReactNode;
+  //   highlight?: boolean;
+  // }) => (
+  //   <div className="space-y-1">
+  //     <div className="text-sm text-muted-foreground font-medium">{label}</div>
+  //     <div
+  //       className={
+  //         highlight ? "text-4xl font-semibold" : "text-lg font-semibold"
+  //       }
+  //     >
+  //       {value}
+  //     </div>
+  //   </div>
+  // );
 
   // Load resource domain on mount and subscribe to updates
   useEffect(() => {
@@ -216,7 +216,7 @@ export function LiveAttendance() {
         const dateStr = format(new Date(), "yyyy-MM-dd");
         const response = await attendanceAPI.getAttendance({
           limit: MAX_RECORDS,
-          device_id: showAllDevices ? undefined : (activeDeviceId as string),
+          device_id: primaryDeviceId as string,
           date: dateStr,
         });
 
@@ -303,7 +303,7 @@ export function LiveAttendance() {
       cleanupRef.current?.();
       cleanupRef.current = null;
     };
-  }, [devices, activeDeviceId, showAllDevices]);
+  }, [devices, primaryDeviceId]);
 
   // Filter attendance: only show first checkin and last checkout per user per day
   const filterFirstLastAttendance = (records: LiveAttendanceRecord[]) => {
@@ -352,10 +352,10 @@ export function LiveAttendance() {
     );
   };
 
-  // Get filtered attendance records
-  const deviceFiltered = showAllDevices
-    ? liveAttendance
-    : liveAttendance.filter((record) => record.device_id === activeDeviceId);
+  // Get filtered attendance records - only from primary device
+  const deviceFiltered = liveAttendance.filter(
+    (record) => record.device_id === primaryDeviceId,
+  );
 
   // Apply first/last filter
   let filteredAttendance = filterFirstLastAttendance(deviceFiltered);
@@ -430,19 +430,6 @@ export function LiveAttendance() {
                   Ra ca
                 </Button>
               </div>
-
-              {/* Device Filter - Toggle between Active Device / All Devices */}
-              {devices.length > 1 && activeDevice && (
-                <Button
-                  variant={showAllDevices ? "outline" : "default"}
-                  size="sm"
-                  onClick={() => setShowAllDevices(!showAllDevices)}
-                  className="h-8 px-3 text-xs flex items-center gap-1"
-                >
-                  <Monitor className="h-3 w-3" />
-                  {showAllDevices ? "Tất cả thiết bị" : activeDevice.name}
-                </Button>
-              )}
             </div>
           </div>
         </CardHeader>
@@ -470,23 +457,16 @@ export function LiveAttendance() {
             </div>
           ) : (
             <div className="space-y-6">
-              {/* Latest Attendance - Large Display with Avatar (2/3 ratio rectangle) */}
+              {/* Latest Attendance - Large Display with Avatar and Table Layout */}
               {filteredAttendance.length > 0 &&
                 (() => {
                   const latestRecord = filteredAttendance[0];
                   const displayName =
                     latestRecord.full_name || latestRecord.name;
-                  const actionColor =
-                    latestRecord.action === 0
-                      ? "border-teal-500 dark:border-teal-500 bg-teal-50 dark:bg-teal-950"
-                      : "border-sky-500 dark:border-sky-500 bg-sky-50 dark:bg-sky-950";
+
                   const shiftInfo = extractTimestampParts(
                     latestRecord.timestamp,
                   );
-                  const shiftDisplay =
-                    shiftInfo.date && shiftInfo.date !== "-"
-                      ? `${shiftInfo.time} • ${shiftInfo.date}`
-                      : shiftInfo.time;
 
                   return (
                     <AnimatePresence mode="wait">
@@ -500,7 +480,8 @@ export function LiveAttendance() {
                       >
                         <Card className="border-2 shadow-lg">
                           <CardContent className="p-6">
-                            <div className="flex gap-6">
+                            <div className="flex gap-6 items-stretch">
+                              {/* Avatar Section */}
                               <motion.div
                                 className="flex-shrink-0 w-72"
                                 layout
@@ -508,79 +489,148 @@ export function LiveAttendance() {
                                 animate={{ opacity: 1 }}
                                 transition={{ duration: 0.2 }}
                               >
-                                <Avatar
-                                  className={cn(
-                                    "w-72 h-[432px] rounded-2xl border-4 shadow-xl",
-                                    actionColor,
-                                  )}
-                                >
-                                  <AvatarImage
-                                    src={buildAvatarUrl(
-                                      latestRecord.avatar_url,
-                                      resourceDomain,
-                                    )}
-                                    alt={displayName}
-                                    className="object-cover"
-                                  />
-                                  <AvatarFallback className="text-6xl font-bold rounded-lg">
-                                    {displayName ? (
-                                      displayName
-                                        .split(" ")
-                                        .map((n) => n[0])
-                                        .join("")
-                                        .toUpperCase()
-                                        .slice(0, 2)
-                                    ) : (
-                                      <User className="h-32 w-32" />
-                                    )}
-                                  </AvatarFallback>
-                                </Avatar>
+                                <div className="border-2 border-border rounded-lg overflow-hidden h-full flex flex-col">
+                                  <div className="bg-muted px-4 py-3 border-b-2 border-border text-center">
+                                    <h3 className="text-lg font-bold">
+                                      Hình nhân viên
+                                    </h3>
+                                  </div>
+                                  <div className="relative flex-1">
+                                    <Avatar className="w-full h-full rounded-none">
+                                      <AvatarImage
+                                        src={buildAvatarUrl(
+                                          latestRecord.avatar_url,
+                                          resourceDomain,
+                                        )}
+                                        alt={displayName}
+                                        className="object-cover"
+                                      />
+                                      <AvatarFallback className="text-6xl font-bold rounded-none">
+                                        {displayName ? (
+                                          displayName
+                                            .split(" ")
+                                            .map((n) => n[0])
+                                            .join("")
+                                            .toUpperCase()
+                                            .slice(0, 2)
+                                        ) : (
+                                          <User className="h-32 w-32" />
+                                        )}
+                                      </AvatarFallback>
+                                    </Avatar>
+                                  </div>
+                                </div>
                               </motion.div>
+
+                              {/* Information Table */}
                               <motion.div
-                                className="flex-1 space-y-4"
+                                className="flex-1"
                                 layout
                                 initial={{ opacity: 0, y: 12 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 transition={{ duration: 0.25, ease: "easeOut" }}
                               >
-                                <DetailItem
-                                  label="Mã nhân viên"
-                                  value={latestRecord.employee_code || "-"}
-                                />
-                                <DetailItem
-                                  label="Tên nhân viên"
-                                  value={
-                                    latestRecord.full_name ||
-                                    latestRecord.name ||
-                                    "-"
-                                  }
-                                  highlight
-                                />
-                                <div className="grid grid-cols-2 gap-4 pt-2">
-                                  <DetailItem
-                                    label="Phòng ban"
-                                    value={latestRecord.position || "-"}
-                                  />
-                                  <DetailItem
-                                    label="Chức danh"
-                                    value={latestRecord.department || "-"}
-                                  />
-                                  <DetailItem
-                                    label="Giới tính"
-                                    value={formatGender(latestRecord.gender)}
-                                  />
-                                  <DetailItem
-                                    label="Ngày nhận việc"
-                                    value={formatHireDate(
-                                      latestRecord.hire_date,
-                                    )}
-                                  />
+                                <div className="border-2 border-border rounded-lg overflow-hidden">
+                                  <div className="bg-muted px-4 py-3 border-b-2 border-border text-center">
+                                    <h3 className="text-lg font-bold">
+                                      Thông tin
+                                    </h3>
+                                  </div>
+                                  <table className="w-full">
+                                    <tbody>
+                                      {/* Mã nhân viên */}
+                                      <tr className="border-b-2 border-border">
+                                        <td
+                                          colSpan={2}
+                                          className="px-4 py-3 border-r-2 border-border"
+                                        >
+                                          <div className="text-sm text-muted-foreground">
+                                            Mã nhân viên
+                                          </div>
+                                          <div className="text-lg font-bold mt-1">
+                                            {latestRecord.employee_code || "-"}
+                                          </div>
+                                        </td>
+                                      </tr>
+
+                                      {/* Tên nhân viên */}
+                                      <tr className="border-b-2 border-border">
+                                        <td
+                                          colSpan={2}
+                                          className="px-4 py-3 border-r-2 border-border"
+                                        >
+                                          <div className="text-sm text-muted-foreground">
+                                            Tên nhân viên
+                                          </div>
+                                          <div className="text-2xl font-bold mt-1">
+                                            {displayName || "-"}
+                                          </div>
+                                        </td>
+                                      </tr>
+
+                                      {/* Phòng ban & Chức danh */}
+                                      <tr className="border-b-2 border-border">
+                                        <td className="px-4 py-3 border-r-2 border-border w-1/2">
+                                          <div className="text-sm text-muted-foreground">
+                                            Phòng ban
+                                          </div>
+                                          <div className="text-lg font-bold mt-1">
+                                            {latestRecord.position || "-"}
+                                          </div>
+                                        </td>
+                                        <td className="px-4 py-3">
+                                          <div className="text-sm text-muted-foreground">
+                                            Chức danh
+                                          </div>
+                                          <div className="text-lg font-bold mt-1">
+                                            {latestRecord.department || "-"}
+                                          </div>
+                                        </td>
+                                      </tr>
+
+                                      {/* Giới tính & Ngày nhận việc */}
+                                      <tr className="border-b-2 border-border">
+                                        <td className="px-4 py-3 border-r-2 border-border w-1/2">
+                                          <div className="text-sm text-muted-foreground">
+                                            Giới tính
+                                          </div>
+                                          <div className="text-lg font-bold mt-1">
+                                            {formatGender(latestRecord.gender)}
+                                          </div>
+                                        </td>
+                                        <td className="px-4 py-3">
+                                          <div className="text-sm text-muted-foreground">
+                                            Ngày nhận việc
+                                          </div>
+                                          <div className="text-lg font-bold mt-1">
+                                            {formatHireDate(
+                                              latestRecord.hire_date,
+                                            )}
+                                          </div>
+                                        </td>
+                                      </tr>
+
+                                      {/* Thời gian chấm công */}
+                                      <tr>
+                                        <td
+                                          colSpan={2}
+                                          className="px-4 py-3 border-r-2 border-border"
+                                        >
+                                          <div className="text-sm text-muted-foreground">
+                                            {latestRecord.action === 0
+                                              ? "Thời gian check-in"
+                                              : "Thời gian check-out"}
+                                          </div>
+                                          <div className="text-2xl font-bold mt-1">
+                                            {shiftInfo.time}
+                                            {shiftInfo.date !== "-" &&
+                                              ` - ${shiftInfo.date}`}
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    </tbody>
+                                  </table>
                                 </div>
-                                <DetailItem
-                                  label={getShiftLabel(latestRecord.action)}
-                                  value={shiftDisplay}
-                                  highlight
-                                />
                               </motion.div>
                             </div>
                           </CardContent>

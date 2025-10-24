@@ -706,7 +706,7 @@ export function UserManagement() {
                 <TableRow>
                   <TableHead>ID</TableHead>
                   <TableHead>Họ tên</TableHead>
-                  <TableHead>Họ tên hệ thống</TableHead>
+
                   <TableHead>Nhóm</TableHead>
                   <TableHead>Trạng thái đồng bộ</TableHead>
                   <TableHead>Đồng bộ lúc</TableHead>
@@ -750,11 +750,8 @@ export function UserManagement() {
                                 {initials}
                               </AvatarFallback>
                             </Avatar>
-                            <span>{user.name}</span>
+                            <span>{user.full_name ?? user.name}</span>
                           </div>
-                        </TableCell>
-                        <TableCell className="font-medium">
-                          {user.full_name ?? "-"}
                         </TableCell>
                         <TableCell>{user.groupId}</TableCell>
                         <TableCell>{getSyncStatusBadge(user)}</TableCell>

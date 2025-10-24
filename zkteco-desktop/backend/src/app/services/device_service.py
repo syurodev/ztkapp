@@ -400,12 +400,6 @@ class ZkService:
                 api_response = external_api_service.get_employees_by_user_ids(batch)
 
                 if api_response.get("status") != 200:
-                    error_msg = api_response.get(
-                        "message", "Unknown error from external API"
-                    )
-                    app_logger.warning(
-                        f"Batch {batch_num}/{total_batches} failed: {error_msg}"
-                    )
                     # Continue with next batch instead of returning error
                     continue
 
@@ -497,21 +491,29 @@ class ZkService:
                     if employee.get("notes"):
                         updates["notes"] = employee["notes"]
 
-                    if employee.get("gender") is not None:
-                        updates["gender"] = employee.get("gender")
+                    # Try multiple possible field names for gender
+                    gender_value = (
+                        employee.get("gender")
+                        or employee.get("employee_gender")
+                        or employee.get("sex")
+                    )
+                    if gender_value is not None:
+                        updates["gender"] = gender_value
 
-                    if employee.get("hire_date"):
-                        updates["hire_date"] = employee.get("hire_date")
+                    # Try multiple possible field names for hire_date
+                    hire_date_value = (
+                        employee.get("hire_date")
+                        or employee.get("employee_hire_date")
+                        or employee.get("join_date")
+                        or employee.get("start_date")
+                    )
+                    if hire_date_value:
+                        updates["hire_date"] = hire_date_value
 
                     # Only update if there's new data
                     if updates:
                         if user_repo.update(matching_user.id, updates):
                             updated_count += 1
-
-                        else:
-                            app_logger.warning(
-                                f"[SYNC_USERS_API] Failed to update user {user_id} in DB"
-                            )
 
             app_logger.info(
                 f"Updated {updated_count}/{len(all_users)} users with employee details from external API"

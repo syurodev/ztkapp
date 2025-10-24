@@ -322,9 +322,6 @@ def live_capture_worker(device_id=None):
         except (OSError, BrokenPipeError, ConnectionError) as e:
             # Check if stopped intentionally
             if device_id and multi_device_manager.should_stop(device_id):
-                app_logger.debug(
-                    f"Device {device_id} stopped intentionally, not reconnecting"
-                )
                 break
 
             # Exponential backoff with jitter
@@ -354,9 +351,6 @@ def live_capture_worker(device_id=None):
         except Exception as e:
             # Check if stopped intentionally
             if device_id and multi_device_manager.should_stop(device_id):
-                app_logger.debug(
-                    f"Device {device_id} stopped intentionally, not reconnecting"
-                )
                 break
 
             # Exponential backoff with jitter
@@ -385,13 +379,7 @@ def live_capture_worker(device_id=None):
         else:
             # Check if stopped intentionally
             if device_id and multi_device_manager.should_stop(device_id):
-                app_logger.debug(
-                    f"Device {device_id} stopped intentionally, exiting worker"
-                )
                 break
-            app_logger.debug(
-                f"Live capture loop exited for device {device_id}. Reconnecting in 10s."
-            )
             if zk:
                 try:
                     zk.disconnect()
@@ -492,13 +480,13 @@ def _enhanced_live_capture(zk, device_id=None):
         # Wrap all device commands in try-except to handle broken pipe (FIXED)
         try:
             zk.cancel_capture()
-        except Exception as e:
-            app_logger.debug(f"cancel_capture error (safe to ignore): {e}")
+        except Exception:
+            pass
 
         try:
             zk.verify_user()
-        except Exception as e:
-            app_logger.debug(f"verify_user error (safe to ignore): {e}")
+        except Exception:
+            pass
 
         try:
             zk.enable_device()
@@ -576,7 +564,6 @@ def _enhanced_live_capture(zk, device_id=None):
                     )
 
             except timeout:
-                app_logger.debug("Socket timeout in live capture - continuing...")
                 continue
             except (OSError, BrokenPipeError, ConnectionError) as e:
                 app_logger.error(f"Socket connection error in live capture: {e}")
@@ -596,23 +583,20 @@ def _enhanced_live_capture(zk, device_id=None):
             try:
                 if hasattr(zk, "_ZK__sock") and zk._ZK__sock:
                     zk._ZK__sock.settimeout(None)
-            except Exception as e:
-                app_logger.debug(f"Error resetting socket timeout: {e}")
+            except Exception:
+                pass
 
             # Unregister event (FIXED - wrapped)
             try:
                 zk.reg_event(0)
-            except Exception as e:
-                app_logger.debug(f"Error unregistering event: {e}")
+            except Exception:
+                pass
 
             # Gracefully disconnect device (FIXED - already wrapped)
             try:
                 zk.disconnect()
-                app_logger.info(f"Device {device_id} disconnected gracefully")
-            except Exception as disc_error:
-                app_logger.debug(
-                    f"Error disconnecting device {device_id}: {disc_error}"
-                )
+            except Exception:
+                pass
 
             app_logger.info("Live capture cleanup completed")
         except Exception as e:
@@ -678,7 +662,6 @@ def _parse_device_timestamp(timehex_bytes):
 
         except struct.error:
             # Method 2: Try different unpacking format
-            app_logger.debug("Trying alternative timestamp format...")
             timestamp_int = struct.unpack("<I", timehex_bytes[:4])[0]
 
             # Extract date/time components from packed integer
@@ -708,11 +691,6 @@ def _parse_device_timestamp(timehex_bytes):
 
         # Create datetime object
         device_time = datetime(year, month, day, hour, minute, second)
-
-        # Log for debugging
-        app_logger.debug(
-            f"Parsed device timestamp: {device_time} from bytes: {timehex_bytes.hex()}"
-        )
 
         return device_time
 
@@ -874,13 +852,16 @@ def _queue_attendance_event(
     member_id, method, action, device_id=None, device_timestamp=None
 ):
     """
-    Queue attendance event and save to the appropriate log (door or attendance).
-    If the device is linked to a door, save to door_access_logs.
-    Otherwise, save to attendance_logs.
+    Queue attendance event and save to the appropriate log based on device type:
+    - If device is_primary: save to attendance_logs
+    - If device is linked to a door: save to door_access_logs
+    - Otherwise: skip (do not save)
     """
     try:
         current_time = datetime.now()
         serial_number = None
+        device = None
+        is_primary = False
 
         # Get device info
         if device_id:
@@ -889,6 +870,7 @@ def _queue_attendance_event(
             device = config_manager.get_device(device_id)
             if device:
                 serial_number = device.get("serial_number")
+                is_primary = device.get("is_primary", False)
         else:
             device_id, serial_number = _get_active_device_info()
 
@@ -940,10 +922,10 @@ def _queue_attendance_event(
                 f"Live capture: Published realtime door event for user {member_id}"
             )
 
-        else:
-            # Original logic: save to attendance_logs
+        elif is_primary:
+            # Only save to attendance_logs if device is primary
             app_logger.info(
-                f"Device {device_id} is not linked to a door. Logging to AttendanceLog."
+                f"Device {device_id} is primary device. Logging to AttendanceLog."
             )
             attendance_log = AttendanceLog(
                 user_id=str(member_id),
@@ -1012,6 +994,12 @@ def _queue_attendance_event(
             device_event_stream.publish(event_data)
             app_logger.info(
                 f"Live capture: Published realtime attendance event for user {member_id}"
+            )
+
+        else:
+            # Device is neither primary nor linked to a door - skip
+            app_logger.info(
+                f"Device {device_id} is not primary and not linked to a door. Skipping event for user {member_id}."
             )
 
     except Exception as e:

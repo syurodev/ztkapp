@@ -512,6 +512,36 @@ def activate_device(device_id):
         return jsonify({"error": error_message}), 500
 
 
+@bp.route("/devices/<device_id>/set-primary", methods=["PUT"])
+def set_primary_device(device_id):
+    """Set a device as the primary attendance device (only one primary allowed)"""
+    try:
+        # Check if device exists
+        existing_device = config_manager.get_device(device_id)
+        if not existing_device:
+            return jsonify({"error": "Device not found"}), 404
+
+        # Update device to set is_primary=True
+        # The repository will automatically set other devices to is_primary=False
+        success = config_manager.update_device(device_id, {"is_primary": True})
+
+        if not success:
+            return jsonify({"error": "Failed to set primary device"}), 500
+
+        app_logger.info(f"Device {device_id} set as primary attendance device")
+        return jsonify(
+            {
+                "message": "Đã đặt làm máy chấm công chính thành công",
+                "device_id": device_id,
+            }
+        )
+
+    except Exception as e:
+        error_message = f"Failed to set primary device: {str(e)}"
+        app_logger.error(error_message, exc_info=True)
+        return jsonify({"error": error_message}), 500
+
+
 @bp.route("/devices/<device_id>/test", methods=["POST"])
 def test_device_connection(device_id):
     """Test connection to a specific device"""

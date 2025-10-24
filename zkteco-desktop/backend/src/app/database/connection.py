@@ -96,6 +96,7 @@ class DatabaseManager:
                     ping_interval INTEGER DEFAULT 30,
                     force_udp BOOLEAN DEFAULT FALSE,
                     is_active BOOLEAN DEFAULT TRUE,
+                    is_primary BOOLEAN DEFAULT FALSE, -- Only one device can be primary
                     device_type TEXT DEFAULT 'pull', -- 'pull' or 'push'
                     device_info TEXT, -- JSON string for device info
                     serial_number TEXT UNIQUE,
@@ -195,7 +196,7 @@ class DatabaseManager:
             print(f"Database initialized at: {os.path.abspath(self.db_path)}")
 
     def _migrate_devices_table(self, cursor):
-        """Migrate existing devices table to add serial_number and device_type columns"""
+        """Migrate existing devices table to add serial_number, device_type and is_primary columns"""
         # Check if column already exists
         cursor.execute("PRAGMA table_info(devices)")
         columns = [column[1] for column in cursor.fetchall()]
@@ -225,6 +226,27 @@ class DatabaseManager:
                 print("Existing devices set to 'pull' type")
             except Exception as e:
                 print(f"Warning: Could not add device_type column: {e}")
+                print("This may be normal if the column already exists in some form")
+
+        if "is_primary" not in columns:
+            try:
+                print("Adding is_primary column to devices table...")
+                cursor.execute(
+                    "ALTER TABLE devices ADD COLUMN is_primary BOOLEAN DEFAULT FALSE"
+                )
+                print("is_primary column added successfully")
+
+                # Set the first active device as primary if no primary device exists
+                cursor.execute("SELECT COUNT(*) FROM devices WHERE is_primary = TRUE")
+                primary_count = cursor.fetchone()[0]
+
+                if primary_count == 0:
+                    cursor.execute(
+                        "UPDATE devices SET is_primary = TRUE WHERE id = (SELECT id FROM devices WHERE is_active = TRUE LIMIT 1)"
+                    )
+                    print("Set first active device as primary")
+            except Exception as e:
+                print(f"Warning: Could not add is_primary column: {e}")
                 print("This may be normal if the column already exists in some form")
 
     def _migrate_users_table(self, cursor):

@@ -45,6 +45,8 @@ def _map_user_details_to_logs(logs):
             "employee_object": getattr(
                 user, "employee_object", None
             ),  # Add employee_object
+            "gender": getattr(user, "gender", None),  # Add gender
+            "hire_date": getattr(user, "hire_date", None),  # Add hire_date
         }
         for user in users
     }
@@ -66,6 +68,8 @@ def _map_user_details_to_logs(logs):
             log_dict["employee_object"] = user_info[
                 "employee_object"
             ]  # Add employee_object
+            log_dict["gender"] = user_info["gender"]  # Add gender
+            log_dict["hire_date"] = user_info["hire_date"]  # Add hire_date
         else:
             log_dict["name"] = "Unknown User"
             log_dict["avatar_url"] = None
@@ -75,6 +79,8 @@ def _map_user_details_to_logs(logs):
             log_dict["department"] = None
             log_dict["notes"] = None
             log_dict["employee_object"] = None  # Add employee_object
+            log_dict["gender"] = None  # Add gender
+            log_dict["hire_date"] = None  # Add hire_date
 
         enriched_logs.append(log_dict)
 

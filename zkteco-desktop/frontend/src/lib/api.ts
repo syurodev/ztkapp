@@ -464,6 +464,17 @@ export const devicesAPI = {
     }
   },
 
+  // Set device as primary attendance device
+  setPrimaryDevice: async (deviceId: string) => {
+    try {
+      const response = await api.put(`/devices/${deviceId}/set-primary`);
+      return response.data;
+    } catch (error) {
+      // Re-throw the original error to preserve response data
+      throw new Error((error as any)?.["response"]["data"]["error"]);
+    }
+  },
+
   // Test device connection
   testDevice: async (deviceId: string) => {
     try {
@@ -821,6 +832,7 @@ export interface Device {
   ping_interval: number;
   force_udp: boolean;
   is_active: boolean;
+  is_primary?: boolean; // Primary attendance device (only one allowed)
   device_type?: "pull" | "push"; // Device type: pull (TCP) or push (HTTP), defaults to 'pull'
   device_info: DeviceInfo;
 }

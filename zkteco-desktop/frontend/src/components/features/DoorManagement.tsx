@@ -374,11 +374,13 @@ export function DoorManagement() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Không gán thiết bị</SelectItem>
-                  {devices.map((device) => (
-                    <SelectItem key={device.id} value={device.id.toString()}>
-                      {device.name} ({device.ip})
-                    </SelectItem>
-                  ))}
+                  {devices
+                    .filter((device) => !device.is_primary)
+                    .map((device) => (
+                      <SelectItem key={device.id} value={device.id.toString()}>
+                        {device.name} ({device.ip})
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </div>
@@ -462,11 +464,13 @@ export function DoorManagement() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Không gán thiết bị</SelectItem>
-                  {devices.map((device) => (
-                    <SelectItem key={device.id} value={device.id.toString()}>
-                      {device.name} ({device.ip})
-                    </SelectItem>
-                  ))}
+                  {devices
+                    .filter((device) => !device.is_primary)
+                    .map((device) => (
+                      <SelectItem key={device.id} value={device.id.toString()}>
+                        {device.name} ({device.ip})
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </div>

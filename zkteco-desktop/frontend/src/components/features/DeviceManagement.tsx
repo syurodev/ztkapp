@@ -37,6 +37,7 @@ import {
   RefreshCw,
   SearchCheck,
   Settings,
+  Star,
   Trash2,
 } from "lucide-react";
 import { useState } from "react";
@@ -187,17 +188,36 @@ export function DeviceManagement() {
     }
   };
 
+  const handleSetPrimaryDevice = async (
+    deviceId: string,
+    deviceName: string,
+  ) => {
+    setIsLoading(true);
+    try {
+      await devicesAPI.setPrimaryDevice(deviceId);
+      toast.success(`Đã đặt "${deviceName}" làm máy chấm công chính`);
+      // Refresh devices to update UI
+      await refreshDevices();
+    } catch (error) {
+      const errorMessage = getErrorMessage(error);
+      toast.error(`Không thể đặt làm máy chính: ${errorMessage}`);
+      console.error("Error setting primary device:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleSyncToExternal = async () => {
     setIsSyncing(true);
     try {
       const result = await devicesAPI.syncToExternal();
       if (result.status === 200) {
         toast.success(
-          result.message || "Đồng bộ thiết bị lên cloud thành công!"
+          result.message || "Đồng bộ thiết bị lên cloud thành công!",
         );
       } else {
         toast.error(
-          result.message || "Đồng bộ thất bại với lỗi không xác định."
+          result.message || "Đồng bộ thất bại với lỗi không xác định.",
         );
       }
     } catch (error) {
@@ -386,6 +406,15 @@ export function DeviceManagement() {
                         <TableCell className="font-medium">
                           <div className="flex items-center gap-2">
                             {device.name}
+                            {device.is_primary && (
+                              <Badge
+                                variant="default"
+                                className="bg-amber-500 hover:bg-amber-600"
+                              >
+                                <Star className="h-3 w-3 mr-1" />
+                                Máy chính
+                              </Badge>
+                            )}
                             {activeDeviceId === device.id && (
                               <Badge variant="default" className="bg-teal-400">
                                 Đang dùng
@@ -418,6 +447,30 @@ export function DeviceManagement() {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
+                            {/* Set Primary button - only show if not already primary */}
+                            {!device.is_primary && (
+                              <Tooltip>
+                                <TooltipTrigger>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() =>
+                                      handleSetPrimaryDevice(
+                                        device.id,
+                                        device.name,
+                                      )
+                                    }
+                                    disabled={loading}
+                                    className="border-amber-500 text-amber-600 hover:bg-amber-50"
+                                  >
+                                    <Star className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Đặt làm máy chính</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
                             {/* Test button only for Pull devices */}
                             {!isPushDevice && (
                               <Tooltip>

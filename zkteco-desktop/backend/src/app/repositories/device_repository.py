@@ -14,11 +14,15 @@ class DeviceRepository:
             json.dumps(device.device_info) if device.device_info else None
         )
 
+        # If this device is set as primary, ensure no other device is primary
+        if device.is_primary:
+            self._ensure_single_primary(exclude_device_id=None)
+
         query = """
             INSERT INTO devices (
                 id, name, ip, port, password, timeout, retry_count,
-                retry_delay, ping_interval, force_udp, is_active, device_type, device_info, serial_number
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                retry_delay, ping_interval, force_udp, is_active, is_primary, device_type, device_info, serial_number
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
 
         db_manager.execute_query(
@@ -35,6 +39,7 @@ class DeviceRepository:
                 device.ping_interval,
                 device.force_udp,
                 device.is_active,
+                device.is_primary,
                 device.device_type,
                 device_info_json,
                 device.serial_number,
@@ -57,6 +62,10 @@ class DeviceRepository:
         """Update device"""
         if "device_info" in updates and updates["device_info"]:
             updates["device_info"] = json.dumps(updates["device_info"])
+
+        # If setting this device as primary, ensure no other device is primary
+        if updates.get("is_primary") is True:
+            self._ensure_single_primary(exclude_device_id=device_id)
 
         updates["updated_at"] = datetime.now()
 
@@ -118,6 +127,28 @@ class DeviceRepository:
         )
         return self._row_to_device(row) if row else None
 
+    def get_primary_device(self) -> Optional[Device]:
+        """Get the primary device"""
+        row = db_manager.fetch_one(
+            "SELECT * FROM devices WHERE is_primary = TRUE LIMIT 1"
+        )
+        return self._row_to_device(row) if row else None
+
+    def _ensure_single_primary(self, exclude_device_id: Optional[str] = None):
+        """Ensure only one device is marked as primary by setting all others to False"""
+        from app.shared.logger import app_logger
+
+        if exclude_device_id:
+            query = "UPDATE devices SET is_primary = FALSE WHERE id != ?"
+            db_manager.execute_query(query, (exclude_device_id,))
+            app_logger.info(
+                f"Set all devices except {exclude_device_id} to is_primary=False"
+            )
+        else:
+            query = "UPDATE devices SET is_primary = FALSE"
+            db_manager.execute_query(query)
+            app_logger.info("Set all devices to is_primary=False")
+
     def _row_to_device(self, row) -> Device:
         """Convert database row to Device object"""
         device_info = json.loads(row["device_info"]) if row["device_info"] else {}
@@ -136,6 +167,14 @@ class DeviceRepository:
         except (KeyError, IndexError):
             device_type = "pull"
 
+        # Handle is_primary safely, default to False
+        try:
+            is_primary = (
+                bool(row["is_primary"]) if "is_primary" in row.keys() else False
+            )
+        except (KeyError, IndexError):
+            is_primary = False
+
         return Device(
             id=row["id"],
             name=row["name"],
@@ -148,6 +187,7 @@ class DeviceRepository:
             ping_interval=row["ping_interval"],
             force_udp=bool(row["force_udp"]),
             is_active=bool(row["is_active"]),
+            is_primary=is_primary,
             device_type=device_type,
             device_info=device_info,
             serial_number=serial_number,

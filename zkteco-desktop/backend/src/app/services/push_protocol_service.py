@@ -678,7 +678,10 @@ class PushProtocolService:
         serial_number: Optional[str],
     ) -> int:
         """
-        Save attendance records to database.
+        Save attendance records to database based on device configuration:
+        - If device is_primary: save to attendance_logs
+        - If device is linked to a door: save to door_access_logs
+        - Otherwise: skip (do not save)
 
         Args:
             records: List of AttendanceRecord objects
@@ -689,10 +692,29 @@ class PushProtocolService:
             int: Number of new records saved
 
         Side effects:
-            - Inserts records into attendance_logs table
+            - Inserts records into attendance_logs or door_access_logs
             - Auto-creates users if they don't exist
             - Handles duplicates (based on unique constraint)
         """
+        # Get device info to check is_primary and door assignment
+        device = None
+        is_primary = False
+        if device_id:
+            device = device_repo.get_by_id(device_id)
+            if device:
+                is_primary = device.is_primary
+
+        # Check if device is linked to a door
+        doors = door_repo.get_by_device_id(device_id) if device_id else []
+
+        # Skip if device is neither primary nor linked to a door
+        if not is_primary and not doors:
+            app_logger.info(
+                f"[PUSH] Device {device_id} is not primary and not linked to a door. "
+                f"Skipping {len(records)} attendance records."
+            )
+            return 0
+
         saved_count = 0
 
         for record in records:
@@ -712,34 +734,64 @@ class PushProtocolService:
                 # This prevents orphaned attendance records
                 self._ensure_user_exists(record.user_id, device_id, serial_number)
 
-                # Determine smart action from STATUS (handles STATUS=255 for push devices)
-                action = self._determine_action(
-                    record.user_id, timestamp_dt, record.status, device_id
-                )
+                # Get user info for logging
+                user = user_repo.get_by_user_id(record.user_id, device_id)
+                user_name = user.name if user else "Unknown User"
+                db_user_id = user.id if user else None
 
-                # Create AttendanceLog model with both original_status and computed action
-                log = AttendanceLog(
-                    user_id=record.user_id,
-                    device_id=device_id,
-                    serial_number=serial_number,
-                    timestamp=timestamp_dt,
-                    method=record.verify_method,
-                    action=action,  # Smart computed status (0/1 for STATUS=255, or explicit 0-5)
-                    original_status=record.status,  # Raw STATUS from device (255 or 0-5)
-                    raw_data=record.to_dict(),
-                )
-
-                # Save to database (will handle duplicates via unique constraint)
-                saved_log = attendance_repo.create(log)
-
-                if saved_log:
-                    saved_count += 1
-                    app_logger.debug(f"Saved attendance: {record.to_dict()}")
-
-                    # Broadcast to SSE for real-time UI updates (Push devices)
-                    self._broadcast_attendance_event(
-                        saved_log, device_id, serial_number
+                # Check if this device is linked to a door
+                if doors:
+                    # Save to door_access_logs
+                    door = doors[0]
+                    app_logger.info(
+                        f"[PUSH] Device {device_id} is linked to door {door.id}. "
+                        f"Logging to DoorAccessLog."
                     )
+
+                    from app.models.door_access_log import DoorAccessLog
+
+                    door_log = DoorAccessLog(
+                        door_id=door.id,
+                        user_id=db_user_id,
+                        user_name=user_name,
+                        action="access_granted",
+                        status="success",
+                        timestamp=timestamp_dt,
+                        notes=f"Push device event. Method: {record.verify_method}, Status: {record.status}",
+                    )
+                    door_access_repo.create(door_log)
+                    saved_count += 1
+
+                elif is_primary:
+                    # Save to attendance_logs (only for primary device)
+
+                    # Determine smart action from STATUS (handles STATUS=255 for push devices)
+                    action = self._determine_action(
+                        record.user_id, timestamp_dt, record.status, device_id
+                    )
+
+                    # Create AttendanceLog model with both original_status and computed action
+                    log = AttendanceLog(
+                        user_id=record.user_id,
+                        device_id=device_id,
+                        serial_number=serial_number,
+                        timestamp=timestamp_dt,
+                        method=record.verify_method,
+                        action=action,  # Smart computed status (0/1 for STATUS=255, or explicit 0-5)
+                        original_status=record.status,  # Raw STATUS from device (255 or 0-5)
+                        raw_data=record.to_dict(),
+                    )
+
+                    # Save to database (will handle duplicates via unique constraint)
+                    saved_log = attendance_repo.create(log)
+
+                    if saved_log:
+                        saved_count += 1
+
+                        # Broadcast to SSE for real-time UI updates (Push devices)
+                        self._broadcast_attendance_event(
+                            saved_log, device_id, serial_number
+                        )
 
             except Exception as e:
                 # Log error but continue processing other records

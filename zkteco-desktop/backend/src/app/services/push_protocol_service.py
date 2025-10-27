@@ -37,6 +37,7 @@ from app.config.config_manager import config_manager
 from app.models import AttendanceLog
 from app.events.event_stream import device_event_stream
 from app.services.external_api_service import external_api_service
+from app.services.attendance_push_service import push_attendance_logs
 
 
 PROFILE_COPY_FIELDS = (
@@ -722,6 +723,7 @@ class PushProtocolService:
             return 0
 
         saved_count = 0
+        newly_saved_logs: List[AttendanceLog] = []
 
         for record in records:
             try:
@@ -793,6 +795,7 @@ class PushProtocolService:
 
                     if saved_log:
                         saved_count += 1
+                        newly_saved_logs.append(saved_log)
 
                         # Broadcast to SSE for real-time UI updates (Push devices)
                         self._broadcast_attendance_event(
@@ -811,6 +814,13 @@ class PushProtocolService:
                     app_logger.error(
                         f"Failed to save attendance record {record.to_dict()}: {e}"
                     )
+
+        # Push newly saved records to external API (non-blocking for internal flow)
+        if newly_saved_logs:
+            batch_size = 500
+            for start in range(0, len(newly_saved_logs), batch_size):
+                chunk = newly_saved_logs[start : start + batch_size]
+                push_attendance_logs(chunk, serial_number=serial_number)
 
         return saved_count
 

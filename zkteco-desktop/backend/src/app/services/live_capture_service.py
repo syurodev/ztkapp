@@ -14,6 +14,7 @@ from app.repositories import (
 )
 from app.shared.logger import app_logger
 from app.events import device_event_stream
+from app.services.attendance_push_service import push_attendance_logs
 from struct import unpack
 from socket import timeout
 import struct
@@ -955,6 +956,7 @@ def _queue_attendance_event(
                 app_logger.info(
                     f"Live capture: Saved new attendance log to database with ID {saved_log.id}"
                 )
+                push_attendance_logs([saved_log], serial_number=serial_number)
             else:
                 app_logger.info(
                     f"Live capture: Found existing attendance log with ID {saved_log.id}, skipped duplicate"

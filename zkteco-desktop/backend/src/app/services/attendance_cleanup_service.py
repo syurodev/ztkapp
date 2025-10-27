@@ -33,9 +33,11 @@ class AttendanceCleanupService:
         """
         try:
             cutoff_date = datetime.now() - timedelta(days=retention_days)
-            cutoff_str = cutoff_date.strftime('%Y-%m-%d %H:%M:%S')
+            cutoff_str = cutoff_date.strftime("%Y-%m-%d %H:%M:%S")
 
-            self.logger.info(f"Starting attendance cleanup: removing records older than {retention_days} days")
+            self.logger.info(
+                f"Starting attendance cleanup: removing records older than {retention_days} days"
+            )
             self.logger.info(f"Cutoff date: {cutoff_str}")
 
             # First, get count of records to be deleted
@@ -46,19 +48,18 @@ class AttendanceCleanupService:
                 AND (sync_status = ? OR sync_status = ?)
             """
             count_result = db_manager.fetch_one(
-                count_query,
-                (cutoff_str, SyncStatus.SYNCED, SyncStatus.SKIPPED)
+                count_query, (cutoff_str, SyncStatus.SYNCED, SyncStatus.SKIPPED)
             )
-            records_to_delete = count_result['count'] if count_result else 0
+            records_to_delete = count_result["count"] if count_result else 0
 
             if records_to_delete == 0:
                 self.logger.info("No old records found to cleanup")
                 return {
-                    'success': True,
-                    'deleted_count': 0,
-                    'retention_days': retention_days,
-                    'cutoff_date': cutoff_str,
-                    'message': 'No records to cleanup'
+                    "success": True,
+                    "deleted_count": 0,
+                    "retention_days": retention_days,
+                    "cutoff_date": cutoff_str,
+                    "message": "No records to cleanup",
                 }
 
             # Get statistics before deletion
@@ -72,8 +73,7 @@ class AttendanceCleanupService:
             """
 
             cursor = db_manager.execute_query(
-                delete_query,
-                (cutoff_str, SyncStatus.SYNCED, SyncStatus.SKIPPED)
+                delete_query, (cutoff_str, SyncStatus.SYNCED, SyncStatus.SKIPPED)
             )
 
             deleted_count = cursor.rowcount
@@ -81,26 +81,91 @@ class AttendanceCleanupService:
             # Get statistics after deletion
             stats_after = self._get_total_stats()
 
-            self.logger.info(f"Cleanup completed: deleted {deleted_count} old attendance records")
+            self.logger.info(
+                f"Cleanup completed: deleted {deleted_count} old attendance records"
+            )
             self.logger.info(f"Remaining records: {stats_after['total_records']}")
 
             return {
-                'success': True,
-                'deleted_count': deleted_count,
-                'retention_days': retention_days,
-                'cutoff_date': cutoff_str,
-                'stats_before': stats_before,
-                'stats_after': stats_after,
-                'message': f'Successfully deleted {deleted_count} old records'
+                "success": True,
+                "deleted_count": deleted_count,
+                "retention_days": retention_days,
+                "cutoff_date": cutoff_str,
+                "stats_before": stats_before,
+                "stats_after": stats_after,
+                "message": f"Successfully deleted {deleted_count} old records",
             }
 
         except Exception as e:
             self.logger.error(f"Error during attendance cleanup: {e}")
+            return {"success": False, "error": str(e), "message": "Cleanup failed"}
+
+    def cleanup_pushed_attendance(self, retention_days: int = 7) -> Dict[str, Any]:
+        """
+        Delete pushed attendance records older than the retention period.
+
+        Args:
+            retention_days: Number of days to retain pushed data (default: 7 days)
+
+        Returns:
+            Dictionary containing cleanup results.
+        """
+        try:
+            cutoff_date = datetime.now() - timedelta(days=retention_days)
+            cutoff_str = cutoff_date.strftime("%Y-%m-%d %H:%M:%S")
+
+            self.logger.info(
+                "Starting pushed attendance cleanup: removing records older than %s days",
+                retention_days,
+            )
+            self.logger.info(f"Cutoff date: {cutoff_str}")
+
+            count_query = """
+                SELECT COUNT(*) as count
+                FROM attendance_logs
+                WHERE timestamp < ?
+                  AND COALESCE(is_pushed, 0) = 1
+            """
+            count_result = db_manager.fetch_one(count_query, (cutoff_str,))
+            records_to_delete = count_result["count"] if count_result else 0
+
+            if records_to_delete == 0:
+                self.logger.info("No pushed attendance records found for cleanup")
+                return {
+                    "success": True,
+                    "deleted_count": 0,
+                    "retention_days": retention_days,
+                    "cutoff_date": cutoff_str,
+                    "message": "No pushed records to cleanup",
+                }
+
+            delete_query = """
+                DELETE FROM attendance_logs
+                WHERE timestamp < ?
+                  AND COALESCE(is_pushed, 0) = 1
+            """
+            cursor = db_manager.execute_query(delete_query, (cutoff_str,))
+            deleted_count = cursor.rowcount
+
+            stats_after = self._get_total_stats()
+
+            self.logger.info(
+                "Pushed cleanup completed: deleted %s attendance records", deleted_count
+            )
+            self.logger.info("Remaining records: %s", stats_after["total_records"])
+
             return {
-                'success': False,
-                'error': str(e),
-                'message': 'Cleanup failed'
+                "success": True,
+                "deleted_count": deleted_count,
+                "retention_days": retention_days,
+                "cutoff_date": cutoff_str,
+                "stats_after": stats_after,
+                "message": f"Successfully deleted {deleted_count} pushed attendance records",
             }
+
+        except Exception as e:
+            self.logger.error(f"Error during pushed attendance cleanup: {e}")
+            return {"success": False, "error": str(e), "message": "Cleanup failed"}
 
     def _get_cleanup_stats(self, cutoff_date: str) -> Dict[str, Any]:
         """Get statistics about records to be cleaned up"""
@@ -117,22 +182,23 @@ class AttendanceCleanupService:
             """
             result = db_manager.fetch_one(
                 query,
-                (SyncStatus.SYNCED, SyncStatus.SKIPPED, cutoff_date,
-                 SyncStatus.SYNCED, SyncStatus.SKIPPED)
+                (
+                    SyncStatus.SYNCED,
+                    SyncStatus.SKIPPED,
+                    cutoff_date,
+                    SyncStatus.SYNCED,
+                    SyncStatus.SKIPPED,
+                ),
             )
 
             return {
-                'records_to_delete': result['total'] if result else 0,
-                'synced': result['synced_count'] if result else 0,
-                'skipped': result['skipped_count'] if result else 0
+                "records_to_delete": result["total"] if result else 0,
+                "synced": result["synced_count"] if result else 0,
+                "skipped": result["skipped_count"] if result else 0,
             }
         except Exception as e:
             self.logger.error(f"Error getting cleanup stats: {e}")
-            return {
-                'records_to_delete': 0,
-                'synced': 0,
-                'skipped': 0
-            }
+            return {"records_to_delete": 0, "synced": 0, "skipped": 0}
 
     def _get_total_stats(self) -> Dict[str, Any]:
         """Get total database statistics"""
@@ -148,24 +214,29 @@ class AttendanceCleanupService:
             """
             result = db_manager.fetch_one(
                 query,
-                (SyncStatus.PENDING, SyncStatus.SYNCED, SyncStatus.SKIPPED, SyncStatus.ERROR)
+                (
+                    SyncStatus.PENDING,
+                    SyncStatus.SYNCED,
+                    SyncStatus.SKIPPED,
+                    SyncStatus.ERROR,
+                ),
             )
 
             return {
-                'total_records': result['total'] if result else 0,
-                'pending': result['pending_count'] if result else 0,
-                'synced': result['synced_count'] if result else 0,
-                'skipped': result['skipped_count'] if result else 0,
-                'error': result['error_count'] if result else 0
+                "total_records": result["total"] if result else 0,
+                "pending": result["pending_count"] if result else 0,
+                "synced": result["synced_count"] if result else 0,
+                "skipped": result["skipped_count"] if result else 0,
+                "error": result["error_count"] if result else 0,
             }
         except Exception as e:
             self.logger.error(f"Error getting total stats: {e}")
             return {
-                'total_records': 0,
-                'pending': 0,
-                'synced': 0,
-                'skipped': 0,
-                'error': 0
+                "total_records": 0,
+                "pending": 0,
+                "synced": 0,
+                "skipped": 0,
+                "error": 0,
             }
 
     def get_cleanup_preview(self, retention_days: int = 365) -> Dict[str, Any]:
@@ -181,7 +252,7 @@ class AttendanceCleanupService:
         """
         try:
             cutoff_date = datetime.now() - timedelta(days=retention_days)
-            cutoff_str = cutoff_date.strftime('%Y-%m-%d %H:%M:%S')
+            cutoff_str = cutoff_date.strftime("%Y-%m-%d %H:%M:%S")
 
             stats = self._get_cleanup_stats(cutoff_str)
             total_stats = self._get_total_stats()
@@ -194,26 +265,21 @@ class AttendanceCleanupService:
             newest = db_manager.fetch_one(newest_query)
 
             return {
-                'success': True,
-                'retention_days': retention_days,
-                'cutoff_date': cutoff_str,
-                'records_to_delete': stats['records_to_delete'],
-                'records_to_keep': total_stats['total_records'] - stats['records_to_delete'],
-                'breakdown': {
-                    'synced': stats['synced'],
-                    'skipped': stats['skipped']
-                },
-                'current_stats': total_stats,
-                'oldest_record': oldest['oldest'] if oldest else None,
-                'newest_record': newest['newest'] if newest else None
+                "success": True,
+                "retention_days": retention_days,
+                "cutoff_date": cutoff_str,
+                "records_to_delete": stats["records_to_delete"],
+                "records_to_keep": total_stats["total_records"]
+                - stats["records_to_delete"],
+                "breakdown": {"synced": stats["synced"], "skipped": stats["skipped"]},
+                "current_stats": total_stats,
+                "oldest_record": oldest["oldest"] if oldest else None,
+                "newest_record": newest["newest"] if newest else None,
             }
 
         except Exception as e:
             self.logger.error(f"Error getting cleanup preview: {e}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
+            return {"success": False, "error": str(e)}
 
 
 # Global service instance

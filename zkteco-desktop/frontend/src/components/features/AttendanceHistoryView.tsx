@@ -37,13 +37,20 @@ interface AttendanceRecord {
   method: number;
   action: number;
   id: number;
-  is_synced: boolean;
+  is_synced?: boolean;
+  is_pushed?: boolean;
 }
 
 interface AttendanceHistoryViewProps {
   data: AttendanceRecord[];
-  selectedDate: Date | null;
-  onDateChange: (date: Date | null) => void;
+  dateRange: {
+    from: Date | undefined;
+    to: Date | undefined;
+  };
+  onDateRangeChange: (range: {
+    from: Date | undefined;
+    to: Date | undefined;
+  }) => void;
   onRefresh: () => void;
   isLoading: boolean;
   error: string | null;
@@ -51,15 +58,14 @@ interface AttendanceHistoryViewProps {
 
 export function AttendanceHistoryView({
   data,
-  selectedDate,
-  onDateChange,
+  dateRange,
+  onDateRangeChange,
   onRefresh,
   isLoading,
   error,
 }: AttendanceHistoryViewProps) {
   const [actionFilter, setActionFilter] = useState<"all" | 0 | 1>("all");
   const [resourceDomain, setResourceDomain] = useState<string>("");
-  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
 
   // Load resource domain on mount and subscribe to updates
   useEffect(() => {
@@ -103,49 +109,88 @@ export function AttendanceHistoryView({
       ? data
       : data.filter((r) => r.action === actionFilter);
 
+  const formatSelectedRange = () => {
+    if (dateRange.from && dateRange.to) {
+      const sameDay =
+        format(dateRange.from, "yyyy-MM-dd") ===
+        format(dateRange.to, "yyyy-MM-dd");
+      if (sameDay) {
+        return format(dateRange.from, "dd/MM/yyyy");
+      }
+      return `${format(dateRange.from, "dd/MM/yyyy")} - ${format(dateRange.to, "dd/MM/yyyy")}`;
+    }
+    if (dateRange.from) {
+      return format(dateRange.from, "dd/MM/yyyy");
+    }
+    if (dateRange.to) {
+      return format(dateRange.to, "dd/MM/yyyy");
+    }
+    return "tất cả ngày";
+  };
+
   return (
     <div className="space-y-4">
-      {/* Header with Date Picker */}
+      {/* Header with Date Range Picker */}
       <div className="flex items-center gap-4 flex-wrap">
-        <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
+        <Popover>
           <PopoverTrigger asChild>
-            <Button variant="outline" className="justify-start gap-2">
+            <Button variant="outline" className="gap-2">
               <CalendarIcon className="h-4 w-4" />
-              {selectedDate ? format(selectedDate, "PPP") : "Tất cả ngày"}
+              {dateRange.from ? (
+                dateRange.to &&
+                format(dateRange.from, "yyyy-MM-dd") !==
+                  format(dateRange.to, "yyyy-MM-dd") ? (
+                  <>
+                    {format(dateRange.from, "dd/MM/yyyy")} -{" "}
+                    {format(dateRange.to, "dd/MM/yyyy")}
+                  </>
+                ) : (
+                  format(dateRange.from, "dd/MM/yyyy")
+                )
+              ) : (
+                "Chọn khoảng thời gian"
+              )}
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-auto p-0" align="start">
             <Calendar
-              mode="single"
-              selected={selectedDate ?? undefined}
-              onSelect={(date) => {
-                onDateChange(date ?? null);
-                setIsDatePickerOpen(false);
+              mode="range"
+              selected={{
+                from: dateRange.from,
+                to: dateRange.to,
               }}
+              onSelect={(range) =>
+                onDateRangeChange({
+                  from: range?.from,
+                  to: range?.to,
+                })
+              }
+              numberOfMonths={2}
               initialFocus
             />
           </PopoverContent>
         </Popover>
-        {/* <Button
+        <Button
           variant="ghost"
           size="sm"
           onClick={() => {
-            onDateChange(new Date());
-            setIsDatePickerOpen(false);
+            const today = new Date();
+            onDateRangeChange({ from: today, to: today });
           }}
         >
-          Today
-        </Button> */}
-        {/* <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => {
-            onDateChange(null);
-            setIsDatePickerOpen(false);
-          }}
-        >
-          Tất cả ngày
-        </Button> */}
+          Hôm nay
+        </Button>
+        {(dateRange.from || dateRange.to) && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              onDateRangeChange({ from: undefined, to: undefined });
+            }}
+          >
+            Xóa
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="sm"
@@ -211,11 +256,7 @@ export function AttendanceHistoryView({
             <History className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
             <p className="text-muted-foreground">
               {data.length === 0
-                ? `Không có dữ liệu chấm công cho ${
-                    selectedDate
-                      ? format(selectedDate, "MMMM d, yyyy")
-                      : "tất cả ngày"
-                  }`
+                ? `Không có dữ liệu chấm công cho ${formatSelectedRange()}`
                 : "Không có dữ liệu phù hợp với bộ lọc đã chọn"}
             </p>
           </div>
@@ -281,7 +322,7 @@ export function AttendanceHistoryView({
                           "Không xác định"}
                       </Badge>
                     )}
-                    {record.is_synced && (
+                    {(record.is_pushed ?? record.is_synced ?? false) && (
                       <Badge variant={"outline"}>Đã đồng bộ</Badge>
                     )}
                   </div>

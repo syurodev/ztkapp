@@ -122,6 +122,7 @@ pyinstaller --name "zkteco-backend" ^
             --collect-all=flask ^
             --collect-all=zk ^
             --collect-all=prettytable ^
+            --collect-all=openpyxl ^
             --add-data="src/app;app" ^
             --add-data="src/pyzk/zk;zk" ^
             service_app.py

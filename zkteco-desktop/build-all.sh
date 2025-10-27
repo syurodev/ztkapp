@@ -179,6 +179,7 @@ else
                 --collect-all=zk \
                 --collect-all=pyzatt \
                 --collect-all=prettytable \
+                --collect-all=openpyxl \
                 --add-data="src/app:app" \
                 service_app.py
 fi

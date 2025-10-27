@@ -11,6 +11,7 @@ from app.services.attendance_cleanup_service import attendance_cleanup_service
 from app.services.door_access_sync_service import door_access_sync_service
 from app.config.config_manager import config_manager
 from app.services.live_capture_service import ensure_pull_devices_capturing
+from app.services.attendance_push_service import push_pending_attendance_logs
 
 
 class SchedulerService:
@@ -34,11 +35,9 @@ class SchedulerService:
             self.scheduler.add_listener(self._job_executed_listener, EVENT_JOB_EXECUTED)
             self.scheduler.add_listener(self._job_error_listener, EVENT_JOB_ERROR)
 
-            # Add daily attendance sync job
-            self._add_daily_attendance_sync_job()
+            # self._add_daily_attendance_sync_job()
 
-            # Add frequent first checkin sync job
-            self._add_first_checkin_sync_job()
+            # self._add_first_checkin_sync_job()
 
             # Add periodic user sync job (every 30 seconds)
             self._add_periodic_user_sync_job()
@@ -51,6 +50,9 @@ class SchedulerService:
 
             # Add daily door access sync job (runs at 23:59 every day)
             self._add_daily_door_access_sync_job()
+
+            # Add periodic job to push leftover attendance logs to external API
+            self._add_pending_push_job()
 
             # Start the scheduler
             self.scheduler.start()
@@ -186,6 +188,31 @@ class SchedulerService:
 
         except Exception as e:
             self.logger.error(f"Failed to add live capture health job: {e}")
+            raise
+
+    def _add_pending_push_job(self):
+        """Add job to retry pushing leftover attendance logs."""
+        try:
+            interval_seconds = int(os.getenv("ATTENDANCE_PUSH_RETRY_INTERVAL", "70"))
+            trigger = IntervalTrigger(seconds=interval_seconds)
+
+            self.scheduler.add_job(
+                func=self._run_pending_push_job,
+                trigger=trigger,
+                id="pending_attendance_push",
+                name="Pending Attendance Push",
+                replace_existing=True,
+                max_instances=1,
+                misfire_grace_time=interval_seconds,
+            )
+
+            self.logger.info(
+                "Pending attendance push job scheduled every %s seconds",
+                interval_seconds,
+            )
+
+        except Exception as e:
+            self.logger.error(f"Failed to add pending attendance push job: {e}")
             raise
 
     def _add_monthly_cleanup_job(self):
@@ -364,25 +391,17 @@ class SchedulerService:
     def _run_monthly_cleanup(self):
         """Execute monthly cleanup job to remove old synced/skipped attendance records"""
         try:
-            # Get retention days from app settings (default: 365 days = 1 year)
-            try:
-                from app.repositories.setting_repository import setting_repo
+            retention_days = 7
 
-                retention_setting = setting_repo.get("cleanup_retention_days")
-                retention_days = (
-                    int(retention_setting.value) if retention_setting else 365
-                )
-            except Exception:
-                retention_days = 365  # Default to 1 year
-
-            # Run cleanup
-            result = attendance_cleanup_service.cleanup_old_attendance(retention_days)
+            result = attendance_cleanup_service.cleanup_pushed_attendance(
+                retention_days
+            )
 
             if result["success"]:
                 deleted_count = result.get("deleted_count", 0)
                 if deleted_count > 0:
                     self.logger.info(
-                        f"[CRON] Monthly Cleanup: Deleted {deleted_count} old records (retention: {retention_days} days)"
+                        f"[CRON] Monthly Cleanup: Deleted {deleted_count} pushed records (retention: {retention_days} days)"
                     )
             else:
                 self.logger.error(
@@ -409,6 +428,22 @@ class SchedulerService:
 
         except Exception as e:
             self.logger.error(f"[CRON] Live capture health check error: {e}")
+
+    def _run_pending_push_job(self):
+        """Retry pushing leftover attendance logs to external API."""
+        try:
+            result = push_pending_attendance_logs()
+            count = result.get("count", 0)
+            groups = result.get("groups", 0)
+
+            if count > 0:
+                self.logger.info(
+                    "[CRON] Pending push job processed %s log(s) across %s group(s)",
+                    count,
+                    groups,
+                )
+        except Exception as e:
+            self.logger.error(f"[CRON] Pending attendance push error: {e}")
 
     def _run_daily_attendance_sync(self):
         """Execute daily attendance sync job with multi-day support (works for both pull and push devices)"""
@@ -546,18 +581,8 @@ class SchedulerService:
                     "result": result,
                 }
             elif job_id == "monthly_attendance_cleanup":
-                # Get retention days from settings
-                try:
-                    from app.repositories.setting_repository import setting_repo
-
-                    retention_setting = setting_repo.get("cleanup_retention_days")
-                    retention_days = (
-                        int(retention_setting.value) if retention_setting else 365
-                    )
-                except Exception:
-                    retention_days = 365
-
-                result = attendance_cleanup_service.cleanup_old_attendance(
+                retention_days = int(os.getenv("PUSHED_CLEANUP_RETENTION_DAYS", "7"))
+                result = attendance_cleanup_service.cleanup_pushed_attendance(
                     retention_days
                 )
                 return {

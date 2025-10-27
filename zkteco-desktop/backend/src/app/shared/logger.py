@@ -140,7 +140,7 @@ if not app_logger.handlers:
     # Add console handler (with colors)
     app_logger.addHandler(create_console_handler())
 
-app_logger.setLevel(logging.DEBUG)
+app_logger.setLevel(logging.INFO)
 
 # Prevent propagation to root logger (which might cause duplicates)
 app_logger.propagate = False

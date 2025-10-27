@@ -4,6 +4,8 @@ from datetime import datetime
 from collections import defaultdict
 from app.models.attendance import AttendanceLog, SyncStatus
 from app.database.connection import db_manager
+
+
 class AttendanceRepository:
     """Attendance log database operations"""
 
@@ -11,25 +13,48 @@ class AttendanceRepository:
         """Create attendance log"""
         raw_data_json = json.dumps(log.raw_data) if log.raw_data else None
 
-        query = '''
+        query = """
             INSERT INTO attendance_logs (
-                user_id, device_id, serial_number, timestamp, method, action, raw_data, sync_status, is_synced, synced_at, original_status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        '''
+                user_id, device_id, serial_number, timestamp, method, action,
+                raw_data, sync_status, is_pushed, is_synced, synced_at, original_status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
 
-        cursor = db_manager.execute_query(query, (
-            log.user_id, log.device_id, log.serial_number, log.timestamp, log.method, log.action,
-            raw_data_json, log.sync_status, log.is_synced, log.synced_at, log.original_status
-        ))
+        cursor = db_manager.execute_query(
+            query,
+            (
+                log.user_id,
+                log.device_id,
+                log.serial_number,
+                log.timestamp,
+                log.method,
+                log.action,
+                raw_data_json,
+                log.sync_status,
+                int(log.is_pushed),
+                log.is_synced,
+                log.synced_at,
+                log.original_status,
+            ),
+        )
 
         return self.get_by_id(cursor.lastrowid)
 
     def get_by_id(self, log_id: int) -> Optional[AttendanceLog]:
         """Get attendance log by ID"""
-        row = db_manager.fetch_one("SELECT * FROM attendance_logs WHERE id = ?", (log_id,))
+        row = db_manager.fetch_one(
+            "SELECT * FROM attendance_logs WHERE id = ?", (log_id,)
+        )
         return self._row_to_log(row) if row else None
 
-    def get_all(self, device_id: str = None, limit: int = 1000, offset: int = 0, start_date=None, end_date=None) -> List[AttendanceLog]:
+    def get_all(
+        self,
+        device_id: str = None,
+        limit: int = 1000,
+        offset: int = 0,
+        start_date=None,
+        end_date=None,
+    ) -> List[AttendanceLog]:
         """Get attendance logs with pagination and optional date filtering"""
         conditions = []
         params = []
@@ -49,7 +74,9 @@ class AttendanceRepository:
         rows = db_manager.fetch_all(query, tuple(params))
         return [self._row_to_log(row) for row in rows]
 
-    def get_total_count(self, device_id: str = None, start_date=None, end_date=None) -> int:
+    def get_total_count(
+        self, device_id: str = None, start_date=None, end_date=None
+    ) -> int:
         """Get total count of attendance logs with optional date filtering"""
         conditions = []
         params = []
@@ -66,9 +93,11 @@ class AttendanceRepository:
         query = f"SELECT COUNT(*) as count FROM attendance_logs WHERE {where_clause}"
 
         result = db_manager.fetch_one(query, tuple(params) if params else None)
-        return result['count'] if result else 0
+        return result["count"] if result else 0
 
-    def get_by_date(self, target_date, device_id: str = None, limit: int = 100, offset: int = 0) -> List[AttendanceLog]:
+    def get_by_date(
+        self, target_date, device_id: str = None, limit: int = 100, offset: int = 0
+    ) -> List[AttendanceLog]:
         """Get attendance logs filtered by date with pagination"""
         from datetime import datetime
 
@@ -81,14 +110,18 @@ class AttendanceRepository:
                 WHERE device_id = ? AND timestamp >= ? AND timestamp <= ?
                 ORDER BY timestamp DESC LIMIT ? OFFSET ?
             """
-            rows = db_manager.fetch_all(query, (device_id, start_datetime, end_datetime, limit, offset))
+            rows = db_manager.fetch_all(
+                query, (device_id, start_datetime, end_datetime, limit, offset)
+            )
         else:
             query = """
                 SELECT * FROM attendance_logs
                 WHERE timestamp >= ? AND timestamp <= ?
                 ORDER BY timestamp DESC LIMIT ? OFFSET ?
             """
-            rows = db_manager.fetch_all(query, (start_datetime, end_datetime, limit, offset))
+            rows = db_manager.fetch_all(
+                query, (start_datetime, end_datetime, limit, offset)
+            )
 
         return [self._row_to_log(row) for row in rows]
 
@@ -104,7 +137,9 @@ class AttendanceRepository:
                 SELECT COUNT(*) as count FROM attendance_logs
                 WHERE device_id = ? AND timestamp >= ? AND timestamp <= ?
             """
-            result = db_manager.fetch_one(query, (device_id, start_datetime, end_datetime))
+            result = db_manager.fetch_one(
+                query, (device_id, start_datetime, end_datetime)
+            )
         else:
             query = """
                 SELECT COUNT(*) as count FROM attendance_logs
@@ -112,22 +147,18 @@ class AttendanceRepository:
             """
             result = db_manager.fetch_one(query, (start_datetime, end_datetime))
 
-        return result['count'] if result else 0
+        return result["count"] if result else 0
 
     def get_by_user(self, user_id: str, limit: int = 100) -> List[AttendanceLog]:
         """Get attendance logs for specific user"""
         rows = db_manager.fetch_all(
             "SELECT * FROM attendance_logs WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?",
-            (user_id, limit)
+            (user_id, limit),
         )
         return [self._row_to_log(row) for row in rows]
 
     def get_latest_for_user_today(
-        self,
-        user_id: str,
-        device_id: str,
-        day_start: datetime,
-        before_time: datetime
+        self, user_id: str, device_id: str, day_start: datetime, before_time: datetime
     ) -> Optional[AttendanceLog]:
         """
         Get latest attendance record for user today before specified time.
@@ -152,13 +183,12 @@ class AttendanceRepository:
             ORDER BY timestamp DESC
             LIMIT 1
         """
-        row = db_manager.fetch_one(
-            query,
-            (user_id, device_id, day_start, before_time)
-        )
+        row = db_manager.fetch_one(query, (user_id, device_id, day_start, before_time))
         return self._row_to_log(row) if row else None
 
-    def get_unsynced_logs(self, device_id: str = None, limit: int = 1000) -> List[AttendanceLog]:
+    def get_unsynced_logs(
+        self, device_id: str = None, limit: int = 1000
+    ) -> List[AttendanceLog]:
         """Get attendance logs that haven't been synced (pending status)"""
         if device_id:
             rows = db_manager.fetch_all(
@@ -168,7 +198,7 @@ class AttendanceRepository:
                   AND COALESCE(error_count, 0) < 5
                 ORDER BY timestamp DESC LIMIT ?
                 """,
-                (SyncStatus.PENDING, device_id, limit)
+                (SyncStatus.PENDING, device_id, limit),
             )
         else:
             rows = db_manager.fetch_all(
@@ -178,24 +208,26 @@ class AttendanceRepository:
                   AND COALESCE(error_count, 0) < 5
                 ORDER BY timestamp DESC LIMIT ?
                 """,
-                (SyncStatus.PENDING, limit)
+                (SyncStatus.PENDING, limit),
             )
         return [self._row_to_log(row) for row in rows]
 
-    def get_logs_by_sync_status(self, sync_status: str, device_id: str = None, limit: int = 1000) -> List[AttendanceLog]:
+    def get_logs_by_sync_status(
+        self, sync_status: str, device_id: str = None, limit: int = 1000
+    ) -> List[AttendanceLog]:
         """Get attendance logs by sync status"""
         if device_id:
             rows = db_manager.fetch_all(
                 "SELECT * FROM attendance_logs WHERE sync_status = ? AND device_id = ? ORDER BY timestamp DESC LIMIT ?",
-                (sync_status, device_id, limit)
+                (sync_status, device_id, limit),
             )
         else:
             rows = db_manager.fetch_all(
                 "SELECT * FROM attendance_logs WHERE sync_status = ? ORDER BY timestamp DESC LIMIT ?",
-                (sync_status, limit)
+                (sync_status, limit),
             )
         return [self._row_to_log(row) for row in rows]
-    
+
     def mark_as_synced(self, log_id: int) -> bool:
         """Mark attendance log as synced"""
         query = """
@@ -204,7 +236,9 @@ class AttendanceRepository:
                 error_count = 0, error_code = NULL, error_message = NULL
             WHERE id = ?
         """
-        cursor = db_manager.execute_query(query, (SyncStatus.SYNCED, datetime.now(), log_id))
+        cursor = db_manager.execute_query(
+            query, (SyncStatus.SYNCED, datetime.now(), log_id)
+        )
         return cursor.rowcount > 0
 
     def mark_as_unsynced(self, log_id: int) -> bool:
@@ -240,7 +274,9 @@ class AttendanceRepository:
         cursor = db_manager.execute_query(query, params)
         return cursor.rowcount > 0
 
-    def update_sync_error(self, log_id: int, error_code: str, error_message: str, increment: bool = True) -> bool:
+    def update_sync_error(
+        self, log_id: int, error_code: str, error_message: str, increment: bool = True
+    ) -> bool:
         """Update attendance log with error information"""
         if increment:
             query = """
@@ -273,17 +309,19 @@ class AttendanceRepository:
         cursor = db_manager.execute_query(query, params)
         return cursor.rowcount > 0
 
-    def get_error_records(self, device_id: str = None, limit: int = 1000) -> List[AttendanceLog]:
+    def get_error_records(
+        self, device_id: str = None, limit: int = 1000
+    ) -> List[AttendanceLog]:
         """Get attendance logs with error status"""
         if device_id:
             rows = db_manager.fetch_all(
                 "SELECT * FROM attendance_logs WHERE sync_status = ? AND device_id = ? ORDER BY timestamp DESC LIMIT ?",
-                (SyncStatus.ERROR, device_id, limit)
+                (SyncStatus.ERROR, device_id, limit),
             )
         else:
             rows = db_manager.fetch_all(
                 "SELECT * FROM attendance_logs WHERE sync_status = ? ORDER BY timestamp DESC LIMIT ?",
-                (SyncStatus.ERROR, limit)
+                (SyncStatus.ERROR, limit),
             )
         return [self._row_to_log(row) for row in rows]
 
@@ -292,11 +330,34 @@ class AttendanceRepository:
         if not log_ids:
             return 0
 
-        placeholders = ','.join(['?' for _ in log_ids])
-        query = f"UPDATE attendance_logs SET sync_status = ? WHERE id IN ({placeholders})"
+        placeholders = ",".join(["?" for _ in log_ids])
+        query = (
+            f"UPDATE attendance_logs SET sync_status = ? WHERE id IN ({placeholders})"
+        )
         cursor = db_manager.execute_query(query, (SyncStatus.SKIPPED, *log_ids))
         return cursor.rowcount
-    
+
+    def mark_as_pushed(self, log_ids: List[int]) -> int:
+        """Mark attendance logs as successfully pushed to external API."""
+        if not log_ids:
+            return 0
+
+        placeholders = ",".join("?" for _ in log_ids)
+        query = f"UPDATE attendance_logs SET is_pushed = 1 WHERE id IN ({placeholders})"
+        cursor = db_manager.execute_query(query, tuple(log_ids))
+        return cursor.rowcount
+
+    def get_unpushed_logs(self, limit: int = 500) -> List[AttendanceLog]:
+        """Fetch attendance logs that have not been pushed yet."""
+        query = """
+            SELECT * FROM attendance_logs
+            WHERE COALESCE(is_pushed, 0) = 0
+            ORDER BY timestamp ASC
+            LIMIT ?
+        """
+        rows = db_manager.fetch_all(query, (limit,))
+        return [self._row_to_log(row) for row in rows]
+
     def get_sync_stats(self, device_id: str = None) -> Dict[str, int]:
         """Get sync statistics"""
         base_query = "SELECT sync_status, COUNT(*) as count FROM attendance_logs"
@@ -309,11 +370,13 @@ class AttendanceRepository:
 
         stats = {"pending": 0, "synced": 0, "skipped": 0, "error": 0, "total": 0}
         for row in rows:
-            sync_status = row['sync_status'] or 'pending'  # Handle null values
+            sync_status = row["sync_status"] or "pending"  # Handle null values
             if sync_status in stats:
-                stats[sync_status] = row['count']
+                stats[sync_status] = row["count"]
 
-        stats["total"] = sum(stats[key] for key in ['pending', 'synced', 'skipped', 'error'])
+        stats["total"] = sum(
+            stats[key] for key in ["pending", "synced", "skipped", "error"]
+        )
         return stats
 
     def get_pending_sync_dates(
@@ -346,9 +409,11 @@ class AttendanceRepository:
             """
             rows = db_manager.fetch_all(query, tuple(statuses))
 
-        return [row['sync_date'] for row in rows]
+        return [row["sync_date"] for row in rows]
 
-    def has_synced_record_for_date_action(self, user_id: str, target_date: str, action: int, device_id: str = None) -> bool:
+    def has_synced_record_for_date_action(
+        self, user_id: str, target_date: str, action: int, device_id: str = None
+    ) -> bool:
         """Check if user has any synced record for specific date and action type"""
         if device_id:
             query = """
@@ -356,18 +421,29 @@ class AttendanceRepository:
                 FROM attendance_logs
                 WHERE user_id = ? AND DATE(timestamp) = ? AND action = ? AND sync_status = ? AND device_id = ?
             """
-            result = db_manager.fetch_one(query, (user_id, target_date, action, SyncStatus.SYNCED, device_id))
+            result = db_manager.fetch_one(
+                query, (user_id, target_date, action, SyncStatus.SYNCED, device_id)
+            )
         else:
             query = """
                 SELECT COUNT(*) as count
                 FROM attendance_logs
                 WHERE user_id = ? AND DATE(timestamp) = ? AND action = ? AND sync_status = ?
             """
-            result = db_manager.fetch_one(query, (user_id, target_date, action, SyncStatus.SYNCED))
+            result = db_manager.fetch_one(
+                query, (user_id, target_date, action, SyncStatus.SYNCED)
+            )
 
-        return result['count'] > 0 if result else False
+        return result["count"] > 0 if result else False
 
-    def get_other_records_for_date_action(self, user_id: str, target_date: str, action: int, exclude_log_id: int, device_id: str = None) -> List[int]:
+    def get_other_records_for_date_action(
+        self,
+        user_id: str,
+        target_date: str,
+        action: int,
+        exclude_log_id: int,
+        device_id: str = None,
+    ) -> List[int]:
         """Get IDs of other records for same user, date, and action (excluding specific log)"""
         if device_id:
             query = """
@@ -375,26 +451,48 @@ class AttendanceRepository:
                 FROM attendance_logs
                 WHERE user_id = ? AND DATE(timestamp) = ? AND action = ? AND id != ? AND device_id = ? AND sync_status = ?
             """
-            rows = db_manager.fetch_all(query, (user_id, target_date, action, exclude_log_id, device_id, SyncStatus.PENDING))
+            rows = db_manager.fetch_all(
+                query,
+                (
+                    user_id,
+                    target_date,
+                    action,
+                    exclude_log_id,
+                    device_id,
+                    SyncStatus.PENDING,
+                ),
+            )
         else:
             query = """
                 SELECT id
                 FROM attendance_logs
                 WHERE user_id = ? AND DATE(timestamp) = ? AND action = ? AND id != ? AND sync_status = ?
             """
-            rows = db_manager.fetch_all(query, (user_id, target_date, action, exclude_log_id, SyncStatus.PENDING))
+            rows = db_manager.fetch_all(
+                query,
+                (user_id, target_date, action, exclude_log_id, SyncStatus.PENDING),
+            )
 
-        return [row['id'] for row in rows]
+        return [row["id"] for row in rows]
 
-    def find_duplicate(self, user_id: str, device_id: str, timestamp: datetime, method: int, action: int) -> Optional[AttendanceLog]:
+    def find_duplicate(
+        self,
+        user_id: str,
+        device_id: str,
+        timestamp: datetime,
+        method: int,
+        action: int,
+    ) -> Optional[AttendanceLog]:
         """Find existing attendance record with same unique key"""
         query = """
-            SELECT * FROM attendance_logs 
+            SELECT * FROM attendance_logs
             WHERE user_id = ? AND device_id = ? AND timestamp = ? AND method = ? AND action = ?
         """
-        row = db_manager.fetch_one(query, (user_id, device_id, timestamp, method, action))
+        row = db_manager.fetch_one(
+            query, (user_id, device_id, timestamp, method, action)
+        )
         return self._row_to_log(row) if row else None
-    
+
     def create_safe(self, log: AttendanceLog) -> tuple[AttendanceLog, bool]:
         """Create attendance log safely, avoiding duplicates
 
@@ -444,40 +542,43 @@ class AttendanceRepository:
         for log in logs:
             timestamp = log.timestamp
             if isinstance(timestamp, datetime):
-                timestamp_value = timestamp.strftime('%Y-%m-%d %H:%M:%S')
+                timestamp_value = timestamp.strftime("%Y-%m-%d %H:%M:%S")
             else:
                 timestamp_value = timestamp
 
             synced_at = log.synced_at
             if isinstance(synced_at, datetime):
-                synced_at_value = synced_at.strftime('%Y-%m-%d %H:%M:%S')
+                synced_at_value = synced_at.strftime("%Y-%m-%d %H:%M:%S")
             else:
                 synced_at_value = synced_at
 
             raw_data_json = json.dumps(log.raw_data) if log.raw_data else None
 
-            rows.append((
-                log.user_id,
-                log.device_id,
-                log.serial_number,
-                timestamp_value,
-                log.method,
-                log.action,
-                raw_data_json,
-                log.sync_status,
-                int(log.is_synced),
-                synced_at_value
-            ))
+            rows.append(
+                (
+                    log.user_id,
+                    log.device_id,
+                    log.serial_number,
+                    timestamp_value,
+                    log.method,
+                    log.action,
+                    raw_data_json,
+                    log.sync_status,
+                    int(getattr(log, "is_pushed", False)),
+                    int(log.is_synced),
+                    synced_at_value,
+                )
+            )
 
         try:
             conn.executemany(
                 """
                 INSERT OR IGNORE INTO attendance_logs (
                     user_id, device_id, serial_number, timestamp, method, action,
-                    raw_data, sync_status, is_synced, synced_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    raw_data, sync_status, is_pushed, is_synced, synced_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                rows
+                rows,
             )
             conn.commit()
         except Exception:
@@ -490,75 +591,94 @@ class AttendanceRepository:
 
     def _row_to_log(self, row) -> AttendanceLog:
         """Convert database row to AttendanceLog object"""
-        raw_data = json.loads(row['raw_data']) if row['raw_data'] else None
+        raw_data = json.loads(row["raw_data"]) if row["raw_data"] else None
 
         # Handle serial_number safely for SQLite Row object
         try:
-            serial_number = row['serial_number'] if 'serial_number' in row.keys() else None
+            serial_number = (
+                row["serial_number"] if "serial_number" in row.keys() else None
+            )
         except (KeyError, IndexError):
             serial_number = None
 
         # Handle sync_status safely for SQLite Row object
         try:
-            sync_status = row['sync_status'] if 'sync_status' in row.keys() and row['sync_status'] else SyncStatus.PENDING
+            sync_status = (
+                row["sync_status"]
+                if "sync_status" in row.keys() and row["sync_status"]
+                else SyncStatus.PENDING
+            )
         except (KeyError, IndexError):
             sync_status = SyncStatus.PENDING
 
         # Handle is_synced safely for SQLite Row object
         try:
-            is_synced = bool(row['is_synced']) if 'is_synced' in row.keys() else False
+            is_synced = bool(row["is_synced"]) if "is_synced" in row.keys() else False
         except (KeyError, IndexError):
             is_synced = False
 
+        # Handle is_pushed safely for SQLite Row object
+        try:
+            is_pushed = bool(row["is_pushed"]) if "is_pushed" in row.keys() else False
+        except (KeyError, IndexError):
+            is_pushed = False
+
         # Handle synced_at safely for SQLite Row object
         try:
-            synced_at = row['synced_at'] if 'synced_at' in row.keys() else None
+            synced_at = row["synced_at"] if "synced_at" in row.keys() else None
         except (KeyError, IndexError):
             synced_at = None
 
         # Handle error_code safely for SQLite Row object
         try:
-            error_code = row['error_code'] if 'error_code' in row.keys() else None
+            error_code = row["error_code"] if "error_code" in row.keys() else None
         except (KeyError, IndexError):
             error_code = None
 
         # Handle error_message safely for SQLite Row object
         try:
-            error_message = row['error_message'] if 'error_message' in row.keys() else None
+            error_message = (
+                row["error_message"] if "error_message" in row.keys() else None
+            )
         except (KeyError, IndexError):
             error_message = None
 
         # Handle original_status safely for SQLite Row object (backward compatible)
         try:
-            original_status = row['original_status'] if 'original_status' in row.keys() else 0
+            original_status = (
+                row["original_status"] if "original_status" in row.keys() else 0
+            )
         except (KeyError, IndexError):
             original_status = 0
 
         try:
-            error_count = row['error_count'] if 'error_count' in row.keys() else 0
+            error_count = row["error_count"] if "error_count" in row.keys() else 0
         except (KeyError, IndexError):
             error_count = 0
 
         return AttendanceLog(
-            id=row['id'],
-            user_id=row['user_id'],
-            device_id=row['device_id'],
+            id=row["id"],
+            user_id=row["user_id"],
+            device_id=row["device_id"],
             serial_number=serial_number,
-            timestamp=row['timestamp'],
-            method=row['method'],
-            action=row['action'],
+            timestamp=row["timestamp"],
+            method=row["method"],
+            action=row["action"],
             raw_data=raw_data,
             sync_status=sync_status,
+            is_pushed=is_pushed,
             is_synced=is_synced,
             synced_at=synced_at,
             error_code=error_code,
             error_message=error_message,
-            created_at=row['created_at'],
+            created_at=row["created_at"],
             original_status=original_status,  # Safe default to 0 for backward compatibility
             error_count=error_count,
         )
 
-    def get_smart_filtered_by_date(self, target_date, device_id: str = None) -> List[AttendanceLog]:
+    def get_smart_filtered_by_date(
+        self, target_date, device_id: str = None
+    ) -> List[AttendanceLog]:
         """Get attendance logs for a date with smart filtering
 
         Logic:
@@ -584,7 +704,9 @@ class AttendanceRepository:
                 WHERE device_id = ? AND timestamp >= ? AND timestamp <= ?
                 ORDER BY timestamp ASC
             """
-            rows = db_manager.fetch_all(query, (device_id, start_datetime, end_datetime))
+            rows = db_manager.fetch_all(
+                query, (device_id, start_datetime, end_datetime)
+            )
         else:
             query = """
                 SELECT * FROM attendance_logs
@@ -598,6 +720,7 @@ class AttendanceRepository:
 
         # Group by user_id
         from collections import defaultdict
+
         user_groups = defaultdict(list)
         for log in logs:
             user_groups[log.user_id].append(log)
@@ -606,8 +729,12 @@ class AttendanceRepository:
         filtered_logs = []
         for user_id, user_logs in user_groups.items():
             # Separate by action type
-            checkins = [log for log in user_logs if log.action == 0]  # action=0 is checkin
-            checkouts = [log for log in user_logs if log.action == 1]  # action=1 is checkout
+            checkins = [
+                log for log in user_logs if log.action == 0
+            ]  # action=0 is checkin
+            checkouts = [
+                log for log in user_logs if log.action == 1
+            ]  # action=1 is checkout
 
             # For checkin: prefer synced, else use first
             if checkins:

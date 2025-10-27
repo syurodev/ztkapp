@@ -635,7 +635,9 @@ export const attendanceAPI = {
     limit?: number;
     offset?: number;
     device_id?: string;
-    date?: string;
+    date?: string; // Single date (backward compatibility)
+    start_date?: string; // Start of date range
+    end_date?: string; // End of date range
   }) => {
     try {
       const params = new URLSearchParams();
@@ -643,6 +645,8 @@ export const attendanceAPI = {
       if (options?.offset) params.set("offset", options.offset.toString());
       if (options?.device_id) params.set("device_id", options.device_id);
       if (options?.date) params.set("date", options.date);
+      if (options?.start_date) params.set("start_date", options.start_date);
+      if (options?.end_date) params.set("end_date", options.end_date);
 
       const url = `/attendance/logs${
         params.toString() ? `?${params.toString()}` : ""
@@ -715,6 +719,62 @@ export const attendanceAPI = {
       return response.data;
     } catch (error) {
       throw new Error((error as any)?.["response"]["data"]["error"]);
+    }
+  },
+  exportExcel: async (options?: {
+    start_date?: string;
+    end_date?: string;
+    device_id?: string;
+  }) => {
+    try {
+      const params = new URLSearchParams();
+      if (options?.start_date) params.set("start_date", options.start_date);
+      if (options?.end_date) params.set("end_date", options.end_date);
+      if (options?.device_id) params.set("device_id", options.device_id);
+
+      const url = `/attendance/export-excel${
+        params.toString() ? `?${params.toString()}` : ""
+      }`;
+
+      const response = await api.get(url, {
+        responseType: "blob",
+        timeout: 120000,
+      });
+
+      // Create download link
+      const blob = new Blob([response.data], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+
+      // Extract filename from Content-Disposition header or use default
+      const contentDisposition = response.headers["content-disposition"];
+      let filename = "cham_cong.xlsx";
+
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(
+          /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/,
+        );
+        if (filenameMatch && filenameMatch[1]) {
+          filename = filenameMatch[1].replace(/['"]/g, "");
+        }
+      }
+
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+
+      return { success: true, filename };
+    } catch (error) {
+      throw new Error(
+        (error as any)?.["response"]?.["data"]?.["error"] ||
+          "Failed to export Excel",
+      );
     }
   },
 };
@@ -922,7 +982,8 @@ export interface LiveAttendanceRecord {
   method: number;
   action: number;
   device_id: string;
-  is_synced: boolean;
+  is_synced?: boolean;
+  is_pushed?: boolean;
   // New employee fields from external API
   full_name?: string;
   employee_code?: string;

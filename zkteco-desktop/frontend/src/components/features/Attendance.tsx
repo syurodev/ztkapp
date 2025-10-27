@@ -47,7 +47,6 @@ import {
   Calendar as CalendarIcon,
   CheckCircle2,
   Clock,
-  CloudAlert,
   Download,
   History,
   List,
@@ -55,7 +54,6 @@ import {
   Monitor,
   RefreshCw,
   Send,
-  SkipForward,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -73,7 +71,8 @@ interface AttendanceRecord {
   action: number;
   error_message: string | null;
   id: number;
-  is_synced: boolean; // kept for backward compatibility
+  is_synced?: boolean; // legacy flag from older versions
+  is_pushed?: boolean; // new push status flag
   sync_status?: string; // new field: 'pending', 'synced', 'skipped'
 }
 
@@ -81,12 +80,15 @@ const PAGE_SIZE = 20;
 const MotionTableRow = motion(TableRow);
 
 const getSyncStatusBadge = (record: AttendanceRecord) => {
-  // Use new sync_status if available, fallback to is_synced for backward compatibility
+  // Use explicit sync_status if available, fallback to is_pushed (then is_synced for legacy data)
+  const fallbackSynced =
+    record.is_pushed !== undefined ? record.is_pushed : false;
+
   const syncStatus =
-    record.sync_status || (record.is_synced ? "synced" : "pending");
+    record.is_pushed || (fallbackSynced ? "synced" : "pending");
 
   switch (syncStatus) {
-    case "synced":
+    case true:
       return (
         <Badge
           variant="default"
@@ -96,24 +98,6 @@ const getSyncStatusBadge = (record: AttendanceRecord) => {
           Đã đồng bộ
         </Badge>
       );
-    case "skipped":
-      return (
-        <Badge
-          variant="secondary"
-          className="bg-gray-100 text-gray-800 border-gray-300"
-        >
-          <SkipForward className="h-3 w-3 mr-1" />
-          Đã bỏ qua
-        </Badge>
-      );
-    case "error":
-      return (
-        <Badge variant="destructive">
-          <CloudAlert className="h-3 w-3 mr-1" />
-          Lỗi
-        </Badge>
-      );
-    case "pending":
     default:
       return (
         <Badge
@@ -132,7 +116,6 @@ export function Attendance() {
   const [viewMode, setViewMode] = useState<"table" | "history">("table");
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [historyData, setHistoryData] = useState<AttendanceRecord[]>([]);
-  const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
   const [isLoading, setIsLoading] = useState(false);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -144,7 +127,10 @@ export function Attendance() {
   const [isPageLoading, setIsPageLoading] = useState(false);
   const [pageInputValue, setPageInputValue] = useState("");
   const [resourceDomain, setResourceDomain] = useState<string>("");
-  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+  const [dateRange, setDateRange] = useState<{
+    from: Date | undefined;
+    to: Date | undefined;
+  }>({ from: new Date(), to: new Date() }); // Mặc định là hôm nay
 
   // Load resource domain on mount and listen for updates
   useEffect(() => {
@@ -183,7 +169,7 @@ export function Attendance() {
   }, []);
 
   useEffect(() => {
-    // Tải dữ liệu khi activeDevice, viewMode hoặc selectedDate thay đổi
+    // Tải dữ liệu khi activeDevice, viewMode hoặc dateRange thay đổi
     // và đảm bảo rằng chúng ta không tải lại lịch sử khi đang ở chế độ bảng và ngược lại
     if (!activeDevice) {
       setAttendance([]);
@@ -198,7 +184,7 @@ export function Attendance() {
       // viewMode === "history"
       loadHistory();
     }
-  }, [activeDevice, viewMode, selectedDate]); // Thêm selectedDate vào deps
+  }, [activeDevice, viewMode, dateRange]); // Sử dụng dateRange thay vì selectedDate
 
   const loadAttendance = async (page: number = 1) => {
     if (!activeDevice) return;
@@ -214,15 +200,35 @@ export function Attendance() {
     setError(null);
     try {
       const offset = (page - 1) * PAGE_SIZE;
-      const dateStr = selectedDate
-        ? format(selectedDate, "yyyy-MM-dd")
-        : undefined;
-      const response = await attendanceAPI.getAttendance({
+
+      // Nếu from và to giống nhau, dùng param 'date' (single date)
+      // Nếu khác nhau, dùng start_date và end_date
+      const isSameDay =
+        dateRange.from &&
+        dateRange.to &&
+        format(dateRange.from, "yyyy-MM-dd") ===
+          format(dateRange.to, "yyyy-MM-dd");
+
+      const requestParams: any = {
         limit: PAGE_SIZE,
         offset: offset,
         device_id: activeDevice.id,
-        date: dateStr,
-      });
+      };
+
+      if (isSameDay) {
+        // Single date
+        requestParams.date = format(dateRange.from!, "yyyy-MM-dd");
+      } else {
+        // Date range
+        if (dateRange.from) {
+          requestParams.start_date = format(dateRange.from, "yyyy-MM-dd");
+        }
+        if (dateRange.to) {
+          requestParams.end_date = format(dateRange.to, "yyyy-MM-dd");
+        }
+      }
+
+      const response = await attendanceAPI.getAttendance(requestParams);
 
       const data: AttendanceRecord[] = response.data || [];
       setAttendance(data);
@@ -246,9 +252,17 @@ export function Attendance() {
     setIsHistoryLoading(true);
     setError(null);
     try {
-      const dateStr = selectedDate
-        ? format(selectedDate, "yyyy-MM-dd")
-        : undefined;
+      // Sử dụng from date cho history
+      const dateStr =
+        dateRange.from &&
+        dateRange.to &&
+        format(dateRange.from, "yyyy-MM-dd") ===
+          format(dateRange.to, "yyyy-MM-dd")
+          ? format(dateRange.from, "yyyy-MM-dd")
+          : dateRange.from
+            ? format(dateRange.from, "yyyy-MM-dd")
+            : undefined;
+
       const response = await attendanceAPI.getHistory({
         date: dateStr,
         device_id: activeDevice.id,
@@ -337,18 +351,22 @@ export function Attendance() {
     setShowDailySyncDialog(false);
     setError(null);
 
-    const targetDateLabel = selectedDate
-      ? format(selectedDate, "yyyy-MM-dd")
-      : "tất cả ngày đang chờ";
+    // Sử dụng dateRange thay vì selectedDate
+    const dateStr =
+      dateRange.from &&
+      dateRange.to &&
+      format(dateRange.from, "yyyy-MM-dd") ===
+        format(dateRange.to, "yyyy-MM-dd")
+        ? format(dateRange.from, "yyyy-MM-dd")
+        : undefined;
+
+    const targetDateLabel = dateStr || "tất cả ngày đang chờ";
 
     toast.info("Đang đồng bộ...", {
       description: `Đang gửi dữ liệu chấm công cho ${targetDateLabel}.`,
     });
 
     try {
-      const dateStr = selectedDate
-        ? format(selectedDate, "yyyy-MM-dd")
-        : undefined;
       const response = await attendanceAPI.syncDailyAttendance({
         date: dateStr,
         device_id: activeDevice.id,
@@ -378,11 +396,64 @@ export function Attendance() {
     }
   };
 
+  // const handleExportExcel = async () => {
+  //   if (!activeDevice) return;
+
+  //   setIsExporting(true);
+  //   setError(null);
+
+  //   const startDateStr = dateRange.from
+  //     ? format(dateRange.from, "yyyy-MM-dd")
+  //     : undefined;
+  //   const endDateStr = dateRange.to
+  //     ? format(dateRange.to, "yyyy-MM-dd")
+  //     : undefined;
+
+  //   const rangeLabel =
+  //     startDateStr && endDateStr
+  //       ? `từ ${format(dateRange.from!, "dd/MM/yyyy")} đến ${format(dateRange.to!, "dd/MM/yyyy")}`
+  //       : startDateStr
+  //         ? `từ ${format(dateRange.from!, "dd/MM/yyyy")}`
+  //         : endDateStr
+  //           ? `đến ${format(dateRange.to!, "dd/MM/yyyy")}`
+  //           : "tất cả";
+
+  //   toast.info("Đang xuất Excel...", {
+  //     description: `Đang xuất dữ liệu chấm công ${rangeLabel}.`,
+  //   });
+
+  //   try {
+  //     await attendanceAPI.exportExcel({
+  //       start_date: startDateStr,
+  //       end_date: endDateStr,
+  //       device_id: activeDevice.id,
+  //     });
+
+  //     toast.success("Xuất Excel thành công!", {
+  //       description: `Đã xuất dữ liệu chấm công ${rangeLabel}.`,
+  //     });
+  //   } catch (err) {
+  //     console.error("Error exporting attendance to Excel:", err);
+  //     toast.error("Xuất Excel thất bại", {
+  //       description: "Không thể xuất dữ liệu chấm công. Vui lòng thử lại.",
+  //     });
+  //   } finally {
+  //     setIsExporting(false);
+  //   }
+  // };
+
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
   const paginatedAttendance = attendance; // No client-side slicing needed as API handles pagination
-  const dialogTargetLabel = selectedDate
-    ? format(selectedDate, "PPP")
-    : "tất cả ngày đang chờ";
+
+  // Label for dialog
+  const dialogTargetLabel =
+    dateRange.from &&
+    dateRange.to &&
+    format(dateRange.from, "yyyy-MM-dd") === format(dateRange.to, "yyyy-MM-dd")
+      ? format(dateRange.from, "dd/MM/yyyy")
+      : dateRange.from && dateRange.to
+        ? `từ ${format(dateRange.from, "dd/MM/yyyy")} đến ${format(dateRange.to, "dd/MM/yyyy")}`
+        : "tất cả ngày đang chờ";
 
   return (
     <motion.div
@@ -434,8 +505,8 @@ export function Attendance() {
           {viewMode === "history" ? (
             <AttendanceHistoryView
               data={historyData}
-              selectedDate={selectedDate}
-              onDateChange={setSelectedDate}
+              dateRange={dateRange}
+              onDateRangeChange={setDateRange}
               onRefresh={loadHistory}
               isLoading={isHistoryLoading}
               error={error}
@@ -446,119 +517,136 @@ export function Attendance() {
               {activeDevice ? (
                 // Hiển thị các điều khiển và bảng khi có activeDevice
                 <>
-                  {/* Hàng chọn ngày */}
-                  <div className="flex items-center gap-4 pb-4">
-                    <Popover
-                      open={isDatePickerOpen}
-                      onOpenChange={setIsDatePickerOpen}
-                    >
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          className="justify-start gap-2"
-                        >
-                          <CalendarIcon className="h-4 w-4" />
-                          {selectedDate
-                            ? format(selectedDate, "PPP")
-                            : "Tất cả ngày"}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={selectedDate ?? undefined}
-                          onSelect={(date) => {
-                            setSelectedDate(date ?? null);
-                            setIsDatePickerOpen(false);
-                          }}
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    </Popover>
-                    {/* <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setSelectedDate(new Date());
-                        setIsDatePickerOpen(false);
-                      }}
-                    >
-                      Today
-                    </Button> */}
-                    {/* <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setSelectedDate(null);
-                        setIsDatePickerOpen(false);
-                      }}
-                    >
-                      All Dates
-                    </Button> */}
-                    <Badge variant="secondary" className="ml-auto">
-                      {totalCount.toLocaleString()} bản ghi
-                    </Badge>
-                  </div>
-
-                  {/* Hàng nút hành động */}
-                  <div className="flex items-center justify-between pb-4">
-                    <p className="text-sm text-muted-foreground">
-                      {selectedDate
-                        ? format(selectedDate, "MMMM d, yyyy")
-                        : "Tất cả ngày"}
-                    </p>
-                    <div className="flex gap-2">
-                      {/* Only show sync button for pull devices, push devices send data automatically */}
-                      {activeDevice.device_type === "pull" && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={handleSync}
-                          disabled={isSyncing || isLoading || isDailySyncing}
-                        >
-                          {isSyncing ? (
-                            <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                          ) : (
-                            <Download className="mr-2 h-4 w-4" />
-                          )}
-                          Lấy dữ liệu từ {activeDevice.name}
-                        </Button>
-                      )}
+                  {/* Hàng chọn khoảng thời gian và xuất Excel */}
+                  <div className="flex items-center gap-4 pb-4 border-b">
+                    <div className="flex items-center gap-2 flex-1">
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button variant="outline" className="gap-2">
+                            <CalendarIcon className="h-4 w-4" />
+                            {dateRange.from ? (
+                              dateRange.to &&
+                              format(dateRange.from, "yyyy-MM-dd") !==
+                                format(dateRange.to, "yyyy-MM-dd") ? (
+                                <>
+                                  {format(dateRange.from, "dd/MM/yyyy")} -{" "}
+                                  {format(dateRange.to, "dd/MM/yyyy")}
+                                </>
+                              ) : (
+                                format(dateRange.from, "dd/MM/yyyy")
+                              )
+                            ) : (
+                              "Chọn khoảng thời gian"
+                            )}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <Calendar
+                            mode="range"
+                            selected={{
+                              from: dateRange.from,
+                              to: dateRange.to,
+                            }}
+                            onSelect={(range) =>
+                              setDateRange({
+                                from: range?.from,
+                                to: range?.to,
+                              })
+                            }
+                            numberOfMonths={2}
+                            initialFocus
+                          />
+                        </PopoverContent>
+                      </Popover>
                       <Button
-                        variant="outline"
+                        variant="ghost"
                         size="sm"
                         onClick={() => {
-                          setIsDatePickerOpen(false);
-                          setShowDailySyncDialog(true);
+                          const today = new Date();
+                          setDateRange({ from: today, to: today });
                         }}
-                        disabled={isLoading || isSyncing || isDailySyncing}
                       >
-                        {isDailySyncing ? (
-                          <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                          <Send className="mr-2 h-4 w-4" />
-                        )}
-                        Đồng bộ chấm công trong ngày
+                        Hôm nay
                       </Button>
+                      {(dateRange.from || dateRange.to) && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            setDateRange({ from: undefined, to: undefined })
+                          }
+                        >
+                          Xóa
+                        </Button>
+                      )}
+                    </div>
+                    <Badge variant="secondary">
+                      {totalCount.toLocaleString()} bản ghi
+                    </Badge>
+                    {/*<Button
+                      variant="default"
+                      size="sm"
+                      onClick={handleExportExcel}
+                      disabled={isExporting || isLoading}
+                      className="bg-green-600 hover:bg-green-700"
+                    >
+                      {isExporting ? (
+                        <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <FileSpreadsheet className="mr-2 h-4 w-4" />
+                      )}
+                      Xuất Excel
+                    </Button>*/}
+
+                    {/* Only show sync button for pull devices, push devices send data automatically */}
+                    {activeDevice.device_type === "pull" && (
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => loadAttendance()}
-                        disabled={
-                          isLoading ||
-                          isSyncing ||
-                          isPageLoading ||
-                          isDailySyncing
-                        }
+                        onClick={handleSync}
+                        disabled={isSyncing || isLoading || isDailySyncing}
                       >
-                        {(isLoading && !isSyncing) || isPageLoading ? (
+                        {isSyncing ? (
                           <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
                         ) : (
-                          <RefreshCw className="mr-2 h-4 w-4" />
+                          <Download className="mr-2 h-4 w-4" />
                         )}
-                        Làm mới
+                        Lấy dữ liệu từ {activeDevice.name}
                       </Button>
-                    </div>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setShowDailySyncDialog(true);
+                      }}
+                      disabled={isLoading || isSyncing || isDailySyncing}
+                    >
+                      {isDailySyncing ? (
+                        <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Send className="mr-2 h-4 w-4" />
+                      )}
+                      Đồng bộ chấm công trong ngày
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => loadAttendance()}
+                      disabled={
+                        isLoading ||
+                        isSyncing ||
+                        isPageLoading ||
+                        isDailySyncing
+                      }
+                    >
+                      {(isLoading && !isSyncing) || isPageLoading ? (
+                        <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <RefreshCw className="mr-2 h-4 w-4" />
+                      )}
+                      Làm mới
+                    </Button>
                   </div>
 
                   {/* Hiển thị bảng hoặc thông báo */}
@@ -577,15 +665,12 @@ export function Attendance() {
                   ) : attendance.length === 0 ? (
                     <div className="text-center py-8">
                       <p className="text-muted-foreground">
-                        Không tìm thấy dữ liệu chấm công cho{" "}
-                        {selectedDate
-                          ? format(selectedDate, "PPP")
-                          : "tất cả ngày"}
-                        .
+                        Không tìm thấy dữ liệu chấm công cho khoảng thời gian đã
+                        chọn.
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        Hãy đồng bộ với thiết bị để lấy dữ liệu hoặc chọn ngày
-                        khác.
+                        Hãy đồng bộ với thiết bị để lấy dữ liệu hoặc chọn khoảng
+                        thời gian khác.
                       </p>
                     </div>
                   ) : (

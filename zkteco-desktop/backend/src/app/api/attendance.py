@@ -1,6 +1,6 @@
 from app.shared.logger import app_logger
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, send_file
 from app.services.device_service import get_zk_service
 from app.services.attendance_sync_service import attendance_sync_service
 from app.services.scheduler_service import scheduler_service
@@ -8,6 +8,9 @@ from app.services.attendance_cleanup_service import attendance_cleanup_service
 from app.repositories import attendance_repo, user_repo
 from flask import current_app
 from datetime import datetime
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from io import BytesIO
 
 bp = Blueprint("attendance", __name__, url_prefix="/")
 
@@ -177,7 +180,19 @@ def sync_attendance():
 
 @bp.route("/attendance/logs", methods=["GET"])
 def get_attendance_logs():
-    """Get stored attendance logs with pagination and filtering"""
+    """Get stored attendance logs with pagination and filtering
+
+    Query parameters:
+    - device_id: Filter by device ID
+    - limit: Max records to return (default: 100, max: 1000)
+    - offset: Number of records to skip (default: 0)
+    - user_id: Filter by user ID
+    - date: Single date filter (YYYY-MM-DD) - for backward compatibility
+    - start_date: Start of date range (YYYY-MM-DD)
+    - end_date: End of date range (YYYY-MM-DD)
+
+    Note: If both 'date' and 'start_date/end_date' are provided, 'date' takes precedence
+    """
     try:
         from datetime import datetime
 
@@ -186,36 +201,69 @@ def get_attendance_logs():
         limit = int(request.args.get("limit", 100))
         offset = int(request.args.get("offset", 0))
         user_id = request.args.get("user_id")
-        date_str = request.args.get("date")  # Format: YYYY-MM-DD
+        date_str = request.args.get(
+            "date"
+        )  # Format: YYYY-MM-DD (single date - backward compatibility)
+        start_date_str = request.args.get("start_date")  # Format: YYYY-MM-DD
+        end_date_str = request.args.get("end_date")  # Format: YYYY-MM-DD
 
         # Validate limit
         limit = min(limit, 1000)  # Max 1000 records per request
 
-        # Parse date filter if provided
-        target_date = None
+        # Parse date filters
+        start_date = None
+        end_date = None
+
+        # Priority 1: Single date (for backward compatibility)
         if date_str:
             try:
                 target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+                start_date = datetime.combine(target_date, datetime.min.time())
+                end_date = datetime.combine(target_date, datetime.max.time())
             except ValueError:
                 return jsonify(
                     {"success": False, "error": "Invalid date format. Use YYYY-MM-DD"}
                 ), 400
+        # Priority 2: Date range
+        else:
+            if start_date_str:
+                try:
+                    start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
+                    start_date = datetime.combine(
+                        start_date.date(), datetime.min.time()
+                    )
+                except ValueError:
+                    return jsonify(
+                        {
+                            "success": False,
+                            "error": "Invalid start_date format. Use YYYY-MM-DD",
+                        }
+                    ), 400
 
+            if end_date_str:
+                try:
+                    end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
+                    end_date = datetime.combine(end_date.date(), datetime.max.time())
+                except ValueError:
+                    return jsonify(
+                        {
+                            "success": False,
+                            "error": "Invalid end_date format. Use YYYY-MM-DD",
+                        }
+                    ), 400
+
+        # Get logs
         if user_id:
             logs = attendance_repo.get_by_user(user_id, limit)
-        elif target_date:
-            # Get logs filtered by date
-            logs = attendance_repo.get_by_date(target_date, device_id, limit, offset)
         else:
-            logs = attendance_repo.get_all(device_id, limit, offset)
+            logs = attendance_repo.get_all(
+                device_id, limit, offset, start_date, end_date
+            )
 
         data = _map_user_details_to_logs(logs)
 
         # Get total count for proper pagination
-        if target_date:
-            total_count = attendance_repo.get_count_by_date(target_date, device_id)
-        else:
-            total_count = attendance_repo.get_total_count(device_id)
+        total_count = attendance_repo.get_total_count(device_id, start_date, end_date)
 
         return jsonify(
             {
@@ -228,6 +276,8 @@ def get_attendance_logs():
                     "total_count": total_count,
                 },
                 "date": date_str,
+                "start_date": start_date_str,
+                "end_date": end_date_str,
             }
         )
 
@@ -593,4 +643,246 @@ def cleanup_old_attendance():
 
     except Exception as e:
         app_logger.error(f"Error in cleanup_old_attendance: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@bp.route("/attendance/export-excel", methods=["GET"])
+def export_attendance_excel():
+    """Export attendance logs to Excel file with date range filter"""
+    try:
+        # Query parameters
+        device_id = request.args.get("device_id")
+        start_date_str = request.args.get("start_date")  # Format: YYYY-MM-DD
+        end_date_str = request.args.get("end_date")  # Format: YYYY-MM-DD
+
+        # Parse dates
+        start_date = None
+        end_date = None
+
+        if start_date_str:
+            try:
+                start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
+                start_date = datetime.combine(start_date.date(), datetime.min.time())
+            except ValueError:
+                return jsonify(
+                    {
+                        "success": False,
+                        "error": "Invalid start_date format. Use YYYY-MM-DD",
+                    }
+                ), 400
+
+        if end_date_str:
+            try:
+                end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
+                end_date = datetime.combine(end_date.date(), datetime.max.time())
+            except ValueError:
+                return jsonify(
+                    {
+                        "success": False,
+                        "error": "Invalid end_date format. Use YYYY-MM-DD",
+                    }
+                ), 400
+
+        # Get all attendance logs (no limit for export)
+        logs = attendance_repo.get_all(
+            device_id=device_id,
+            limit=100000,  # Large limit for export
+            offset=0,
+            start_date=start_date,
+            end_date=end_date,
+        )
+
+        # Map user details
+        enriched_logs = _map_user_details_to_logs(logs)
+
+        # Create Excel workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Dữ liệu chấm công"
+
+        # Define styles
+        header_font = Font(bold=True, color="FFFFFF", size=12)
+        header_fill = PatternFill(
+            start_color="4472C4", end_color="4472C4", fill_type="solid"
+        )
+        header_alignment = Alignment(horizontal="center", vertical="center")
+
+        border_style = Border(
+            left=Side(style="thin"),
+            right=Side(style="thin"),
+            top=Side(style="thin"),
+            bottom=Side(style="thin"),
+        )
+
+        # Headers
+        headers = [
+            "STT",
+            "Mã NV",
+            "Tên nhân viên",
+            "Họ tên đầy đủ",
+            "Phòng ban",
+            "Chức danh",
+            "Giới tính",
+            "Ngày vào làm",
+            "Thời gian chấm công",
+            "Phương thức",
+            "Hành động",
+            "Trạng thái đồng bộ",
+            "Thiết bị",
+        ]
+
+        # Write headers
+        for col_num, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col_num)
+            cell.value = header
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_alignment
+            cell.border = border_style
+
+        # Define column widths
+        column_widths = {
+            "A": 6,  # STT
+            "B": 12,  # Mã NV
+            "C": 25,  # Tên NV
+            "D": 30,  # Họ tên đầy đủ
+            "E": 20,  # Phòng ban
+            "F": 20,  # Chức danh
+            "G": 12,  # Giới tính
+            "H": 15,  # Ngày vào làm
+            "I": 20,  # Thời gian
+            "J": 15,  # Phương thức
+            "K": 15,  # Hành động
+            "L": 18,  # Trạng thái
+            "M": 15,  # Thiết bị
+        }
+
+        for col, width in column_widths.items():
+            ws.column_dimensions[col].width = width
+
+        # Method and action maps
+        ATTENDANCE_METHOD_MAP = {
+            0: "Mật khẩu",
+            1: "Vân tay",
+            2: "Thẻ",
+            15: "Khuôn mặt",
+        }
+
+        PUNCH_ACTION_MAP = {
+            0: "Vào ca",
+            1: "Ra ca",
+            2: "Bắt đầu nghỉ",
+            3: "Kết thúc nghỉ",
+            4: "Bắt đầu tăng ca",
+            5: "Kết thúc tăng ca",
+        }
+
+        SYNC_STATUS_MAP = {
+            "synced": "Đã đồng bộ",
+            "pending": "Đang chờ",
+            "skipped": "Đã bỏ qua",
+            "error": "Lỗi",
+        }
+
+        def format_gender(value):
+            if not value:
+                return "-"
+            normalized = str(value).strip().lower()
+            if normalized in ["male", "nam", "m"]:
+                return "Nam"
+            if normalized in ["female", "nu", "nữ", "f"]:
+                return "Nữ"
+            if normalized in ["other", "khac", "khác", "unspecified", "unknown"]:
+                return "Khác"
+            return value
+
+        def format_date(date_str):
+            if not date_str:
+                return "-"
+            try:
+                dt = datetime.strptime(date_str, "%Y-%m-%d")
+                return dt.strftime("%d/%m/%Y")
+            except:
+                return date_str
+
+        def format_timestamp(timestamp_str):
+            """Parse timestamp with flexible format (with or without milliseconds)"""
+            if not timestamp_str:
+                return "-"
+            try:
+                # Try with milliseconds first
+                dt = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S.%f")
+                return dt.strftime("%d/%m/%Y %H:%M:%S")
+            except ValueError:
+                try:
+                    # Try without milliseconds
+                    dt = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
+                    return dt.strftime("%d/%m/%Y %H:%M:%S")
+                except ValueError:
+                    # Return as-is if can't parse
+                    return timestamp_str
+
+        # Write data rows
+        for idx, log in enumerate(enriched_logs, 1):
+            row_num = idx + 1
+
+            # Get sync status
+            sync_status = log.get("sync_status") or (
+                "synced" if log.get("is_synced") else "pending"
+            )
+
+            row_data = [
+                idx,  # STT
+                log.get("employee_code") or "-",
+                log.get("name") or "Unknown User",
+                log.get("full_name") or "-",
+                log.get("department") or "-",
+                log.get("position") or "-",
+                format_gender(log.get("gender")),
+                format_date(log.get("hire_date")),
+                format_timestamp(log.get("timestamp")),
+                ATTENDANCE_METHOD_MAP.get(log["method"], "Không xác định"),
+                PUNCH_ACTION_MAP.get(log["action"], "Không xác định"),
+                SYNC_STATUS_MAP.get(sync_status, "Không xác định"),
+                log.get("device_id") or "-",
+            ]
+
+            for col_num, value in enumerate(row_data, 1):
+                cell = ws.cell(row=row_num, column=col_num)
+                cell.value = value
+                cell.border = border_style
+                cell.alignment = Alignment(vertical="center")
+
+        # Freeze header row
+        ws.freeze_panes = "A2"
+
+        # Save to BytesIO
+        excel_file = BytesIO()
+        wb.save(excel_file)
+        excel_file.seek(0)
+
+        # Generate filename
+        date_range = ""
+        if start_date_str and end_date_str:
+            date_range = f"_{start_date_str}_den_{end_date_str}"
+        elif start_date_str:
+            date_range = f"_tu_{start_date_str}"
+        elif end_date_str:
+            date_range = f"_den_{end_date_str}"
+
+        filename = (
+            f"cham_cong{date_range}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        )
+
+        app_logger.info(f"Exported {len(enriched_logs)} attendance records to Excel")
+
+        return send_file(
+            excel_file,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            as_attachment=True,
+            download_name=filename,
+        )
+
+    except Exception as e:
+        app_logger.error(f"Error exporting attendance to Excel: {e}")
         return jsonify({"success": False, "error": str(e)}), 500

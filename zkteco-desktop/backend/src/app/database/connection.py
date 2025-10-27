@@ -138,6 +138,7 @@ class DatabaseManager:
                     action INTEGER NOT NULL, -- 0: checkin, 1: checkout, 2: overtime start, 3: overtime end, 4: unspecified
                     raw_data TEXT, -- JSON string for raw attendance data
                     sync_status TEXT DEFAULT 'pending', -- pending, synced, skipped
+                    is_pushed BOOLEAN DEFAULT FALSE,
                     is_synced BOOLEAN DEFAULT FALSE, -- kept for backward compatibility
                     synced_at DATETIME NULL,
                     error_code TEXT NULL,
@@ -414,6 +415,18 @@ class DatabaseManager:
             cursor.execute(
                 "ALTER TABLE attendance_logs ADD COLUMN synced_at DATETIME NULL"
             )
+
+        if "is_pushed" not in columns:
+            try:
+                print("Adding is_pushed column to attendance_logs table...")
+                cursor.execute(
+                    "ALTER TABLE attendance_logs ADD COLUMN is_pushed BOOLEAN DEFAULT FALSE"
+                )
+                print("is_pushed column added to attendance_logs table successfully")
+            except Exception as e:
+                print(
+                    f"Warning: Could not add is_pushed column to attendance_logs table: {e}"
+                )
 
         # Add error tracking columns for sync error handling
         if "error_code" not in columns:
